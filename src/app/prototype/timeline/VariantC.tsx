@@ -197,7 +197,7 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
   rows.forEach((row) => {
     const y0 = lanesTop + row.relY;
     if (row.swimlane.type === "separator") {
-      ctx.fillStyle = theme.axisBg;
+      ctx.fillStyle = theme.separatorBg;
       ctx.fillRect(0, y0, WIDTH, row.height);
       ctx.fillStyle = "#ffffff";
       ctx.font = `bold 12px ${theme.font}`;

@@ -26,6 +26,23 @@ function TimelinePrototype() {
   const [theme, setTheme] = useState(THEMES[0]);
   const [axisTiers, setAxisTiers] = useState(AXIS_PRESETS[1]); // Year / Quarter default
 
+  // structural overrides for the two independently-adjustable chrome colors
+  // (timeline header bar vs. swimlane separator bar) — reset to the new
+  // theme's defaults on theme switch, since they're a per-theme customization.
+  const [axisBgOverride, setAxisBgOverride] = useState<string | null>(null);
+  const [separatorBgOverride, setSeparatorBgOverride] = useState<string | null>(null);
+  const effectiveTheme = {
+    ...theme,
+    axisBg: axisBgOverride ?? theme.axisBg,
+    separatorBg: separatorBgOverride ?? theme.separatorBg,
+  };
+
+  function handleThemeChange(next: typeof theme) {
+    setTheme(next);
+    setAxisBgOverride(null);
+    setSeparatorBgOverride(null);
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 pb-24 dark:bg-black">
       <div className="mx-auto max-w-[1600px] px-6 py-8">
@@ -36,12 +53,21 @@ function TimelinePrototype() {
           Fictional warehouse-robotics platform launch program. Diamonds = milestones, pill = top-level
           phase, purple dashed = annotation, red outline/stroke = flagged critical path.
         </p>
-        <ThemeAxisControls theme={theme} onThemeChange={setTheme} axisTiers={axisTiers} onAxisTiersChange={setAxisTiers} />
+        <ThemeAxisControls
+          theme={theme}
+          onThemeChange={handleThemeChange}
+          axisTiers={axisTiers}
+          onAxisTiersChange={setAxisTiers}
+          axisBg={effectiveTheme.axisBg}
+          onAxisBgChange={setAxisBgOverride}
+          separatorBg={effectiveTheme.separatorBg}
+          onSeparatorBgChange={setSeparatorBgOverride}
+        />
         <div className="relative">
           <SoWhatCallout />
-          {variant === "A" && <VariantA theme={theme} axisTiers={axisTiers} />}
-          {variant === "B" && <VariantB theme={theme} axisTiers={axisTiers} />}
-          {variant === "C" && <VariantC theme={theme} axisTiers={axisTiers} />}
+          {variant === "A" && <VariantA theme={effectiveTheme} axisTiers={axisTiers} />}
+          {variant === "B" && <VariantB theme={effectiveTheme} axisTiers={axisTiers} />}
+          {variant === "C" && <VariantC theme={effectiveTheme} axisTiers={axisTiers} />}
         </div>
       </div>
       <PrototypeSwitcher variants={VARIANTS} current={variant} />

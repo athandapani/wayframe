@@ -214,7 +214,7 @@ export default function VariantB({ theme, axisTiers }: { theme: Theme; axisTiers
           if (row.swimlane.type === "separator") {
             return (
               <g key={row.swimlane.id}>
-                <rect x={0} y={y0} width={WIDTH} height={row.height} fill={theme.axisBg} />
+                <rect x={0} y={y0} width={WIDTH} height={row.height} fill={theme.separatorBg} />
                 <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill="#ffffff" dominantBaseline="middle">
                   {row.swimlane.name}
                 </text>

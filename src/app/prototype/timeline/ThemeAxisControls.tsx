@@ -10,11 +10,19 @@ export function ThemeAxisControls({
   onThemeChange,
   axisTiers,
   onAxisTiersChange,
+  axisBg,
+  onAxisBgChange,
+  separatorBg,
+  onSeparatorBgChange,
 }: {
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   axisTiers: AxisTierConfig;
   onAxisTiersChange: (c: AxisTierConfig) => void;
+  axisBg: string;
+  onAxisBgChange: (color: string) => void;
+  separatorBg: string;
+  onSeparatorBgChange: (color: string) => void;
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-4 text-sm text-zinc-700 dark:text-zinc-300">
@@ -51,6 +59,26 @@ export function ThemeAxisControls({
             </option>
           ))}
         </select>
+      </label>
+      {/* structural color knobs, not a one-off fix — timeline header and swimlane
+          separator bars are independently themeable, per issue #7 feedback */}
+      <label className="flex items-center gap-2">
+        Timeline header color
+        <input
+          type="color"
+          className="h-7 w-9 cursor-pointer rounded border border-zinc-300 dark:border-zinc-700"
+          value={axisBg}
+          onChange={(e) => onAxisBgChange(e.target.value)}
+        />
+      </label>
+      <label className="flex items-center gap-2">
+        Separator color
+        <input
+          type="color"
+          className="h-7 w-9 cursor-pointer rounded border border-zinc-300 dark:border-zinc-700"
+          value={separatorBg}
+          onChange={(e) => onSeparatorBgChange(e.target.value)}
+        />
       </label>
     </div>
   );
