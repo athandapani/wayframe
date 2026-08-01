@@ -4,12 +4,14 @@
 "use client";
 
 import { swimlanes, topLevelItems, milestones, type Milestone } from "./demo-data";
-import { STATUS_COLOR, CRITICAL_PATH_COLOR, parseDate, formatMonth } from "./status-colors";
+import { parseDate } from "./status-colors";
+import type { Theme } from "./theme";
+import { yearSegments, segmentsForTier, tierRowCount, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 const LANE_HEIGHT = 90;
 const TOP_BAND_HEIGHT = 90;
-const AXIS_HEIGHT = 30;
+const AXIS_ROW_HEIGHT = 22;
 const WIDTH = 1500;
 
 const lanes = swimlanes.filter((l) => l.type === "lane").sort((a, b) => a.order - b.order);
@@ -30,42 +32,46 @@ function x(dateStr: string): number {
   const t = parseDate(dateStr);
   return MARGIN.left + ((t - domainMin) / (domainMax - domainMin)) * innerWidth;
 }
-
-function laneY(laneId: string): number {
-  const idx = lanes.findIndex((l) => l.id === laneId);
-  return MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
-}
-
-const height = MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT + lanes.length * LANE_HEIGHT + MARGIN.bottom;
-
-function monthTicks(): number[] {
-  const ticks: number[] = [];
-  const d = new Date(domainMin);
-  d.setUTCDate(1);
-  while (d.getTime() < domainMax) {
-    ticks.push(d.getTime());
-    d.setUTCMonth(d.getUTCMonth() + 1);
-  }
-  return ticks;
+function xTs(ts: number): number {
+  return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
 }
 
 const milestoneById = new Map(milestones.map((m) => [m.id, m]));
 
-function Diamond({ m }: { m: Milestone }) {
-  const cx = x(m.date);
-  const cy = laneY(m.laneId);
+function AxisRow({ y, segments, bold, opacity }: { y: number; segments: Segment[]; bold?: boolean; opacity: number }) {
+  return (
+    <>
+      {segments.map((s) => (
+        <g key={s.label + s.start}>
+          <line x1={xTs(s.start)} x2={xTs(s.start)} y1={y} y2={y + AXIS_ROW_HEIGHT} stroke="currentColor" strokeOpacity={0.12} />
+          <text
+            x={(xTs(s.start) + xTs(s.end)) / 2}
+            y={y + AXIS_ROW_HEIGHT - 7}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={bold ? 700 : 400}
+            fill="currentColor"
+            opacity={opacity}
+          >
+            {s.label}
+          </text>
+        </g>
+      ))}
+    </>
+  );
+}
+
+function Diamond({ m, cx, cy, theme }: { m: Milestone; cx: number; cy: number; theme: Theme }) {
   const r = 9;
   const points = `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`;
   return (
     <g>
       <polygon
         points={points}
-        fill={STATUS_COLOR[m.status]}
-        stroke={m.isCriticalPath ? CRITICAL_PATH_COLOR : "#ffffff"}
+        fill={theme.statusColor[m.status]}
+        stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"}
         strokeWidth={m.isCriticalPath ? 3 : 1.5}
       />
-      {/* NOTE: not using <title> here — React 19 hoists it to <head> as
-          document metadata even inside <svg>, causing an SSR/client mismatch. */}
       <text x={cx} y={cy - r - 6} textAnchor="middle" fontSize={11} fill="currentColor">
         {m.title}
       </text>
@@ -73,39 +79,36 @@ function Diamond({ m }: { m: Milestone }) {
   );
 }
 
-export default function VariantA() {
+export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers: AxisTierConfig }) {
+  const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
+  const topBandY = MARGIN.top + axisHeight;
+  const lanesTop = topBandY + TOP_BAND_HEIGHT;
+  const height = lanesTop + lanes.length * LANE_HEIGHT + MARGIN.bottom;
+
+  function laneY(laneId: string): number {
+    const idx = lanes.findIndex((l) => l.id === laneId);
+    return lanesTop + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
+  }
+
+  const rows: { segments: Segment[]; bold: boolean; opacity: number }[] = [
+    { segments: yearSegments(domainMin, domainMax), bold: true, opacity: 0.75 },
+  ];
+  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), bold: false, opacity: 0.6 });
+  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), bold: false, opacity: 0.5 });
+
   return (
     <div className="overflow-x-auto">
-      <svg width={WIDTH} height={height} className="text-zinc-800 dark:text-zinc-200">
-        {/* month gridlines + axis labels */}
-        {monthTicks().map((t) => (
-          <g key={t}>
-            <line
-              x1={MARGIN.left + ((t - domainMin) / (domainMax - domainMin)) * innerWidth}
-              x2={MARGIN.left + ((t - domainMin) / (domainMax - domainMin)) * innerWidth}
-              y1={MARGIN.top}
-              y2={height - MARGIN.bottom}
-              stroke="currentColor"
-              strokeOpacity={0.08}
-            />
-            <text
-              x={MARGIN.left + ((t - domainMin) / (domainMax - domainMin)) * innerWidth}
-              y={MARGIN.top + 14}
-              fontSize={11}
-              fill="currentColor"
-              opacity={0.6}
-            >
-              {formatMonth(t)}
-            </text>
-          </g>
+      <svg width={WIDTH} height={height} className="text-zinc-800 dark:text-zinc-200" style={{ fontFamily: theme.font }}>
+        {rows.map((row, i) => (
+          <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} bold={row.bold} opacity={row.opacity} />
         ))}
 
         {/* top-level band */}
-        <text x={8} y={MARGIN.top + AXIS_HEIGHT + 16} fontSize={11} fontWeight={600} opacity={0.5}>
+        <text x={8} y={topBandY + 16} fontSize={11} fontWeight={600} opacity={0.5}>
           PROGRAM
         </text>
         {topLevelItems.map((t) => {
-          const y = MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT / 2;
+          const y = topBandY + TOP_BAND_HEIGHT / 2;
           if (t.type === "phase") {
             const px = x(t.startDate);
             return (
@@ -113,14 +116,14 @@ export default function VariantA() {
                 <rect
                   x={px}
                   y={y - 12}
-                  width={Math.max(2, x(t.endDate) - px)}
+                  width={Math.max(24, x(t.endDate) - px)}
                   height={24}
-                  rx={6}
-                  fill={STATUS_COLOR[t.status]}
+                  rx={12}
+                  fill={theme.statusColor[t.status]}
                   fillOpacity={0.35}
-                  stroke={STATUS_COLOR[t.status]}
+                  stroke={theme.statusColor[t.status]}
                 />
-                <text x={px + 6} y={y + 4} fontSize={11} fontWeight={600}>
+                <text x={px + 12} y={y + 4} fontSize={11} fontWeight={600}>
                   {t.title}
                 </text>
               </g>
@@ -132,7 +135,7 @@ export default function VariantA() {
               <g key={t.id}>
                 <polygon
                   points={`${cx},${y - 11} ${cx + 11},${y} ${cx},${y + 11} ${cx - 11},${y}`}
-                  fill={STATUS_COLOR[t.status]}
+                  fill={theme.statusColor[t.status]}
                   stroke="#fff"
                   strokeWidth={2}
                 />
@@ -142,7 +145,6 @@ export default function VariantA() {
               </g>
             );
           }
-          // annotation
           const cx = x(t.date);
           return (
             <g key={t.id}>
@@ -154,20 +156,14 @@ export default function VariantA() {
           );
         })}
 
-        {/* lane bands + labels */}
+        {/* lane bands + labels — subtle per-lane tint */}
         {lanes.map((l, i) => {
-          const y0 = MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT + i * LANE_HEIGHT;
+          const y0 = lanesTop + i * LANE_HEIGHT;
+          const tint = theme.laneTint[i % theme.laneTint.length];
           return (
             <g key={l.id}>
-              <rect
-                x={MARGIN.left}
-                y={y0}
-                width={innerWidth}
-                height={LANE_HEIGHT}
-                fill={i % 2 === 0 ? "currentColor" : "transparent"}
-                fillOpacity={i % 2 === 0 ? 0.03 : 0}
-              />
-              <text x={8} y={y0 + LANE_HEIGHT / 2} fontSize={12} fontWeight={600} dominantBaseline="middle">
+              <rect x={MARGIN.left} y={y0} width={innerWidth} height={LANE_HEIGHT} fill={tint} fillOpacity={0.07} />
+              <text x={8} y={y0 + LANE_HEIGHT / 2} fontSize={12} fontWeight={600} dominantBaseline="middle" fill={tint}>
                 {l.name}
               </text>
             </g>
@@ -189,7 +185,7 @@ export default function VariantA() {
                   y1={laneY(from.laneId)}
                   x2={x(m.date)}
                   y2={laneY(m.laneId)}
-                  stroke={critical ? CRITICAL_PATH_COLOR : "currentColor"}
+                  stroke={critical ? theme.criticalPathColor : "currentColor"}
                   strokeOpacity={critical ? 0.9 : 0.35}
                   strokeWidth={critical ? 2.5 : 1.25}
                   markerEnd="url(#arrow-a)"
@@ -206,7 +202,7 @@ export default function VariantA() {
 
         {/* milestones on top of connectors */}
         {milestones.map((m) => (
-          <Diamond key={m.id} m={m} />
+          <Diamond key={m.id} m={m} cx={x(m.date)} cy={laneY(m.laneId)} theme={theme} />
         ))}
       </svg>
     </div>

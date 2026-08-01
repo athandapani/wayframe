@@ -7,12 +7,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { swimlanes, topLevelItems, milestones, type Milestone } from "./demo-data";
-import { STATUS_COLOR, CRITICAL_PATH_COLOR, parseDate, formatMonth } from "./status-colors";
+import { parseDate } from "./status-colors";
+import type { Theme } from "./theme";
+import { yearSegments, segmentsForTier, tierRowCount, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 const LANE_HEIGHT = 90;
 const TOP_BAND_HEIGHT = 90;
-const AXIS_HEIGHT = 30;
+const AXIS_ROW_HEIGHT = 22;
 const WIDTH = 1500;
 
 const lanes = swimlanes.filter((l) => l.type === "lane").sort((a, b) => a.order - b.order);
@@ -32,23 +34,25 @@ const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
 function x(dateStr: string): number {
   return MARGIN.left + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
 }
-function laneY(laneId: string): number {
-  const idx = lanes.findIndex((l) => l.id === laneId);
-  return MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
+function xTs(ts: number): number {
+  return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
 }
 
-const HEIGHT = MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT + lanes.length * LANE_HEIGHT + MARGIN.bottom;
 const milestoneById = new Map(milestones.map((m) => [m.id, m]));
 
-function monthTicks(): number[] {
-  const ticks: number[] = [];
-  const d = new Date(domainMin);
-  d.setUTCDate(1);
-  while (d.getTime() < domainMax) {
-    ticks.push(d.getTime());
-    d.setUTCMonth(d.getUTCMonth() + 1);
-  }
-  return ticks;
+function hexAlpha(hex: string, opacity: number): string {
+  const a = Math.round(opacity * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return hex + a;
+}
+
+function layoutFor(axisTiers: AxisTierConfig) {
+  const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
+  const topBandY = MARGIN.top + axisHeight;
+  const lanesTop = topBandY + TOP_BAND_HEIGHT;
+  const height = lanesTop + lanes.length * LANE_HEIGHT + MARGIN.bottom;
+  return { axisHeight, topBandY, lanesTop, height };
 }
 
 interface HitRegion {
@@ -57,41 +61,58 @@ interface HitRegion {
   cy: number;
 }
 
-function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: string): HitRegion[] {
-  ctx.clearRect(0, 0, WIDTH, HEIGHT);
-  ctx.textBaseline = "alphabetic";
+function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: string, theme: Theme, axisTiers: AxisTierConfig): HitRegion[] {
+  const { topBandY, lanesTop, height } = layoutFor(axisTiers);
+  const laneY = (laneId: string) => {
+    const idx = lanes.findIndex((l) => l.id === laneId);
+    return lanesTop + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
+  };
 
-  // month gridlines + axis labels
-  for (const t of monthTicks()) {
-    const gx = MARGIN.left + ((t - domainMin) / (domainMax - domainMin)) * innerWidth;
-    ctx.strokeStyle = "rgba(128,128,128,0.15)";
-    ctx.beginPath();
-    ctx.moveTo(gx, MARGIN.top);
-    ctx.lineTo(gx, HEIGHT - MARGIN.bottom);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(128,128,128,0.7)";
-    ctx.font = "11px sans-serif";
-    ctx.fillText(formatMonth(t), gx, MARGIN.top + 14);
-  }
+  ctx.clearRect(0, 0, WIDTH, height);
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `11px ${theme.font}`;
+
+  // multi-tier axis rows: Year always, Quarter/Month as configured
+  const rows: { segments: Segment[]; bold: boolean }[] = [{ segments: yearSegments(domainMin, domainMax), bold: true }];
+  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), bold: false });
+  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), bold: false });
+  rows.forEach((row, i) => {
+    const y = MARGIN.top + i * AXIS_ROW_HEIGHT;
+    for (const s of row.segments) {
+      ctx.strokeStyle = "rgba(128,128,128,0.15)";
+      ctx.beginPath();
+      ctx.moveTo(xTs(s.start), y);
+      ctx.lineTo(xTs(s.start), y + AXIS_ROW_HEIGHT);
+      ctx.stroke();
+      ctx.fillStyle = row.bold ? fg : "rgba(128,128,128,0.75)";
+      ctx.font = `${row.bold ? "bold " : ""}11px ${theme.font}`;
+      ctx.textAlign = "center";
+      ctx.fillText(s.label, (xTs(s.start) + xTs(s.end)) / 2, y + AXIS_ROW_HEIGHT - 7);
+      ctx.textAlign = "left";
+    }
+  });
 
   // top-level band
-  const topY = MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT / 2;
+  const topY = topBandY + TOP_BAND_HEIGHT / 2;
   ctx.fillStyle = "rgba(128,128,128,0.6)";
-  ctx.font = "bold 11px sans-serif";
-  ctx.fillText("PROGRAM", 8, MARGIN.top + AXIS_HEIGHT + 16);
+  ctx.font = `bold 11px ${theme.font}`;
+  ctx.fillText("PROGRAM", 8, topBandY + 16);
   for (const t of topLevelItems) {
     if (t.type === "phase") {
       const x1 = x(t.startDate);
       const x2 = x(t.endDate);
-      ctx.fillStyle = STATUS_COLOR[t.status] + "59";
-      ctx.strokeStyle = STATUS_COLOR[t.status];
+      ctx.fillStyle = hexAlpha(theme.statusColor[t.status], 0.35);
+      ctx.strokeStyle = theme.statusColor[t.status];
       ctx.beginPath();
-      ctx.roundRect(x1, topY - 12, Math.max(2, x2 - x1), 24, 6);
+      ctx.roundRect(x1, topY - 12, Math.max(24, x2 - x1), 24, 12); // pill shape: rx = height / 2
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = fg;
+      ctx.font = `bold 11px ${theme.font}`;
+      ctx.fillText(t.title, x1 + 12, topY + 4);
     } else if (t.type === "milestone") {
       const cx = x(t.date);
-      ctx.fillStyle = STATUS_COLOR[t.status];
+      ctx.fillStyle = theme.statusColor[t.status];
       ctx.beginPath();
       ctx.moveTo(cx, topY - 11);
       ctx.lineTo(cx + 11, topY);
@@ -103,7 +124,7 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.fillStyle = fg;
-      ctx.font = "bold 11px sans-serif";
+      ctx.font = `bold 11px ${theme.font}`;
       ctx.textAlign = "center";
       ctx.fillText(t.title, cx, topY - 16);
       ctx.textAlign = "left";
@@ -113,24 +134,23 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
       ctx.moveTo(cx, topY - 20);
-      ctx.lineTo(cx, HEIGHT - MARGIN.bottom);
+      ctx.lineTo(cx, height - MARGIN.bottom);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = "#a855f7";
-      ctx.font = "10px sans-serif";
+      ctx.font = `10px ${theme.font}`;
       ctx.fillText(t.title, cx + 4, topY - 22);
     }
   }
 
-  // lane bands + labels
+  // lane bands + labels — subtle per-lane tint
   lanes.forEach((l, i) => {
-    const y0 = MARGIN.top + AXIS_HEIGHT + TOP_BAND_HEIGHT + i * LANE_HEIGHT;
-    if (i % 2 === 0) {
-      ctx.fillStyle = "rgba(128,128,128,0.04)";
-      ctx.fillRect(MARGIN.left, y0, innerWidth, LANE_HEIGHT);
-    }
-    ctx.fillStyle = fg;
-    ctx.font = "bold 12px sans-serif";
+    const y0 = lanesTop + i * LANE_HEIGHT;
+    const tint = theme.laneTint[i % theme.laneTint.length];
+    ctx.fillStyle = hexAlpha(tint, 0.07);
+    ctx.fillRect(MARGIN.left, y0, innerWidth, LANE_HEIGHT);
+    ctx.fillStyle = tint;
+    ctx.font = `bold 12px ${theme.font}`;
     ctx.fillText(l.name, 8, y0 + LANE_HEIGHT / 2 + 4);
   });
 
@@ -146,7 +166,7 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
       const x2 = x(m.date);
       const y2 = laneY(m.laneId);
       const midX = x1 + (x2 - x1) / 2;
-      ctx.strokeStyle = critical ? CRITICAL_PATH_COLOR : "rgba(128,128,128,0.5)";
+      ctx.strokeStyle = critical ? theme.criticalPathColor : "rgba(128,128,128,0.5)";
       ctx.lineWidth = critical ? 2.5 : 1.25;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
@@ -177,14 +197,14 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
     ctx.lineTo(cx, cy + r);
     ctx.lineTo(cx - r, cy);
     ctx.closePath();
-    ctx.fillStyle = STATUS_COLOR[m.status];
+    ctx.fillStyle = theme.statusColor[m.status];
     ctx.fill();
-    ctx.strokeStyle = m.isCriticalPath ? CRITICAL_PATH_COLOR : "#ffffff";
+    ctx.strokeStyle = m.isCriticalPath ? theme.criticalPathColor : "#ffffff";
     ctx.lineWidth = m.isCriticalPath ? 3 : 1.5;
     ctx.stroke();
     if (m.id === hoveredId) {
       ctx.fillStyle = fg;
-      ctx.font = "bold 11px sans-serif";
+      ctx.font = `bold 11px ${theme.font}`;
       ctx.textAlign = "center";
       ctx.fillText(m.title, cx, cy - r - 6);
       ctx.textAlign = "left";
@@ -195,26 +215,27 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
   return regions;
 }
 
-export default function VariantC() {
+export default function VariantC({ theme, axisTiers }: { theme: Theme; axisTiers: AxisTierConfig }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const regionsRef = useRef<HitRegion[]>([]);
   const [hovered, setHovered] = useState<HitRegion | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+  const { height } = layoutFor(axisTiers);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = WIDTH * dpr;
-    canvas.height = HEIGHT * dpr;
+    canvas.height = height * dpr;
     canvas.style.width = `${WIDTH}px`;
-    canvas.style.height = `${HEIGHT}px`;
+    canvas.style.height = `${height}px`;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.scale(dpr, dpr);
     const fg = getComputedStyle(canvas).color;
-    regionsRef.current = draw(ctx, hovered?.milestone.id ?? null, fg);
-  }, [hovered]);
+    regionsRef.current = draw(ctx, hovered?.milestone.id ?? null, fg, theme, axisTiers);
+  }, [hovered, theme, axisTiers, height]);
 
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -238,7 +259,7 @@ export default function VariantC() {
       {hovered && mousePos && (
         <div
           className="pointer-events-none fixed z-50 rounded bg-black px-2 py-1 text-xs text-white shadow-lg dark:bg-white dark:text-black"
-          style={{ left: mousePos.x + 12, top: mousePos.y + 12 }}
+          style={{ left: mousePos.x + 12, top: mousePos.y + 12, fontFamily: theme.font }}
         >
           {hovered.milestone.title} — {hovered.milestone.status}
           {hovered.milestone.owner ? ` — ${hovered.milestone.owner}` : ""}
