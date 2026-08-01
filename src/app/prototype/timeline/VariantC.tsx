@@ -6,18 +6,43 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { swimlanes, topLevelItems, milestones, type Milestone } from "./demo-data";
+import { swimlanes, topLevelItems, milestones, lanePills, type Milestone, type Swimlane } from "./demo-data";
 import { parseDate } from "./status-colors";
+import { darken } from "./color-utils";
+import { PRIMARY_TIER_DY, DATE_TIER_DY, formatDateShort, formatDateCompact, layoutPrimaryLabels, layoutDateLabels } from "./label-layout";
 import type { Theme } from "./theme";
 import { yearSegments, segmentsForTier, tierRowCount, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 const LANE_HEIGHT = 90;
+const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
 const AXIS_ROW_HEIGHT = 22;
 const WIDTH = 1500;
+const PILL_HEIGHT_LG = 20;
+const PILL_HEIGHT_SM = 14;
 
-const lanes = swimlanes.filter((l) => l.type === "lane").sort((a, b) => a.order - b.order);
+interface RowInfo {
+  swimlane: Swimlane;
+  relY: number;
+  height: number;
+  laneIndex: number;
+}
+
+const rows: RowInfo[] = (() => {
+  let y = 0;
+  let laneIndex = 0;
+  const out: RowInfo[] = [];
+  for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
+    const height = sl.type === "separator" ? SEPARATOR_HEIGHT : LANE_HEIGHT;
+    out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
+    if (sl.type === "lane") laneIndex += 1;
+    y += height;
+  }
+  return out;
+})();
+const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
+const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
 
 const allDates = [
   ...milestones.map((m) => m.date),
@@ -39,6 +64,17 @@ function xTs(ts: number): number {
 }
 
 const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+const TODAY_TS = parseDate("2026-08-01");
+
+const primaryPlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
+const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
+for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
+  const laneMilestones = milestones.filter((m) => m.laneId === laneRow.swimlane.id);
+  const primary = layoutPrimaryLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), text: m.shortLabel })));
+  const dates = layoutDateLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })));
+  for (const [k, v] of primary) primaryPlacement.set(k, v);
+  for (const [k, v] of dates) datePlacement.set(k, v);
+}
 
 function hexAlpha(hex: string, opacity: number): string {
   const a = Math.round(opacity * 255)
@@ -47,7 +83,13 @@ function hexAlpha(hex: string, opacity: number): string {
   return hex + a;
 }
 
-const TODAY_TS = parseDate("2026-08-01");
+function layoutFor(axisTiers: AxisTierConfig) {
+  const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
+  const topBandY = MARGIN.top + axisHeight;
+  const lanesTop = topBandY + TOP_BAND_HEIGHT;
+  const height = lanesTop + bodyHeight + MARGIN.bottom;
+  return { axisHeight, topBandY, lanesTop, height };
+}
 
 // rotated rounded-square = softened "cushion" diamond, à la Office Timeline's
 // milestone markers (an 8-point rounded diamond, not a sharp 4-point one).
@@ -65,14 +107,6 @@ function drawCushion(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: n
   ctx.restore();
 }
 
-function layoutFor(axisTiers: AxisTierConfig) {
-  const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
-  const topBandY = MARGIN.top + axisHeight;
-  const lanesTop = topBandY + TOP_BAND_HEIGHT;
-  const height = lanesTop + lanes.length * LANE_HEIGHT + MARGIN.bottom;
-  return { axisHeight, topBandY, lanesTop, height };
-}
-
 interface HitRegion {
   milestone: Milestone;
   cx: number;
@@ -82,8 +116,12 @@ interface HitRegion {
 function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: string, theme: Theme, axisTiers: AxisTierConfig): HitRegion[] {
   const { topBandY, lanesTop, height } = layoutFor(axisTiers);
   const laneY = (laneId: string) => {
-    const idx = lanes.findIndex((l) => l.id === laneId);
-    return lanesTop + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
+    const row = rowById.get(laneId)!;
+    return lanesTop + row.relY + row.height / 2;
+  };
+  const laneTint = (laneId: string) => {
+    const row = rowById.get(laneId)!;
+    return theme.laneTint[row.laneIndex % theme.laneTint.length];
   };
 
   ctx.clearRect(0, 0, WIDTH, height);
@@ -92,10 +130,10 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
 
   // multi-tier axis rows: Year always, Quarter/Month as configured — solid
   // colored bands (à la Office Timeline) rather than faint gridlines.
-  const rows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
-  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
-  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
-  rows.forEach((row, i) => {
+  const axisRows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
+  if (axisTiers.tier2 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
+  if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
+  axisRows.forEach((row, i) => {
     const y = MARGIN.top + i * AXIS_ROW_HEIGHT;
     for (const s of row.segments) {
       ctx.fillStyle = hexAlpha(theme.axisBg, row.opacity);
@@ -122,15 +160,16 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
     if (t.type === "phase") {
       const x1 = x(t.startDate);
       const x2 = x(t.endDate);
+      const h = PILL_HEIGHT_LG;
       ctx.fillStyle = hexAlpha(theme.statusColor[t.status], 0.35);
       ctx.strokeStyle = theme.statusColor[t.status];
       ctx.beginPath();
-      ctx.roundRect(x1, topY - 12, Math.max(24, x2 - x1), 24, 12); // pill shape: rx = height / 2
+      ctx.roundRect(x1, topY - h / 2, Math.max(h, x2 - x1), h, h / 2);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = fg;
       ctx.font = `bold 11px ${theme.font}`;
-      ctx.fillText(t.title, x1 + 12, topY + 4);
+      ctx.fillText(t.title, x1 + h / 2, topY + 4);
     } else if (t.type === "milestone") {
       const cx = x(t.date);
       drawCushion(ctx, cx, topY, 10, theme.statusColor[t.status], "#fff", 2);
@@ -154,16 +193,42 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
     }
   }
 
-  // lane bands + labels — subtle per-lane tint
-  lanes.forEach((l, i) => {
-    const y0 = lanesTop + i * LANE_HEIGHT;
-    const tint = theme.laneTint[i % theme.laneTint.length];
+  // swimlane rows: separators (group headers) + lanes with a solid darker header block
+  rows.forEach((row) => {
+    const y0 = lanesTop + row.relY;
+    if (row.swimlane.type === "separator") {
+      ctx.fillStyle = theme.axisBg;
+      ctx.fillRect(0, y0, WIDTH, row.height);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = `bold 12px ${theme.font}`;
+      ctx.fillText(row.swimlane.name, 8, y0 + row.height / 2 + 4);
+      return;
+    }
+    const tint = theme.laneTint[row.laneIndex % theme.laneTint.length];
     ctx.fillStyle = hexAlpha(tint, 0.07);
-    ctx.fillRect(MARGIN.left, y0, innerWidth, LANE_HEIGHT);
-    ctx.fillStyle = tint;
+    ctx.fillRect(MARGIN.left, y0, innerWidth, row.height);
+    ctx.fillStyle = darken(tint, 0.4);
+    ctx.fillRect(0, y0, MARGIN.left, row.height);
+    ctx.fillStyle = "#ffffff";
     ctx.font = `bold 12px ${theme.font}`;
-    ctx.fillText(l.name, 8, y0 + LANE_HEIGHT / 2 + 4);
+    ctx.fillText(row.swimlane.name, 8, y0 + row.height / 2 + 4);
   });
+
+  // in-lane pills — smaller than top-band pills, colored with the lane's header shade
+  for (const p of lanePills) {
+    const px = x(p.startDate);
+    const w = Math.max(PILL_HEIGHT_SM, x(p.endDate) - px);
+    const cy = laneY(p.laneId);
+    ctx.fillStyle = darken(laneTint(p.laneId), 0.4);
+    ctx.beginPath();
+    ctx.roundRect(px, cy - PILL_HEIGHT_SM / 2, w, PILL_HEIGHT_SM, PILL_HEIGHT_SM / 2);
+    ctx.fill();
+    if (w > 60) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = `9px ${theme.font}`;
+      ctx.fillText(p.title, px + PILL_HEIGHT_SM / 2, cy + 3);
+    }
+  }
 
   // dependency connectors — orthogonal "elbow" step lines (canvas path, no generator lib)
   for (const m of milestones) {
@@ -196,45 +261,89 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
     }
   }
 
-  // milestone diamonds + hit-region collection
+  // milestone markers: cushion diamond + always-visible short label & date
+  // (tiered to avoid collisions), full title revealed via hover tooltip
   const regions: HitRegion[] = [];
   for (const m of milestones) {
     const cx = x(m.date);
     const cy = laneY(m.laneId);
     const r = m.id === hoveredId ? 11 : 8;
-    drawCushion(ctx, cx, cy, r, theme.statusColor[m.status], m.isCriticalPath ? theme.criticalPathColor : "#ffffff", m.isCriticalPath ? 3 : 1.5);
-    if (m.id === hoveredId) {
-      ctx.fillStyle = fg;
-      ctx.font = `bold 11px ${theme.font}`;
-      ctx.textAlign = "center";
-      ctx.fillText(m.title, cx, cy - r - 6);
-      ctx.textAlign = "left";
+    const primary = primaryPlacement.get(m.id) ?? { text: m.shortLabel, tier: 0 as const };
+    const date = datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 as const };
+    const primaryDy = PRIMARY_TIER_DY[primary.tier];
+    const dateDy = DATE_TIER_DY[date.tier];
+
+    ctx.strokeStyle = "rgba(128,128,128,0.3)";
+    ctx.lineWidth = 1;
+    if (primary.tier === 2) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r - 1);
+      ctx.lineTo(cx, cy + primaryDy + 4);
+      ctx.stroke();
     }
+    if (date.tier === 2) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + r + 1);
+      ctx.lineTo(cx, cy + dateDy - 4);
+      ctx.stroke();
+    }
+
+    drawCushion(ctx, cx, cy, r, theme.statusColor[m.status], m.isCriticalPath ? theme.criticalPathColor : "#ffffff", m.isCriticalPath ? 3 : 1.5);
+
+    ctx.fillStyle = fg;
+    ctx.font = `bold 10px ${theme.font}`;
+    ctx.textAlign = "center";
+    ctx.fillText(primary.text, cx, cy + primaryDy);
+    ctx.globalAlpha = 0.6;
+    ctx.font = `9px ${theme.font}`;
+    ctx.fillText(date.text, cx, cy + dateDy);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
+
     regions.push({ milestone: m, cx, cy });
   }
 
-  // today marker
-  if (TODAY_TS >= domainMin && TODAY_TS <= domainMax) {
-    const tx = xTs(TODAY_TS);
-    ctx.strokeStyle = "#e11d48";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([3, 3]);
+  // hover tooltip: full title, drawn last so it sits above everything else
+  if (hoveredId) {
+    const m = milestoneById.get(hoveredId);
+    const region = regions.find((r) => r.milestone.id === hoveredId);
+    if (m && region) {
+      const w = Math.max(40, m.title.length * 6 + 16);
+      ctx.font = `11px ${theme.font}`;
+      ctx.fillStyle = "#18181b";
+      ctx.beginPath();
+      ctx.roundRect(region.cx - w / 2, region.cy - 68, w, 20, 4);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.fillText(m.title, region.cx, region.cy - 54);
+      ctx.textAlign = "left";
+    }
+  }
+
+  // reference lines: Today is always on; top-level milestones opt in via showReferenceLine
+  function drawReferenceLine(tx: number, label: string, color: string, dash: number[]) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.25;
+    ctx.globalAlpha = 0.7;
+    ctx.setLineDash(dash);
     ctx.beginPath();
     ctx.moveTo(tx, topBandY);
     ctx.lineTo(tx, height - MARGIN.bottom);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "#e11d48";
-    ctx.beginPath();
-    ctx.moveTo(tx - 5, topBandY);
-    ctx.lineTo(tx + 5, topBandY);
-    ctx.lineTo(tx + 5, topBandY + 12);
-    ctx.lineTo(tx, topBandY + 17);
-    ctx.lineTo(tx - 5, topBandY + 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.font = `bold 10px ${theme.font}`;
-    ctx.fillText("Today", tx + 9, topBandY + 12);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.font = `bold 9px ${theme.font}`;
+    ctx.fillText(label, tx + 4, topBandY - 4);
+  }
+  for (const t of topLevelItems) {
+    if (t.type === "milestone" && t.showReferenceLine) {
+      drawReferenceLine(x(t.date), t.title, theme.statusColor[t.status], [2, 2]);
+    }
+  }
+  if (TODAY_TS >= domainMin && TODAY_TS <= domainMax) {
+    drawReferenceLine(xTs(TODAY_TS), "Today", "#e11d48", [3, 3]);
   }
 
   return regions;
@@ -244,7 +353,6 @@ export default function VariantC({ theme, axisTiers }: { theme: Theme; axisTiers
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const regionsRef = useRef<HitRegion[]>([]);
   const [hovered, setHovered] = useState<HitRegion | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const { height } = layoutFor(axisTiers);
 
   useEffect(() => {
@@ -266,7 +374,6 @@ export default function VariantC({ theme, axisTiers }: { theme: Theme; axisTiers
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    setMousePos({ x: e.clientX, y: e.clientY });
     const hit = regionsRef.current.find((r) => Math.abs(r.cx - mx) < 10 && Math.abs(r.cy - my) < 10);
     if (hit?.milestone.id !== hovered?.milestone.id) {
       setHovered(hit ?? null);
@@ -275,21 +382,7 @@ export default function VariantC({ theme, axisTiers }: { theme: Theme; axisTiers
 
   return (
     <div className="relative overflow-x-auto text-zinc-800 dark:text-zinc-200">
-      <canvas
-        ref={canvasRef}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHovered(null)}
-        className="cursor-default"
-      />
-      {hovered && mousePos && (
-        <div
-          className="pointer-events-none fixed z-50 rounded bg-black px-2 py-1 text-xs text-white shadow-lg dark:bg-white dark:text-black"
-          style={{ left: mousePos.x + 12, top: mousePos.y + 12, fontFamily: theme.font }}
-        >
-          {hovered.milestone.title} — {hovered.milestone.status}
-          {hovered.milestone.owner ? ` — ${hovered.milestone.owner}` : ""}
-        </div>
-      )}
+      <canvas ref={canvasRef} onMouseMove={handleMouseMove} onMouseLeave={() => setHovered(null)} className="cursor-default" />
     </div>
   );
 }

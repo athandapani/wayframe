@@ -10,6 +10,7 @@ import VariantB from "./VariantB";
 import VariantC from "./VariantC";
 import { PrototypeSwitcher, type VariantMeta } from "./PrototypeSwitcher";
 import { ThemeAxisControls } from "./ThemeAxisControls";
+import { SoWhatCallout } from "./SoWhatCallout";
 import { THEMES } from "./theme";
 import { AXIS_PRESETS } from "./axis-tiers";
 
@@ -36,9 +37,12 @@ function TimelinePrototype() {
           phase, purple dashed = annotation, red outline/stroke = flagged critical path.
         </p>
         <ThemeAxisControls theme={theme} onThemeChange={setTheme} axisTiers={axisTiers} onAxisTiersChange={setAxisTiers} />
-        {variant === "A" && <VariantA theme={theme} axisTiers={axisTiers} />}
-        {variant === "B" && <VariantB theme={theme} axisTiers={axisTiers} />}
-        {variant === "C" && <VariantC theme={theme} axisTiers={axisTiers} />}
+        <div className="relative">
+          <SoWhatCallout />
+          {variant === "A" && <VariantA theme={theme} axisTiers={axisTiers} />}
+          {variant === "B" && <VariantB theme={theme} axisTiers={axisTiers} />}
+          {variant === "C" && <VariantC theme={theme} axisTiers={axisTiers} />}
+        </div>
       </div>
       <PrototypeSwitcher variants={VARIANTS} current={variant} />
     </div>

@@ -3,18 +3,43 @@
 // the y axis, straight-line connectors. Tests: "can we skip D3 entirely?"
 "use client";
 
-import { swimlanes, topLevelItems, milestones, type Milestone } from "./demo-data";
+import { swimlanes, topLevelItems, milestones, lanePills, type Milestone, type Swimlane } from "./demo-data";
 import { parseDate } from "./status-colors";
+import { darken } from "./color-utils";
+import { PRIMARY_TIER_DY, DATE_TIER_DY, formatDateShort, formatDateCompact, layoutPrimaryLabels, layoutDateLabels } from "./label-layout";
 import type { Theme } from "./theme";
 import { yearSegments, segmentsForTier, tierRowCount, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 const LANE_HEIGHT = 90;
+const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
 const AXIS_ROW_HEIGHT = 22;
 const WIDTH = 1500;
+const PILL_HEIGHT_LG = 20; // top-level PROGRAM band phases
+const PILL_HEIGHT_SM = 14; // in-lane pills
 
-const lanes = swimlanes.filter((l) => l.type === "lane").sort((a, b) => a.order - b.order);
+interface RowInfo {
+  swimlane: Swimlane;
+  relY: number;
+  height: number;
+  laneIndex: number; // -1 for separators; cycles only across "lane" rows, for tint color assignment
+}
+
+const rows: RowInfo[] = (() => {
+  let y = 0;
+  let laneIndex = 0;
+  const out: RowInfo[] = [];
+  for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
+    const height = sl.type === "separator" ? SEPARATOR_HEIGHT : LANE_HEIGHT;
+    out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
+    if (sl.type === "lane") laneIndex += 1;
+    y += height;
+  }
+  return out;
+})();
+const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
+const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
 
 const allDates = [
   ...milestones.map((m) => m.date),
@@ -39,9 +64,18 @@ function xTs(ts: number): number {
 const milestoneById = new Map(milestones.map((m) => [m.id, m]));
 const TODAY_TS = parseDate("2026-08-01");
 
-// solid colored band per tier row (inspired by Office Timeline's swimlane
-// templates: a bold colored axis bar reads far more "designed" than plain
-// gridlines with small labels).
+// per-lane label collision layout, computed once (milestone x positions are
+// static in this prototype — no pan/zoom to invalidate them)
+const primaryPlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
+const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
+for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
+  const laneMilestones = milestones.filter((m) => m.laneId === laneRow.swimlane.id);
+  const primary = layoutPrimaryLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), text: m.shortLabel })));
+  const dates = layoutDateLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })));
+  for (const [k, v] of primary) primaryPlacement.set(k, v);
+  for (const [k, v] of dates) datePlacement.set(k, v);
+}
+
 function AxisRow({ y, segments, theme, opacity }: { y: number; segments: Segment[]; theme: Theme; opacity: number }) {
   return (
     <>
@@ -64,27 +98,42 @@ function CushionMarker({ cx, cy, r, fill, stroke, strokeWidth }: { cx: number; c
   return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={r * 0.4} fill={fill} stroke={stroke} strokeWidth={strokeWidth} transform={`rotate(45 ${cx} ${cy})`} />;
 }
 
-function Diamond({ m, cx, cy, theme }: { m: Milestone; cx: number; cy: number; theme: Theme }) {
+function MilestoneMarker({ m, cx, cy, theme }: { m: Milestone; cx: number; cy: number; theme: Theme }) {
   const r = 8;
+  const primary = primaryPlacement.get(m.id) ?? { text: m.shortLabel, tier: 0 as const };
+  const date = datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 as const };
+  const primaryDy = PRIMARY_TIER_DY[primary.tier];
+  const dateDy = DATE_TIER_DY[date.tier];
+  const tooltipW = Math.max(40, m.title.length * 6 + 16);
+
   return (
-    <g>
+    <g className="group cursor-default">
+      {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
+      {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"} strokeWidth={m.isCriticalPath ? 3 : 1.5} />
-      <text x={cx} y={cy - r - 7} textAnchor="middle" fontSize={11} fill="currentColor">
-        {m.title}
+      <text x={cx} y={cy + primaryDy} textAnchor="middle" fontSize={10} fontWeight={700} fill="currentColor">
+        {primary.text}
       </text>
+      <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9} fill="currentColor" opacity={0.6}>
+        {date.text}
+      </text>
+      {/* hover reveal: full title (React 19 hoists a real <title> even inside <svg>, so this is a CSS-only tooltip instead) */}
+      <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={20} rx={4} fill="#18181b" />
+        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11} fill="#ffffff">
+          {m.title}
+        </text>
+      </g>
     </g>
   );
 }
 
-function TodayMarker({ topY, bottomY }: { topY: number; bottomY: number }) {
-  if (TODAY_TS < domainMin || TODAY_TS > domainMax) return null;
-  const tx = xTs(TODAY_TS);
+function ReferenceLine({ x: tx, topY, bottomY, label, color, dash }: { x: number; topY: number; bottomY: number; label: string; color: string; dash: string }) {
   return (
     <g>
-      <line x1={tx} x2={tx} y1={topY} y2={bottomY} stroke="#e11d48" strokeWidth={1.5} strokeDasharray="3 3" opacity={0.8} />
-      <path d={`M${tx - 5},${topY} L${tx + 5},${topY} L${tx + 5},${topY + 12} L${tx},${topY + 17} L${tx - 5},${topY + 12} Z`} fill="#e11d48" />
-      <text x={tx + 9} y={topY + 12} fontSize={10} fontWeight={700} fill="#e11d48">
-        Today
+      <line x1={tx} x2={tx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
+      <text x={tx + 4} y={topY - 4} fontSize={9} fontWeight={700} fill={color}>
+        {label}
       </text>
     </g>
   );
@@ -94,21 +143,25 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
   const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
   const topBandY = MARGIN.top + axisHeight;
   const lanesTop = topBandY + TOP_BAND_HEIGHT;
-  const height = lanesTop + lanes.length * LANE_HEIGHT + MARGIN.bottom;
+  const height = lanesTop + bodyHeight + MARGIN.bottom;
 
   function laneY(laneId: string): number {
-    const idx = lanes.findIndex((l) => l.id === laneId);
-    return lanesTop + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
+    const row = rowById.get(laneId)!;
+    return lanesTop + row.relY + row.height / 2;
+  }
+  function laneTint(laneId: string): string {
+    const row = rowById.get(laneId)!;
+    return theme.laneTint[row.laneIndex % theme.laneTint.length];
   }
 
-  const rows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
-  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
-  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
+  const axisRows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
+  if (axisTiers.tier2 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
+  if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
 
   return (
     <div className="overflow-x-auto">
       <svg width={WIDTH} height={height} className="text-zinc-800 dark:text-zinc-200" style={{ fontFamily: theme.font }}>
-        {rows.map((row, i) => (
+        {axisRows.map((row, i) => (
           <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} />
         ))}
 
@@ -120,19 +173,11 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
           const y = topBandY + TOP_BAND_HEIGHT / 2;
           if (t.type === "phase") {
             const px = x(t.startDate);
+            const h = PILL_HEIGHT_LG;
             return (
               <g key={t.id}>
-                <rect
-                  x={px}
-                  y={y - 12}
-                  width={Math.max(24, x(t.endDate) - px)}
-                  height={24}
-                  rx={12}
-                  fill={theme.statusColor[t.status]}
-                  fillOpacity={0.35}
-                  stroke={theme.statusColor[t.status]}
-                />
-                <text x={px + 12} y={y + 4} fontSize={11} fontWeight={600}>
+                <rect x={px} y={y - h / 2} width={Math.max(h, x(t.endDate) - px)} height={h} rx={h / 2} fill={theme.statusColor[t.status]} fillOpacity={0.35} stroke={theme.statusColor[t.status]} />
+                <text x={px + h / 2} y={y + 4} fontSize={11} fontWeight={600}>
                   {t.title}
                 </text>
               </g>
@@ -152,7 +197,7 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
           const cx = x(t.date);
           return (
             <g key={t.id}>
-              <line x1={cx} x2={cx} y1={y - 20} y2={height - MARGIN.bottom} stroke="#a855f7" strokeDasharray="4 3" />
+              <line x1={cx} x2={cx} y1={y - 20} y2={height - MARGIN.bottom} stroke="#a855f7" strokeDasharray="4 3" opacity={0.7} />
               <text x={cx + 4} y={y - 22} fontSize={10} fill="#a855f7">
                 {t.title}
               </text>
@@ -160,16 +205,45 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
           );
         })}
 
-        {/* lane bands + labels — subtle per-lane tint */}
-        {lanes.map((l, i) => {
-          const y0 = lanesTop + i * LANE_HEIGHT;
-          const tint = theme.laneTint[i % theme.laneTint.length];
+        {/* swimlane rows: separators (group headers) + lanes with a solid darker header block */}
+        {rows.map((row) => {
+          const y0 = lanesTop + row.relY;
+          if (row.swimlane.type === "separator") {
+            return (
+              <g key={row.swimlane.id}>
+                <rect x={0} y={y0} width={WIDTH} height={row.height} fill={theme.axisBg} />
+                <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill="#ffffff" dominantBaseline="middle">
+                  {row.swimlane.name}
+                </text>
+              </g>
+            );
+          }
+          const tint = theme.laneTint[row.laneIndex % theme.laneTint.length];
           return (
-            <g key={l.id}>
-              <rect x={MARGIN.left} y={y0} width={innerWidth} height={LANE_HEIGHT} fill={tint} fillOpacity={0.07} />
-              <text x={8} y={y0 + LANE_HEIGHT / 2} fontSize={12} fontWeight={600} dominantBaseline="middle" fill={tint}>
-                {l.name}
+            <g key={row.swimlane.id}>
+              <rect x={MARGIN.left} y={y0} width={innerWidth} height={row.height} fill={tint} fillOpacity={0.07} />
+              <rect x={0} y={y0} width={MARGIN.left} height={row.height} fill={darken(tint, 0.4)} />
+              <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill="#ffffff" dominantBaseline="middle">
+                {row.swimlane.name}
               </text>
+            </g>
+          );
+        })}
+
+        {/* in-lane pills — smaller than top-band pills, colored with the lane's header shade */}
+        {lanePills.map((p) => {
+          const px = x(p.startDate);
+          const w = Math.max(PILL_HEIGHT_SM, x(p.endDate) - px);
+          const cy = laneY(p.laneId);
+          const fill = darken(laneTint(p.laneId), 0.4);
+          return (
+            <g key={p.id}>
+              <rect x={px} y={cy - PILL_HEIGHT_SM / 2} width={w} height={PILL_HEIGHT_SM} rx={PILL_HEIGHT_SM / 2} fill={fill} />
+              {w > 60 && (
+                <text x={px + PILL_HEIGHT_SM / 2} y={cy + 3} fontSize={9} fill="#ffffff">
+                  {p.title}
+                </text>
+              )}
             </g>
           );
         })}
@@ -206,10 +280,18 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
 
         {/* milestones on top of connectors */}
         {milestones.map((m) => (
-          <Diamond key={m.id} m={m} cx={x(m.date)} cy={laneY(m.laneId)} theme={theme} />
+          <MilestoneMarker key={m.id} m={m} cx={x(m.date)} cy={laneY(m.laneId)} theme={theme} />
         ))}
 
-        <TodayMarker topY={topBandY} bottomY={height - MARGIN.bottom} />
+        {/* reference lines: Today is always on; top-level milestones opt in via showReferenceLine */}
+        {topLevelItems
+          .filter((t): t is Extract<typeof t, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true)
+          .map((t) => (
+            <ReferenceLine key={t.id} x={x(t.date)} topY={topBandY} bottomY={height - MARGIN.bottom} label={t.title} color={theme.statusColor[t.status]} dash="2 2" />
+          ))}
+        {TODAY_TS >= domainMin && TODAY_TS <= domainMax && (
+          <ReferenceLine x={xTs(TODAY_TS)} topY={topBandY} bottomY={height - MARGIN.bottom} label="Today" color="#e11d48" dash="3 3" />
+        )}
       </svg>
     </div>
   );
