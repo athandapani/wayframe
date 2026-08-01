@@ -10,6 +10,7 @@ export interface Theme {
   statusColor: Record<Status, string>;
   criticalPathColor: string;
   laneTint: string[];
+  axisBg: string;
 }
 
 export const THEMES: Theme[] = [
@@ -26,6 +27,7 @@ export const THEMES: Theme[] = [
     },
     criticalPathColor: "#dc2626",
     laneTint: ["#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4", "#f43f5e"],
+    axisBg: "#3f3f46",
   },
   {
     key: "warm",
@@ -40,6 +42,7 @@ export const THEMES: Theme[] = [
     },
     criticalPathColor: "#9f1239",
     laneTint: ["#d97706", "#b45309", "#ea580c", "#be123c", "#a16207", "#c2410c"],
+    axisBg: "#7c2d12",
   },
   {
     key: "slate",
@@ -54,5 +57,6 @@ export const THEMES: Theme[] = [
     },
     criticalPathColor: "#e11d48",
     laneTint: ["#0ea5e9", "#14b8a6", "#8b5cf6", "#64748b", "#0891b2", "#6366f1"],
+    axisBg: "#1e293b",
   },
 ];

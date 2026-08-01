@@ -37,22 +37,19 @@ function xTs(ts: number): number {
 }
 
 const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+const TODAY_TS = parseDate("2026-08-01");
 
-function AxisRow({ y, segments, bold, opacity }: { y: number; segments: Segment[]; bold?: boolean; opacity: number }) {
+// solid colored band per tier row (inspired by Office Timeline's swimlane
+// templates: a bold colored axis bar reads far more "designed" than plain
+// gridlines with small labels).
+function AxisRow({ y, segments, theme, opacity }: { y: number; segments: Segment[]; theme: Theme; opacity: number }) {
   return (
     <>
       {segments.map((s) => (
         <g key={s.label + s.start}>
-          <line x1={xTs(s.start)} x2={xTs(s.start)} y1={y} y2={y + AXIS_ROW_HEIGHT} stroke="currentColor" strokeOpacity={0.12} />
-          <text
-            x={(xTs(s.start) + xTs(s.end)) / 2}
-            y={y + AXIS_ROW_HEIGHT - 7}
-            textAnchor="middle"
-            fontSize={11}
-            fontWeight={bold ? 700 : 400}
-            fill="currentColor"
-            opacity={opacity}
-          >
+          <rect x={xTs(s.start)} y={y} width={xTs(s.end) - xTs(s.start)} height={AXIS_ROW_HEIGHT} fill={theme.axisBg} fillOpacity={opacity} />
+          <line x1={xTs(s.start)} x2={xTs(s.start)} y1={y} y2={y + AXIS_ROW_HEIGHT} stroke="#ffffff" strokeOpacity={0.25} />
+          <text x={(xTs(s.start) + xTs(s.end)) / 2} y={y + AXIS_ROW_HEIGHT - 7} textAnchor="middle" fontSize={11} fontWeight={700} fill="#ffffff">
             {s.label}
           </text>
         </g>
@@ -61,19 +58,33 @@ function AxisRow({ y, segments, bold, opacity }: { y: number; segments: Segment[
   );
 }
 
+// rotated rounded-square = softened "cushion" diamond, à la Office Timeline's
+// milestone markers (an 8-point rounded diamond, not a sharp 4-point one).
+function CushionMarker({ cx, cy, r, fill, stroke, strokeWidth }: { cx: number; cy: number; r: number; fill: string; stroke: string; strokeWidth: number }) {
+  return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={r * 0.4} fill={fill} stroke={stroke} strokeWidth={strokeWidth} transform={`rotate(45 ${cx} ${cy})`} />;
+}
+
 function Diamond({ m, cx, cy, theme }: { m: Milestone; cx: number; cy: number; theme: Theme }) {
-  const r = 9;
-  const points = `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`;
+  const r = 8;
   return (
     <g>
-      <polygon
-        points={points}
-        fill={theme.statusColor[m.status]}
-        stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"}
-        strokeWidth={m.isCriticalPath ? 3 : 1.5}
-      />
-      <text x={cx} y={cy - r - 6} textAnchor="middle" fontSize={11} fill="currentColor">
+      <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"} strokeWidth={m.isCriticalPath ? 3 : 1.5} />
+      <text x={cx} y={cy - r - 7} textAnchor="middle" fontSize={11} fill="currentColor">
         {m.title}
+      </text>
+    </g>
+  );
+}
+
+function TodayMarker({ topY, bottomY }: { topY: number; bottomY: number }) {
+  if (TODAY_TS < domainMin || TODAY_TS > domainMax) return null;
+  const tx = xTs(TODAY_TS);
+  return (
+    <g>
+      <line x1={tx} x2={tx} y1={topY} y2={bottomY} stroke="#e11d48" strokeWidth={1.5} strokeDasharray="3 3" opacity={0.8} />
+      <path d={`M${tx - 5},${topY} L${tx + 5},${topY} L${tx + 5},${topY + 12} L${tx},${topY + 17} L${tx - 5},${topY + 12} Z`} fill="#e11d48" />
+      <text x={tx + 9} y={topY + 12} fontSize={10} fontWeight={700} fill="#e11d48">
+        Today
       </text>
     </g>
   );
@@ -90,17 +101,15 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
     return lanesTop + idx * LANE_HEIGHT + LANE_HEIGHT / 2;
   }
 
-  const rows: { segments: Segment[]; bold: boolean; opacity: number }[] = [
-    { segments: yearSegments(domainMin, domainMax), bold: true, opacity: 0.75 },
-  ];
-  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), bold: false, opacity: 0.6 });
-  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), bold: false, opacity: 0.5 });
+  const rows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
+  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
+  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
 
   return (
     <div className="overflow-x-auto">
       <svg width={WIDTH} height={height} className="text-zinc-800 dark:text-zinc-200" style={{ fontFamily: theme.font }}>
         {rows.map((row, i) => (
-          <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} bold={row.bold} opacity={row.opacity} />
+          <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} />
         ))}
 
         {/* top-level band */}
@@ -133,13 +142,8 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
             const cx = x(t.date);
             return (
               <g key={t.id}>
-                <polygon
-                  points={`${cx},${y - 11} ${cx + 11},${y} ${cx},${y + 11} ${cx - 11},${y}`}
-                  fill={theme.statusColor[t.status]}
-                  stroke="#fff"
-                  strokeWidth={2}
-                />
-                <text x={cx} y={y - 16} textAnchor="middle" fontSize={11} fontWeight={600}>
+                <CushionMarker cx={cx} cy={y} r={10} fill={theme.statusColor[t.status]} stroke="#fff" strokeWidth={2} />
+                <text x={cx} y={y - 18} textAnchor="middle" fontSize={11} fontWeight={600}>
                   {t.title}
                 </text>
               </g>
@@ -204,6 +208,8 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
         {milestones.map((m) => (
           <Diamond key={m.id} m={m} cx={x(m.date)} cy={laneY(m.laneId)} theme={theme} />
         ))}
+
+        <TodayMarker topY={topBandY} bottomY={height - MARGIN.bottom} />
       </svg>
     </div>
   );

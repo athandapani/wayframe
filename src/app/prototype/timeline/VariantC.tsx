@@ -47,6 +47,24 @@ function hexAlpha(hex: string, opacity: number): string {
   return hex + a;
 }
 
+const TODAY_TS = parseDate("2026-08-01");
+
+// rotated rounded-square = softened "cushion" diamond, à la Office Timeline's
+// milestone markers (an 8-point rounded diamond, not a sharp 4-point one).
+function drawCushion(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string, stroke: string, lineWidth: number) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(Math.PI / 4);
+  ctx.beginPath();
+  ctx.roundRect(-r, -r, r * 2, r * 2, r * 0.4);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function layoutFor(axisTiers: AxisTierConfig) {
   const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
   const topBandY = MARGIN.top + axisHeight;
@@ -72,20 +90,23 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
   ctx.textBaseline = "alphabetic";
   ctx.font = `11px ${theme.font}`;
 
-  // multi-tier axis rows: Year always, Quarter/Month as configured
-  const rows: { segments: Segment[]; bold: boolean }[] = [{ segments: yearSegments(domainMin, domainMax), bold: true }];
-  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), bold: false });
-  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), bold: false });
+  // multi-tier axis rows: Year always, Quarter/Month as configured — solid
+  // colored bands (à la Office Timeline) rather than faint gridlines.
+  const rows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
+  if (axisTiers.tier2 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
+  if (axisTiers.tier3 !== "none") rows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
   rows.forEach((row, i) => {
     const y = MARGIN.top + i * AXIS_ROW_HEIGHT;
     for (const s of row.segments) {
-      ctx.strokeStyle = "rgba(128,128,128,0.15)";
+      ctx.fillStyle = hexAlpha(theme.axisBg, row.opacity);
+      ctx.fillRect(xTs(s.start), y, xTs(s.end) - xTs(s.start), AXIS_ROW_HEIGHT);
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
       ctx.beginPath();
       ctx.moveTo(xTs(s.start), y);
       ctx.lineTo(xTs(s.start), y + AXIS_ROW_HEIGHT);
       ctx.stroke();
-      ctx.fillStyle = row.bold ? fg : "rgba(128,128,128,0.75)";
-      ctx.font = `${row.bold ? "bold " : ""}11px ${theme.font}`;
+      ctx.fillStyle = "#ffffff";
+      ctx.font = `bold 11px ${theme.font}`;
       ctx.textAlign = "center";
       ctx.fillText(s.label, (xTs(s.start) + xTs(s.end)) / 2, y + AXIS_ROW_HEIGHT - 7);
       ctx.textAlign = "left";
@@ -112,17 +133,7 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
       ctx.fillText(t.title, x1 + 12, topY + 4);
     } else if (t.type === "milestone") {
       const cx = x(t.date);
-      ctx.fillStyle = theme.statusColor[t.status];
-      ctx.beginPath();
-      ctx.moveTo(cx, topY - 11);
-      ctx.lineTo(cx + 11, topY);
-      ctx.lineTo(cx, topY + 11);
-      ctx.lineTo(cx - 11, topY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      drawCushion(ctx, cx, topY, 10, theme.statusColor[t.status], "#fff", 2);
       ctx.fillStyle = fg;
       ctx.font = `bold 11px ${theme.font}`;
       ctx.textAlign = "center";
@@ -190,18 +201,8 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
   for (const m of milestones) {
     const cx = x(m.date);
     const cy = laneY(m.laneId);
-    const r = m.id === hoveredId ? 12 : 9;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - r);
-    ctx.lineTo(cx + r, cy);
-    ctx.lineTo(cx, cy + r);
-    ctx.lineTo(cx - r, cy);
-    ctx.closePath();
-    ctx.fillStyle = theme.statusColor[m.status];
-    ctx.fill();
-    ctx.strokeStyle = m.isCriticalPath ? theme.criticalPathColor : "#ffffff";
-    ctx.lineWidth = m.isCriticalPath ? 3 : 1.5;
-    ctx.stroke();
+    const r = m.id === hoveredId ? 11 : 8;
+    drawCushion(ctx, cx, cy, r, theme.statusColor[m.status], m.isCriticalPath ? theme.criticalPathColor : "#ffffff", m.isCriticalPath ? 3 : 1.5);
     if (m.id === hoveredId) {
       ctx.fillStyle = fg;
       ctx.font = `bold 11px ${theme.font}`;
@@ -210,6 +211,30 @@ function draw(ctx: CanvasRenderingContext2D, hoveredId: string | null, fg: strin
       ctx.textAlign = "left";
     }
     regions.push({ milestone: m, cx, cy });
+  }
+
+  // today marker
+  if (TODAY_TS >= domainMin && TODAY_TS <= domainMax) {
+    const tx = xTs(TODAY_TS);
+    ctx.strokeStyle = "#e11d48";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(tx, topBandY);
+    ctx.lineTo(tx, height - MARGIN.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#e11d48";
+    ctx.beginPath();
+    ctx.moveTo(tx - 5, topBandY);
+    ctx.lineTo(tx + 5, topBandY);
+    ctx.lineTo(tx + 5, topBandY + 12);
+    ctx.lineTo(tx, topBandY + 17);
+    ctx.lineTo(tx - 5, topBandY + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = `bold 10px ${theme.font}`;
+    ctx.fillText("Today", tx + 9, topBandY + 12);
   }
 
   return regions;
