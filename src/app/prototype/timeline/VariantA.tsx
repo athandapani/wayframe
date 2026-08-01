@@ -1,6 +1,8 @@
 // PROTOTYPE — Variant A: hand-rolled SVG, no layout library.
 // Manual linear interpolation for the date scale, manual lane-index math for
-// the y axis, straight-line connectors. Tests: "can we skip D3 entirely?"
+// the y axis, orthogonal "elbow" connectors (hand-rolled path, no generator
+// lib — same routing style as Variant C's canvas). Tests: "can we skip D3
+// entirely?"
 "use client";
 
 import { swimlanes, topLevelItems, milestones, lanePills, type Milestone, type Swimlane } from "./demo-data";
@@ -248,7 +250,7 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
           );
         })}
 
-        {/* dependency connectors — straight lines */}
+        {/* dependency connectors — orthogonal "elbow" steps, matching Variant C's canvas routing */}
         {milestones.flatMap((m) =>
           m.dependsOn
             .filter((d) => d.showConnector)
@@ -256,13 +258,16 @@ export default function VariantA({ theme, axisTiers }: { theme: Theme; axisTiers
               const from = milestoneById.get(d.id);
               if (!from) return null;
               const critical = m.isCriticalPath && from.isCriticalPath;
+              const x1 = x(from.date);
+              const y1 = laneY(from.laneId);
+              const x2 = x(m.date);
+              const y2 = laneY(m.laneId);
+              const midX = x1 + (x2 - x1) / 2;
               return (
-                <line
+                <path
                   key={`${d.id}->${m.id}`}
-                  x1={x(from.date)}
-                  y1={laneY(from.laneId)}
-                  x2={x(m.date)}
-                  y2={laneY(m.laneId)}
+                  d={`M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`}
+                  fill="none"
                   stroke={critical ? theme.criticalPathColor : "currentColor"}
                   strokeOpacity={critical ? 0.9 : 0.35}
                   strokeWidth={critical ? 2.5 : 1.25}
