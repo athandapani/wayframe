@@ -9,7 +9,7 @@ import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";
 import { PrototypeSwitcher, type VariantMeta } from "./PrototypeSwitcher";
-import { ThemeAxisControls } from "./ThemeAxisControls";
+import { SettingsMenu } from "./SettingsMenu";
 import { SoWhatCallout } from "./SoWhatCallout";
 import { THEMES } from "./theme";
 import { AXIS_PRESETS } from "./axis-tiers";
@@ -46,23 +46,25 @@ function TimelinePrototype() {
   return (
     <div className="min-h-screen bg-zinc-50 pb-24 dark:bg-black">
       <div className="mx-auto max-w-[1600px] px-6 py-8">
-        <h1 className="mb-1 text-xl font-semibold text-black dark:text-zinc-50">
-          Swimlane &amp; milestone timeline — rendering approach prototype
-        </h1>
+        <div className="mb-1 flex items-start justify-between gap-4">
+          <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
+            Swimlane &amp; milestone timeline — rendering approach prototype
+          </h1>
+          <SettingsMenu
+            theme={theme}
+            onThemeChange={handleThemeChange}
+            axisTiers={axisTiers}
+            onAxisTiersChange={setAxisTiers}
+            axisBg={effectiveTheme.axisBg}
+            onAxisBgChange={setAxisBgOverride}
+            separatorBg={effectiveTheme.separatorBg}
+            onSeparatorBgChange={setSeparatorBgOverride}
+          />
+        </div>
         <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
           Fictional warehouse-robotics platform launch program. Diamonds = milestones, pill = top-level
           phase, purple dashed = annotation, red outline/stroke = flagged critical path.
         </p>
-        <ThemeAxisControls
-          theme={theme}
-          onThemeChange={handleThemeChange}
-          axisTiers={axisTiers}
-          onAxisTiersChange={setAxisTiers}
-          axisBg={effectiveTheme.axisBg}
-          onAxisBgChange={setAxisBgOverride}
-          separatorBg={effectiveTheme.separatorBg}
-          onSeparatorBgChange={setSeparatorBgOverride}
-        />
         <div className="relative">
           <SoWhatCallout />
           {variant === "A" && <VariantA theme={effectiveTheme} axisTiers={axisTiers} />}
