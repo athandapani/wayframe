@@ -85,6 +85,8 @@ function MilestoneMarker({
   theme,
   primary,
   date,
+  selected,
+  onClick,
 }: {
   m: Milestone;
   cx: number;
@@ -92,6 +94,8 @@ function MilestoneMarker({
   theme: Theme;
   primary: { text: string; tier: 0 | 1 | 2 };
   date: { text: string; tier: 0 | 1 | 2 };
+  selected?: boolean;
+  onClick?: (id: string) => void;
 }) {
   const r = 8;
   const primaryDy = PRIMARY_TIER_DY[primary.tier];
@@ -99,7 +103,8 @@ function MilestoneMarker({
   const tooltipW = Math.max(40, m.title.length * 6 + 16);
 
   return (
-    <g className="group cursor-default">
+    <g className={`group ${onClick ? "cursor-pointer" : "cursor-default"}`} onClick={onClick ? () => onClick(m.id) : undefined}>
+      {selected && <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} strokeDasharray="3 2" />}
       {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"} strokeWidth={m.isCriticalPath ? 3 : 1.5} />
@@ -129,9 +134,20 @@ export interface RoadmapTimelineProps {
   width?: number;
   /** Defaults to the real current date; override for tests/screenshots. */
   today?: Date;
+  /** Prototype hook (wayframe#9) — omit for no behavior/visual change. */
+  onMilestoneClick?: (id: string) => void;
+  selectedMilestoneIds?: ReadonlySet<string>;
 }
 
-export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_PRESETS[1], width = 1500, today = new Date() }: RoadmapTimelineProps) {
+export function RoadmapTimeline({
+  data,
+  theme = defaultTheme,
+  axisTiers = AXIS_PRESETS[1],
+  width = 1500,
+  today = new Date(),
+  onMilestoneClick,
+  selectedMilestoneIds,
+}: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
@@ -297,6 +313,8 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
             theme={theme}
             primary={primaryPlacement.get(m.id) ?? { text: deriveShortLabel(m.title), tier: 0 }}
             date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
+            selected={selectedMilestoneIds?.has(m.id)}
+            onClick={onMilestoneClick}
           />
         ))}
 
