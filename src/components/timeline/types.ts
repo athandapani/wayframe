@@ -32,7 +32,15 @@ export interface Swimlane {
 }
 
 export type TopLevelItem =
-  | { id: string; type: "milestone"; title: string; date: string; status: Status }
+  | {
+      id: string;
+      type: "milestone";
+      title: string;
+      date: string;
+      status: Status;
+      /** Draws a full-height vertical marker line, same mechanism as the always-on Today line (wayframe issue #15). */
+      showReferenceLine?: boolean;
+    }
   | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: Status }
   | { id: string; type: "annotation"; title: string; date: string; message: string };
 
@@ -74,6 +82,15 @@ export interface Milestone {
    * history/audit trail (out of scope per the wayfinder map).
    */
   originalDate?: string;
+  /**
+   * When set (and later than `date`), the milestone renders as a lane-scoped
+   * duration pill spanning date→endDate instead of a point-in-time marker
+   * (wayframe issue #15) — the same entity, not a separate item type, so a
+   * milestone can carry status/owner/dependsOn either way.
+   */
+  endDate?: string;
+  /** Draws a full-height vertical marker line, same mechanism as the always-on Today line (wayframe issue #15). */
+  showReferenceLine?: boolean;
 }
 
 export interface ActionItem {

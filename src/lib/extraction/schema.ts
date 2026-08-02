@@ -37,6 +37,7 @@ export const TopLevelItemDraftSchema = z.discriminatedUnion("type", [
     title: z.string().min(1),
     date: z.string().min(1),
     status: StatusSchema,
+    showReferenceLine: z.boolean().optional(),
   }),
   z.object({
     tempKey: z.string().min(1),
@@ -88,6 +89,11 @@ export const MilestoneDraftSchema = z.object({
   // so a document that already states an original-vs-slipped date can carry
   // it through untouched.
   originalDate: z.string().optional(),
+  // Lane-scoped duration pill when set (and later than `date`) instead of a
+  // point-in-time marker — see Milestone.endDate's doc in
+  // src/components/timeline/types.ts.
+  endDate: z.string().optional(),
+  showReferenceLine: z.boolean().optional(),
 });
 
 export const ActionItemDraftSchema = z.object({

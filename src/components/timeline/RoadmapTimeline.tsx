@@ -3,10 +3,12 @@
 // "elbow" dependency connectors; cushion-diamond milestone markers with a
 // derived short label always visible and the full title on hover).
 //
-// Not carried over from the prototype (no schema support — see types.ts):
-// lane-scoped duration pills, and opt-in reference lines on arbitrary
-// top-level milestones. The "Today" reference line doesn't need schema
-// support (it's just "now" against the computed domain) and is kept.
+// Lane-scoped duration pills and opt-in reference lines (wayframe issue
+// #15): a milestone with `endDate` renders as a duration pill instead of a
+// point marker (same entity, not a separate item type — see
+// Milestone.endDate's doc in types.ts); any milestone or top-level milestone
+// with `showReferenceLine` draws a full-height line, the same mechanism as
+// the always-on Today line.
 "use client";
 
 import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
@@ -24,6 +26,7 @@ const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
 const AXIS_ROW_HEIGHT = 22;
 const PILL_HEIGHT_LG = 20;
+const PILL_HEIGHT_SM = 14; // in-lane duration pills (wayframe#15)
 
 interface RowInfo {
   swimlane: Swimlane;
@@ -48,6 +51,7 @@ function computeRows(swimlanes: Swimlane[]): RowInfo[] {
 function computeDomain(data: RoadmapData): { domainMin: number; domainMax: number } {
   const allDates = [
     ...data.milestones.map((m) => m.date),
+    ...data.milestones.filter((m) => m.endDate).map((m) => m.endDate!),
     ...data.topLevelItems.map((t) => ("date" in t ? t.date : t.endDate)),
     ...data.topLevelItems.map((t) => ("startDate" in t ? t.startDate : t.date)),
   ];
@@ -76,6 +80,19 @@ function AxisRow({ y, segments, theme, opacity, xOf }: { y: number; segments: Se
 // rotated rounded-square = softened "cushion" diamond
 function CushionMarker({ cx, cy, r, fill, stroke, strokeWidth }: { cx: number; cy: number; r: number; fill: string; stroke: string; strokeWidth: number }) {
   return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={r * 0.4} fill={fill} stroke={stroke} strokeWidth={strokeWidth} transform={`rotate(45 ${cx} ${cy})`} />;
+}
+
+// full-height opt-in marker line (wayframe#15) — same shape as the always-on
+// Today line, parameterized so both share one implementation.
+function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x: number; topY: number; bottomY: number; label: string; color: string; dash?: string }) {
+  return (
+    <g>
+      <line x1={cx} x2={cx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
+      <text x={cx + 4} y={topY - 4} fontSize={9} fontWeight={700} fill={color}>
+        {label}
+      </text>
+    </g>
+  );
 }
 
 function MilestoneMarker({
@@ -136,6 +153,10 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
+  function laneTint(laneId: string): string {
+    const row = rowById.get(laneId);
+    return theme.laneTint[(row?.laneIndex ?? 0) % theme.laneTint.length];
+  }
   const { domainMin, domainMax } = computeDomain(data);
   const todayTs = today.getTime();
 
@@ -162,7 +183,9 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
   const primaryPlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
   for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
-    const laneMilestones = data.milestones.filter((m) => m.laneId === laneRow.swimlane.id);
+    // Duration-pill milestones (endDate set) show their own inline title and
+    // don't participate in the point-marker tiered-label collision layout.
+    const laneMilestones = data.milestones.filter((m) => m.laneId === laneRow.swimlane.id && !m.endDate);
     const primary = layoutPrimaryLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), text: m.shortLabel ?? deriveShortLabel(m.title) })));
     const dates = layoutDateLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })));
     for (const [k, v] of primary) primaryPlacement.set(k, v);
@@ -287,27 +310,56 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
           </marker>
         </defs>
 
-        {/* milestones on top of connectors */}
-        {data.milestones.map((m) => (
-          <MilestoneMarker
-            key={m.id}
-            m={m}
-            cx={x(m.date)}
-            cy={laneY(m.laneId)}
-            theme={theme}
-            primary={primaryPlacement.get(m.id) ?? { text: m.shortLabel ?? deriveShortLabel(m.title), tier: 0 }}
-            date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
-          />
-        ))}
+        {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
+        {data.milestones
+          .filter((m) => m.endDate)
+          .map((m) => {
+            const px = x(m.date);
+            const w = Math.max(PILL_HEIGHT_SM, x(m.endDate!) - px);
+            const cy = laneY(m.laneId);
+            const fill = darken(laneTint(m.laneId), 0.4);
+            return (
+              <g key={m.id}>
+                <rect x={px} y={cy - PILL_HEIGHT_SM / 2} width={w} height={PILL_HEIGHT_SM} rx={PILL_HEIGHT_SM / 2} fill={fill} />
+                {w > 60 && (
+                  <text x={px + PILL_HEIGHT_SM / 2} y={cy + 3} fontSize={9} fill="#ffffff">
+                    {m.title}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+        {/* milestones on top of connectors — point-in-time only; endDate milestones render as duration pills above instead */}
+        {data.milestones
+          .filter((m) => !m.endDate)
+          .map((m) => (
+            <MilestoneMarker
+              key={m.id}
+              m={m}
+              cx={x(m.date)}
+              cy={laneY(m.laneId)}
+              theme={theme}
+              primary={primaryPlacement.get(m.id) ?? { text: m.shortLabel ?? deriveShortLabel(m.title), tier: 0 }}
+              date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
+            />
+          ))}
+
+        {/* opt-in reference lines (wayframe#15) — any milestone, lane-level or top-level, flagged showReferenceLine */}
+        {data.milestones
+          .filter((m) => m.showReferenceLine)
+          .map((m) => (
+            <ReferenceLine key={`ref-${m.id}`} x={x(m.date)} topY={topBandY} bottomY={height - MARGIN.bottom} label={m.title} color={theme.statusColor[m.status]} />
+          ))}
+        {data.topLevelItems
+          .filter((t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true)
+          .map((t) => (
+            <ReferenceLine key={`ref-${t.id}`} x={x(t.date)} topY={topBandY} bottomY={height - MARGIN.bottom} label={t.title} color={theme.statusColor[t.status]} />
+          ))}
 
         {/* today reference line */}
         {todayTs >= domainMin && todayTs <= domainMax && (
-          <g>
-            <line x1={xTs(todayTs)} x2={xTs(todayTs)} y1={topBandY} y2={height - MARGIN.bottom} stroke="#e11d48" strokeWidth={1.25} strokeDasharray="3 3" opacity={0.7} />
-            <text x={xTs(todayTs) + 4} y={topBandY - 4} fontSize={9} fontWeight={700} fill="#e11d48">
-              Today
-            </text>
-          </g>
+          <ReferenceLine x={xTs(todayTs)} topY={topBandY} bottomY={height - MARGIN.bottom} label="Today" color="#e11d48" dash="3 3" />
         )}
       </svg>
     </div>

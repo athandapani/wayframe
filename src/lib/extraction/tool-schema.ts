@@ -81,6 +81,10 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
             endDate: { type: "string", description: "used by phase" },
             status: { type: "string", enum: STATUS_ENUM },
             message: { type: "string", description: "used by annotation" },
+            showReferenceLine: {
+              type: "boolean",
+              description: "milestone only — draws a full-height vertical marker line, same as the always-on Today line. Only set when the input explicitly calls out a date as a callout/deadline line, not for every milestone.",
+            },
           },
           required: ["tempKey", "type", "title"],
         },
@@ -136,6 +140,14 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
             originalDate: {
               type: "string",
               description: "Baseline date, only if the input explicitly states both an original and a since-slipped date — otherwise omit.",
+            },
+            endDate: {
+              type: "string",
+              description: "Only if the input describes this milestone as spanning a date range (not a single point in time) — renders as a lane-scoped duration pill instead of a marker. Otherwise omit.",
+            },
+            showReferenceLine: {
+              type: "boolean",
+              description: "Draws a full-height vertical marker line, same as the always-on Today line. Only set when the input explicitly calls out this milestone's date as a callout/deadline line, not for every milestone.",
             },
           },
           required: [

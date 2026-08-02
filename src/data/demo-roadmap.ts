@@ -52,7 +52,7 @@ export const demoRoadmap: RoadmapData = {
     { id: "top-design-phase", type: "phase", title: "Design & Build", startDate: "2025-09-15", endDate: "2026-06-01", status: "complete" },
     { id: "top-design-freeze", type: "milestone", title: "Design Freeze", date: "2026-03-01", status: "complete" },
     { id: "top-cert-phase", type: "phase", title: "Certification & Pilot", startDate: "2026-06-01", endDate: "2026-12-15", status: "on-track" },
-    { id: "top-ga", type: "milestone", title: "General Availability", date: "2027-02-01", status: "on-track" },
+    { id: "top-ga", type: "milestone", title: "General Availability", date: "2027-02-01", status: "on-track", showReferenceLine: true },
     { id: "top-board-review", type: "annotation", title: "Board Review", date: "2026-09-15", message: "Quarterly steering committee checkpoint — go/no-go for pilot-to-production ramp" },
   ],
   milestones: [
@@ -76,13 +76,13 @@ export const demoRoadmap: RoadmapData = {
     { id: "safety-1", laneId: "lane-safety", title: "Hazard Analysis (Preliminary)", date: "2025-10-01", status: "complete", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "safety-2", laneId: "lane-safety", title: "Functional Safety Plan (IEC 61508-aligned)", date: "2026-01-15", status: "complete", dependsOn: [{ id: "safety-1", showConnector: false }], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "safety-3", laneId: "lane-safety", title: "UL 3100 Pre-Assessment", date: "2026-05-01", status: "complete", owner: "T. Boyer — Safety & Compliance", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
-    { id: "safety-4", laneId: "lane-safety", title: "Third-Party Safety Lab Testing", date: "2026-10-20", status: "delayed", owner: "T. Boyer — Safety & Compliance", comment: "Lab slot pushed to Q4 due to backlog at the certifying body.", percentComplete: 40, dependsOn: [{ id: "mech-5", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: true },
+    { id: "safety-4", laneId: "lane-safety", title: "Third-Party Safety Lab Testing", date: "2026-10-20", status: "delayed", owner: "T. Boyer — Safety & Compliance", comment: "Lab slot pushed to Q4 due to backlog at the certifying body.", percentComplete: 40, dependsOn: [{ id: "mech-5", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: true, showReferenceLine: true },
     { id: "safety-5", laneId: "lane-safety", title: "UL 3100 Certification Issued", date: "2026-12-15", status: "not-started", owner: "T. Boyer — Safety & Compliance", attachments: [{ type: "link", url: "https://example.com/wayframe-demo/ul3100-certificate.pdf", label: "UL 3100 Certificate (PDF)" }], dependsOn: [{ id: "safety-4", showConnector: true }], linksToTopLevelMilestone: "top-ga", isCriticalPath: true },
 
     // Manufacturing & Supply Chain
     { id: "mfg-1", laneId: "lane-mfg", title: "Contract Manufacturer Selection", date: "2025-09-01", status: "complete", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "mfg-2", laneId: "lane-mfg", title: "Long-Lead Component Sourcing (Motors, Lidar)", date: "2025-12-15", status: "complete", comment: "Dual-sourced lidar to de-risk a single supplier.", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
-    { id: "mfg-3", laneId: "lane-mfg", title: "Pilot Line Bring-up", date: "2026-09-15", status: "on-track", owner: "J. O'Hara — Supply Chain Mgr", percentComplete: 55, dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+    { id: "mfg-3", laneId: "lane-mfg", title: "Pilot Line Bring-up", date: "2026-09-15", endDate: "2026-09-28", status: "on-track", owner: "J. O'Hara — Supply Chain Mgr", percentComplete: 55, dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "mfg-4", laneId: "lane-mfg", title: "Supplier PPAP Approval", date: "2026-10-01", status: "on-track", owner: "J. O'Hara — Supply Chain Mgr", dependsOn: [{ id: "mfg-3", showConnector: false }], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "mfg-5", laneId: "lane-mfg", title: "Production Ramp — Phase 1 (50 units/mo)", date: "2027-01-15", status: "not-started", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "mfg-6", laneId: "lane-mfg", title: "Production Ramp — Phase 2 (200 units/mo)", date: "2027-04-01", status: "not-started", dependsOn: [{ id: "mfg-5", showConnector: false }], linksToTopLevelMilestone: null, isCriticalPath: false },
