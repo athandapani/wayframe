@@ -7,6 +7,13 @@ import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { demoRoadmap, demoToday } from "@/data/demo-roadmap";
+// PROTOTYPE (wayframe#17) — click-to-edit surface exploration. Operates on
+// its own copy of the demo data, independent of the correction box's copy
+// below (unifying the two is wayframe#18's separate, not-yet-resolved
+// question) — that's why RoadmapTimeline renders from `editor.data`, not
+// `box.data`, while the prototype is mounted.
+import { useMilestoneEditor } from "./_prototype-milestone-editor/use-milestone-editor";
+import { MilestoneEditorPrototype } from "./_prototype-milestone-editor";
 
 type Mode = "executive" | "program";
 
@@ -32,6 +39,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 export function DemoRoadmapView() {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(demoRoadmap);
+  const editor = useMilestoneEditor(demoRoadmap);
 
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
@@ -39,8 +47,13 @@ export function DemoRoadmapView() {
         <ModeToggle mode={mode} onChange={setMode} />
         {mode === "program" ? (
           <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
-            <BlufCallout bluf={box.data.bluf} />
-            <RoadmapTimeline data={box.data} today={demoToday} width={1600} />
+            <BlufCallout bluf={editor.data.bluf} />
+            <RoadmapTimeline
+              data={editor.data}
+              today={demoToday}
+              width={1600}
+              onMilestoneClick={editor.selectMilestone}
+            />
           </div>
         ) : (
           <div className="pt-16">
@@ -49,6 +62,7 @@ export function DemoRoadmapView() {
         )}
       </div>
       <CorrectionBoxSwitcher box={box} />
+      <MilestoneEditorPrototype editor={editor} />
     </div>
   );
 }
