@@ -5,13 +5,14 @@ import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { demoRoadmap, demoToday } from "@/data/demo-roadmap";
+import { StructuredImportPrototype } from "./_prototype-structured-import";
 
-type Mode = "executive" | "program";
+type Mode = "executive" | "program" | "import";
 
 function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   return (
     <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 overflow-hidden rounded-full border border-zinc-300 bg-white text-sm shadow dark:border-zinc-600 dark:bg-zinc-900">
-      {(["executive", "program"] as const).map((m) => (
+      {(["executive", "program", "import"] as const).map((m) => (
         <button
           key={m}
           onClick={() => onChange(m)}
@@ -33,16 +34,18 @@ export function DemoRoadmapView() {
   return (
     <div className="min-h-screen bg-zinc-50 pb-8 dark:bg-black">
       <ModeToggle mode={mode} onChange={setMode} />
-      {mode === "program" ? (
+      {mode === "program" && (
         <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
           <BlufCallout bluf={demoRoadmap.bluf} />
           <RoadmapTimeline data={demoRoadmap} today={demoToday} width={1600} />
         </div>
-      ) : (
+      )}
+      {mode === "executive" && (
         <div className="pt-16">
           <ExecutiveView data={demoRoadmap} today={demoToday} />
         </div>
       )}
+      {mode === "import" && <StructuredImportPrototype />}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 // Dev-only visual QA page for the official demo dataset (wayframe issue
 // #10) — not part of the product nav. Gated so it can't ship to production
 // even if this route survives a merge. Also previews the Executive/Program
-// view toggle (wayframe issue #8).
+// view toggle (wayframe issue #8) and the structured-data import prototype
+// (wayframe issue #13).
 import { notFound } from "next/navigation";
 import { DemoRoadmapView } from "./DemoRoadmapView";
 
