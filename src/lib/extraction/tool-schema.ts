@@ -133,6 +133,10 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
               type: "string",
               description: "Hand-picked short abbreviation for the timeline marker, only if the input explicitly gives one — otherwise omit and let it auto-derive from the title.",
             },
+            originalDate: {
+              type: "string",
+              description: "Baseline date, only if the input explicitly states both an original and a since-slipped date — otherwise omit.",
+            },
           },
           required: [
             "tempKey",

@@ -82,6 +82,12 @@ export const MilestoneDraftSchema = z.object({
   // Hand-picked marker abbreviation — see Milestone.shortLabel's doc in
   // src/components/timeline/types.ts.
   shortLabel: z.string().optional(),
+  // Baseline snapshot for ghost-rendering a slip — see Milestone.originalDate's
+  // doc in src/components/timeline/types.ts. Normally set by the correction
+  // endpoint (src/lib/corrections/), not by extraction; optional here only
+  // so a document that already states an original-vs-slipped date can carry
+  // it through untouched.
+  originalDate: z.string().optional(),
 });
 
 export const ActionItemDraftSchema = z.object({

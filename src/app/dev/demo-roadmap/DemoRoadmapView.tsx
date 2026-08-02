@@ -4,6 +4,8 @@ import { useState } from "react";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
+import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
+import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { demoRoadmap, demoToday } from "@/data/demo-roadmap";
 
 type Mode = "executive" | "program";
@@ -29,20 +31,24 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 
 export function DemoRoadmapView() {
   const [mode, setMode] = useState<Mode>("program");
+  const box = useCorrectionBox(demoRoadmap);
 
   return (
-    <div className="min-h-screen bg-zinc-50 pb-8 dark:bg-black">
-      <ModeToggle mode={mode} onChange={setMode} />
-      {mode === "program" ? (
-        <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
-          <BlufCallout bluf={demoRoadmap.bluf} />
-          <RoadmapTimeline data={demoRoadmap} today={demoToday} width={1600} />
-        </div>
-      ) : (
-        <div className="pt-16">
-          <ExecutiveView data={demoRoadmap} today={demoToday} />
-        </div>
-      )}
+    <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
+      <div className="min-w-0 flex-1 pb-40">
+        <ModeToggle mode={mode} onChange={setMode} />
+        {mode === "program" ? (
+          <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
+            <BlufCallout bluf={box.data.bluf} />
+            <RoadmapTimeline data={box.data} today={demoToday} width={1600} />
+          </div>
+        ) : (
+          <div className="pt-16">
+            <ExecutiveView data={box.data} today={demoToday} />
+          </div>
+        )}
+      </div>
+      <CorrectionBoxSwitcher box={box} />
     </div>
   );
 }

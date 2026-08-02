@@ -67,6 +67,13 @@ export interface Milestone {
    * abbreviation (e.g. "UL 3100 Certification" → "U3C", not "CERT").
    */
   shortLabel?: string;
+  /**
+   * Baseline date snapshot, set once a correction first shifts `date` away
+   * from it (wayframe issue #9/#14) — enables ghost-rendering a slip
+   * (`date !== originalDate`). A single baseline, not a full re-baseline
+   * history/audit trail (out of scope per the wayfinder map).
+   */
+  originalDate?: string;
 }
 
 export interface ActionItem {
