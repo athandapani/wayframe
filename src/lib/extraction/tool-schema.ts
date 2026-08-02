@@ -59,6 +59,11 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
             order: { type: "number" },
             type: { type: "string", enum: ["lane", "separator"] },
             name: { type: "string" },
+            ragOverride: {
+              type: "string",
+              enum: ["green", "amber", "red"],
+              description: "Manual Executive-view rollup override — leave unset unless the input explicitly states a status the milestones don't already imply.",
+            },
           },
           required: ["tempKey", "order", "type", "name"],
         },
@@ -123,6 +128,10 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
                 },
                 required: ["type", "url"],
               },
+            },
+            shortLabel: {
+              type: "string",
+              description: "Hand-picked short abbreviation for the timeline marker, only if the input explicitly gives one — otherwise omit and let it auto-derive from the title.",
             },
           },
           required: [

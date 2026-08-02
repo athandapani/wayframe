@@ -163,7 +163,7 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
   for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
     const laneMilestones = data.milestones.filter((m) => m.laneId === laneRow.swimlane.id);
-    const primary = layoutPrimaryLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), text: deriveShortLabel(m.title) })));
+    const primary = layoutPrimaryLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), text: m.shortLabel ?? deriveShortLabel(m.title) })));
     const dates = layoutDateLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })));
     for (const [k, v] of primary) primaryPlacement.set(k, v);
     for (const [k, v] of dates) datePlacement.set(k, v);
@@ -295,7 +295,7 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
             cx={x(m.date)}
             cy={laneY(m.laneId)}
             theme={theme}
-            primary={primaryPlacement.get(m.id) ?? { text: deriveShortLabel(m.title), tier: 0 }}
+            primary={primaryPlacement.get(m.id) ?? { text: m.shortLabel ?? deriveShortLabel(m.title), tier: 0 }}
             date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
           />
         ))}

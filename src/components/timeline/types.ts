@@ -6,18 +6,29 @@
 // timeline component actually consumes.
 //
 // Known gap surfaced while building this component (wayframe issue #7):
-// two fields demoed in the design prototype have no backing schema field yet
-// — a milestone short-form label/abbreviation, and lane-scoped duration
-// pills (only top-level phases carry a date range today). Both are recorded
-// as open follow-ups rather than added here unilaterally.
+// lane-scoped duration pills (only top-level phases carry a date range
+// today) have no backing schema field yet — scoped into a follow-up ticket
+// rather than added here unilaterally. The milestone short-form label gap
+// from the same prototype is resolved below (`Milestone.shortLabel`).
 
 export type Status = "not-started" | "on-track" | "at-risk" | "delayed" | "complete";
+
+/** Executive-view rollup color (wayframe issue #8). */
+export type Rag = "green" | "amber" | "red";
 
 export interface Swimlane {
   id: string;
   order: number;
   type: "lane" | "separator";
   name: string;
+  /**
+   * Manual override for the Executive-view RAG rollup — mirrors
+   * Milestone.isCriticalPath's manual-flag pattern. Auto (worst-status-wins,
+   * see src/components/executive-view/rag.ts) is the default; when set,
+   * this wins instead. Decided in the wayfinder map's RAG-governance fog
+   * item alongside #8.
+   */
+  ragOverride?: Rag;
 }
 
 export type TopLevelItem =
@@ -49,6 +60,21 @@ export interface Milestone {
   linksToTopLevelMilestone: string | null;
   isCriticalPath: boolean;
   attachments?: Attachment[];
+  /**
+   * Hand-picked abbreviation for the always-visible timeline marker label.
+   * Falls back to deriveShortLabel(title) (initials of significant words)
+   * when absent — that auto-derivation is coarser than a hand-picked
+   * abbreviation (e.g. "UL 3100 Certification" → "U3C", not "CERT").
+   */
+  shortLabel?: string;
+}
+
+export interface ActionItem {
+  id: string;
+  text: string;
+  owner?: string;
+  dueDate?: string;
+  done?: boolean;
 }
 
 export interface RoadmapData {
@@ -59,6 +85,7 @@ export interface RoadmapData {
   reportsTo?: string;
   nextReviewDate?: string;
   bluf: { statement: string; bullets: string[] };
+  actionItems: ActionItem[];
   swimlanes: Swimlane[];
   topLevelItems: TopLevelItem[];
   milestones: Milestone[];

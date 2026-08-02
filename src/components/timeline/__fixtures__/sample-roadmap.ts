@@ -13,6 +13,7 @@ export const sampleRoadmap: RoadmapData = {
     statement: "Sample bottom-line statement for tests.",
     bullets: ["Sample supporting bullet."],
   },
+  actionItems: [],
   swimlanes: [
     { id: "sep-1", order: 0, type: "separator", name: "Group" },
     { id: "lane-a", order: 1, type: "lane", name: "Lane A" },

@@ -18,11 +18,16 @@ export const StatusSchema = z.enum([
   "complete",
 ]);
 
+export const RagSchema = z.enum(["green", "amber", "red"]);
+
 export const SwimlaneDraftSchema = z.object({
   tempKey: z.string().min(1),
   order: z.number(),
   type: z.enum(["lane", "separator"]),
   name: z.string().min(1),
+  // Manual override for the Executive-view RAG rollup — see
+  // src/components/timeline/types.ts's Swimlane.ragOverride doc.
+  ragOverride: RagSchema.optional(),
 });
 
 export const TopLevelItemDraftSchema = z.discriminatedUnion("type", [
@@ -74,6 +79,9 @@ export const MilestoneDraftSchema = z.object({
   linksToTopLevelMilestoneRef: z.string().nullable().default(null), // -> TopLevelItemDraft.tempKey
   isCriticalPath: z.boolean().default(false),
   attachments: z.array(AttachmentDraftSchema).optional(),
+  // Hand-picked marker abbreviation — see Milestone.shortLabel's doc in
+  // src/components/timeline/types.ts.
+  shortLabel: z.string().optional(),
 });
 
 export const ActionItemDraftSchema = z.object({

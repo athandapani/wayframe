@@ -1,11 +1,12 @@
 // Per-lane RAG rollup and top-risks ranking for Executive view (wayframe
-// issue #8). Pure derivations from the existing schema — no new fields
-// needed for rollup/risks, but trend is deliberately left unpopulated (see
-// LaneRollup.trend doc) rather than faked: there's no historical/prior-
-// rollup data in the schema to compute a real trend from yet.
-import type { RoadmapData, Milestone, Status } from "@/components/timeline/types";
+// issue #8). Auto rollup is the default; Swimlane.ragOverride (resolved in
+// the RAG-governance fog item) wins when a lead has set one. Trend is
+// deliberately left unpopulated (see LaneRollup.trend doc) rather than
+// faked: there's no historical/prior-rollup data in the schema to compute
+// a real trend from yet.
+import type { RoadmapData, Milestone, Status, Rag } from "@/components/timeline/types";
 
-export type Rag = "green" | "amber" | "red";
+export type { Rag };
 
 export interface LaneRollup {
   laneId: string;
@@ -43,9 +44,8 @@ const SEVERITY: Record<Status, number> = {
 /**
  * Auto worst-status-wins rollup, with one date-aware refinement: a
  * not-started milestone whose date has already passed counts as red (it
- * slipped before it even began). Whether this should be auto-computed at
- * all vs. manually set by the L2 lead is still open (map's "Swimlane RAG
- * rollup logic" fog item) — this is one reasonable stance, not a ruling.
+ * slipped before it even began). This is the default only — a swimlane's
+ * `ragOverride` (see laneRollups) always wins when set.
  */
 export function ragForLane(milestones: Milestone[], today: Date): Rag {
   const todayTs = today.getTime();
@@ -66,7 +66,7 @@ export function laneRollups(data: RoadmapData, today: Date): LaneRollup[] {
       return {
         laneId: lane.id,
         laneName: lane.name,
-        rag: ragForLane(milestones, today),
+        rag: lane.ragOverride ?? ragForLane(milestones, today),
         atRiskCount: milestones.filter((m) => m.status === "at-risk").length,
         delayedCount: milestones.filter((m) => m.status === "delayed").length,
       };

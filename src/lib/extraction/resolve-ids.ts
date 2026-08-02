@@ -25,6 +25,7 @@ export interface RoadmapDocument {
     order: number;
     type: "lane" | "separator";
     name: string;
+    ragOverride?: "green" | "amber" | "red";
   }[];
   topLevelItems: Record<string, unknown>[];
   milestones: Record<string, unknown>[];
@@ -61,6 +62,7 @@ export function resolveDraftIds(draft: RoadmapDraft): RoadmapDocument {
       order: l.order,
       type: l.type,
       name: l.name,
+      ragOverride: l.ragOverride,
     })),
     topLevelItems: draft.topLevelItems.map((t) => {
       const { tempKey, ...rest } = t;

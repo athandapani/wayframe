@@ -30,12 +30,12 @@ export const demoRoadmap: RoadmapData = {
       "Commercial readiness (pricing, channel agreements) is ahead of engineering; launch enablement is gated on certification and pilot uptime proof points.",
     ],
   },
-  // NOTE: RoadmapDraftSchema (src/lib/extraction/schema.ts) carries an
-  // actionItems array, but the resolved RoadmapData type (types.ts) hasn't
-  // grown that field yet — a pre-existing gap, not something to add here.
-  // Once it lands, the program's action items (escalate the UL 3100 lab
-  // slot, confirm motor-controller dual-sourcing, Pilot Site 2 network
-  // timeline, publish the GA readiness scorecard) belong in this dataset.
+  actionItems: [
+    { id: "action-1", text: "Escalate the UL 3100 certification lab slot with the certifying body", owner: "T. Boyer — Safety & Compliance", dueDate: "2026-09-08" },
+    { id: "action-2", text: "Confirm motor-controller dual-sourcing to de-risk the long-lead shipment", owner: "R. Alvarez — Hardware Eng Lead", dueDate: "2026-09-10" },
+    { id: "action-3", text: "Get a firm network-infrastructure timeline from the Pilot Site 2 landlord", owner: "K. Simmons — Field Ops", dueDate: "2026-09-12" },
+    { id: "action-4", text: "Publish the GA readiness scorecard ahead of the Board Review", owner: "Dana Whitfield — VP, Robotics Programs", dueDate: "2026-09-14" },
+  ],
   swimlanes: [
     { id: "sep-eng", order: 0, type: "separator", name: "Engineering & Certification" },
     { id: "lane-mech", order: 1, type: "lane", name: "Mechanical & Hardware" },
