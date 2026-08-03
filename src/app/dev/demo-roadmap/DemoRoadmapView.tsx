@@ -6,6 +6,8 @@ import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBoxSwitcher";
+import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
+import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
 import { demoRoadmap, demoToday } from "@/data/demo-roadmap";
 
 type Mode = "executive" | "program";
@@ -32,6 +34,12 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 export function DemoRoadmapView() {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(demoRoadmap);
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
+  const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
+
+  const selectedMilestone = box.data.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
+  const selectedTopLevelItemRaw = box.data.topLevelItems.find((t) => t.id === selectedTopLevelItemId) ?? null;
+  const selectedTopLevelItem = selectedTopLevelItemRaw && isEditableTopLevelItem(selectedTopLevelItemRaw) ? selectedTopLevelItemRaw : null;
 
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
@@ -40,7 +48,13 @@ export function DemoRoadmapView() {
         {mode === "program" ? (
           <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
             <BlufCallout bluf={box.data.bluf} />
-            <RoadmapTimeline data={box.data} today={demoToday} width={1600} />
+            <RoadmapTimeline
+              data={box.data}
+              today={demoToday}
+              width={1600}
+              onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
+              onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
+            />
           </div>
         ) : (
           <div className="pt-16">
@@ -49,6 +63,8 @@ export function DemoRoadmapView() {
         )}
       </div>
       <CorrectionBoxSwitcher box={box} />
+      <MilestoneEditorModal data={box.data} milestone={selectedMilestone} onSave={box.editMilestone} onClose={() => setSelectedMilestoneId(null)} />
+      <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
     </div>
   );
 }

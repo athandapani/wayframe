@@ -1,10 +1,14 @@
 "use client";
 
 import { useCallback, useReducer } from "react";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { RoadmapData, TopLevelItem } from "@/components/timeline/types";
 import type { PatchOp, Skipped } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { applyOps } from "@/lib/corrections/apply";
+
+/** Fields the lighter phase/top-level-milestone editor can touch (wayframe#19) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
+export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate">> &
+  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date">>;
 
 export interface PendingPatch {
   inputText: string;
@@ -26,7 +30,9 @@ export type CorrectionBoxAction =
   | { type: "proposed"; pending: PendingPatch }
   | { type: "apply" }
   | { type: "discard" }
-  | { type: "undo" };
+  | { type: "undo" }
+  | { type: "editMilestone"; ops: PatchOp[] }
+  | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch };
 
 /**
  * All state transitions in one place, mirroring issue #9's hand-driven
@@ -62,6 +68,35 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const previous = state.history[state.history.length - 1];
       return { ...state, data: previous, history: state.history.slice(0, -1), pending: null, error: null };
     }
+    case "editMilestone": {
+      // Manual editing (wayframe#18's resolution): instant-save, not a
+      // preview/pending step — a direct field edit has no AI interpretation
+      // to double-check, unlike a free-text correction. The cascade still
+      // runs (a dependent shouldn't silently start before its predecessor
+      // just because the edit came from a form) and applies immediately
+      // alongside the direct edit, sharing this same undo stack.
+      const cascaded = applyCascade(state.data.milestones, action.ops);
+      return {
+        ...state,
+        data: { ...state.data, milestones: applyOps(state.data.milestones, cascaded) },
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "editTopLevelItem": {
+      // Lighter phase/top-level-milestone editor (wayframe#19) — no
+      // dependsOn on TopLevelItem, so no cascade; same instant-save +
+      // shared undo stack as editMilestone.
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
+        },
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
   }
 }
 
@@ -75,6 +110,8 @@ export interface UseCorrectionBoxResult {
   apply: () => void;
   discard: () => void;
   undo: () => void;
+  editMilestone: (ops: PatchOp[]) => void;
+  editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
 }
 
 /**
@@ -142,6 +179,8 @@ export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResu
   const apply = useCallback(() => dispatch({ type: "apply" }), []);
   const discard = useCallback(() => dispatch({ type: "discard" }), []);
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
+  const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
+  const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
 
   return {
     data: state.data,
@@ -153,5 +192,7 @@ export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResu
     apply,
     discard,
     undo,
+    editMilestone,
+    editTopLevelItem,
   };
 }

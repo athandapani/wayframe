@@ -102,6 +102,7 @@ function MilestoneMarker({
   theme,
   primary,
   date,
+  onClick,
 }: {
   m: Milestone;
   cx: number;
@@ -109,6 +110,7 @@ function MilestoneMarker({
   theme: Theme;
   primary: { text: string; tier: 0 | 1 | 2 };
   date: { text: string; tier: 0 | 1 | 2 };
+  onClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
 }) {
   const r = 8;
   const primaryDy = PRIMARY_TIER_DY[primary.tier];
@@ -116,7 +118,7 @@ function MilestoneMarker({
   const tooltipW = Math.max(40, m.title.length * 6 + 16);
 
   return (
-    <g className="group cursor-default">
+    <g className={onClick ? "group cursor-pointer" : "group cursor-default"} onClick={onClick ? (e) => onClick(m, e) : undefined}>
       {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"} strokeWidth={m.isCriticalPath ? 3 : 1.5} />
@@ -146,9 +148,21 @@ export interface RoadmapTimelineProps {
   width?: number;
   /** Defaults to the real current date; override for tests/screenshots. */
   today?: Date;
+  /** Opens the manual milestone editor (wayframe#19) — omit to keep markers non-interactive. */
+  onMilestoneClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
+  /** Opens the lighter phase/top-level-milestone editor (wayframe#19) — not offered for annotations. */
+  onTopLevelItemClick?: (t: TopLevelItem, evt: React.MouseEvent<SVGGElement>) => void;
 }
 
-export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_PRESETS[1], width = 1500, today = new Date() }: RoadmapTimelineProps) {
+export function RoadmapTimeline({
+  data,
+  theme = defaultTheme,
+  axisTiers = AXIS_PRESETS[1],
+  width = 1500,
+  today = new Date(),
+  onMilestoneClick,
+  onTopLevelItemClick,
+}: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
@@ -212,12 +226,13 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
           if (t.type === "phase") {
             const px = x(t.startDate);
             const h = PILL_HEIGHT_LG;
+            const w = Math.max(h, x(t.endDate) - px);
             return (
-              <g key={t.id}>
+              <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
                 <rect
                   x={px}
                   y={y - h / 2}
-                  width={Math.max(h, x(t.endDate) - px)}
+                  width={w}
                   height={h}
                   rx={h / 2}
                   fill={theme.statusColor[t.status]}
@@ -233,7 +248,7 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
           if (t.type === "milestone") {
             const cx = x(t.date);
             return (
-              <g key={t.id}>
+              <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
                 <CushionMarker cx={cx} cy={y} r={10} fill={theme.statusColor[t.status]} stroke="#fff" strokeWidth={2} />
                 <text x={cx} y={y - 18} textAnchor="middle" fontSize={11} fontWeight={600}>
                   {t.title}
@@ -319,7 +334,7 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
             const cy = laneY(m.laneId);
             const fill = darken(laneTint(m.laneId), 0.4);
             return (
-              <g key={m.id}>
+              <g key={m.id} className={onMilestoneClick ? "cursor-pointer" : undefined} onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}>
                 <rect x={px} y={cy - PILL_HEIGHT_SM / 2} width={w} height={PILL_HEIGHT_SM} rx={PILL_HEIGHT_SM / 2} fill={fill} />
                 {w > 60 && (
                   <text x={px + PILL_HEIGHT_SM / 2} y={cy + 3} fontSize={9} fill="#ffffff">
@@ -342,6 +357,7 @@ export function RoadmapTimeline({ data, theme = defaultTheme, axisTiers = AXIS_P
               theme={theme}
               primary={primaryPlacement.get(m.id) ?? { text: m.shortLabel ?? deriveShortLabel(m.title), tier: 0 }}
               date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
+              onClick={onMilestoneClick}
             />
           ))}
 

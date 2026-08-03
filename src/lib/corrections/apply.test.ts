@@ -51,4 +51,31 @@ describe("applyOps", () => {
     const result = applyOps(milestones, ops);
     expect(result[1]).toBe(milestones[1]);
   });
+
+  it("applies every field a manual edit can touch (wayframe#18/#19) in one batch", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01", owner: "A. Boyer" })];
+    const ops: PatchOp[] = [
+      { targetId: "m1", field: "title", newValue: "New Title", reason: "manual edit" },
+      { targetId: "m1", field: "percentComplete", newValue: 40, reason: "manual edit" },
+      { targetId: "m1", field: "isCriticalPath", newValue: true, reason: "manual edit" },
+      { targetId: "m1", field: "shortLabel", newValue: "NT", reason: "manual edit" },
+    ];
+
+    const result = applyOps(milestones, ops);
+    expect(result[0]).toMatchObject({ title: "New Title", percentComplete: 40, isCriticalPath: true, shortLabel: "NT" });
+  });
+
+  it("clears an optional field (owner/comment/shortLabel) when the op's newValue is an empty string", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01", owner: "A. Boyer", comment: "note", shortLabel: "AB" })];
+    const ops: PatchOp[] = [
+      { targetId: "m1", field: "owner", newValue: "", reason: "cleared" },
+      { targetId: "m1", field: "comment", newValue: "", reason: "cleared" },
+      { targetId: "m1", field: "shortLabel", newValue: "", reason: "cleared" },
+    ];
+
+    const result = applyOps(milestones, ops);
+    expect(result[0].owner).toBeUndefined();
+    expect(result[0].comment).toBeUndefined();
+    expect(result[0].shortLabel).toBeUndefined();
+  });
 });

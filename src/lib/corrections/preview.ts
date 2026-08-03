@@ -23,6 +23,12 @@ export interface PreviewSkippedRow {
   reason: string;
 }
 
+/** Stringifies a milestone's current value for whichever field an op targets — the AI correction path only ever proposes date/status, but the manual editor (wayframe#18/#19) shares this same PatchOp shape for the rest. */
+function fieldValue(m: Milestone, field: PatchOp["field"]): string {
+  const v = m[field];
+  return v === undefined ? "(none)" : String(v);
+}
+
 export function buildOpPreview(milestones: readonly Milestone[], ops: readonly PatchOp[]): PreviewOpRow[] {
   const byId = new Map(milestones.map((m) => [m.id, m]));
   return ops.map((op) => {
@@ -31,8 +37,8 @@ export function buildOpPreview(milestones: readonly Milestone[], ops: readonly P
       targetId: op.targetId,
       targetTitle: m?.title ?? op.targetId,
       field: op.field,
-      previousValue: m ? (op.field === "date" ? m.date : m.status) : "?",
-      newValue: op.newValue,
+      previousValue: m ? fieldValue(m, op.field) : "?",
+      newValue: String(op.newValue),
       reason: op.reason,
     };
   });
