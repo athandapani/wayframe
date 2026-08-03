@@ -9,6 +9,21 @@ import { applyOps } from "@/lib/corrections/apply";
 /** Single-document-per-browser persistence (wayframe#22) — one fixed key, not a multi-roadmap store. */
 const STORAGE_KEY = "wayframe:document";
 
+/**
+ * Lets the real `/` entry page (wayframe#25) check, before first render,
+ * whether a visitor already has a saved document — landing them back in
+ * their workspace instead of a fresh input form. Reads the same key this
+ * hook persists to, so the two never drift.
+ */
+export function loadPersistedDocument(): RoadmapData | null {
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    return saved ? (JSON.parse(saved) as RoadmapData) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Fields the lighter phase/top-level-milestone editor can touch (wayframe#19) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
 export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate">> &
   Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date">>;
@@ -143,8 +158,13 @@ export interface UseCorrectionBoxResult {
  * until the caller applies or discards it. `history` is a linear stack of
  * full pre-patch snapshots — apply() pushes onto it, undo() pops — giving
  * multi-step undo, not just one level back.
+ *
+ * `persist` (default `true`, wayframe#24) gates the localStorage read/write
+ * below — off for `/dev/demo-roadmap`'s QA route, which must always mount
+ * fresh off the hardcoded demo fixture rather than picking up a real
+ * visitor's saved document once it shares this hook with the real `/` page.
  */
-export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResult {
+export function useCorrectionBox(initialData: RoadmapData, persist = true): UseCorrectionBoxResult {
   const [state, dispatch] = useReducer(reduce, initialData, (data) => ({
     data,
     history: [],
@@ -164,26 +184,28 @@ export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResu
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        dispatch({ type: "hydrated", data: JSON.parse(saved) as RoadmapData });
+      if (persist) {
+        const saved = window.localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          dispatch({ type: "hydrated", data: JSON.parse(saved) as RoadmapData });
+        }
       }
     } catch {
       // Corrupt or inaccessible storage — fall back to initialData silently.
     } finally {
       setHydrated(true);
     }
-  }, []);
+  }, [persist]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!persist || !hydrated) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
     } catch {
       // Storage full or unavailable (e.g. private browsing) — persistence
       // is a nice-to-have, not something worth surfacing as a user error.
     }
-  }, [hydrated, state.data]);
+  }, [persist, hydrated, state.data]);
 
   const submit = useCallback(
     async (text: string) => {
