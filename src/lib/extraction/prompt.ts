@@ -8,12 +8,15 @@ export interface ExtractionInput {
 
 export const EXTRACTION_TOOL_NAME = "emit_roadmap_draft";
 
-const SYSTEM_PROMPT = `You are extracting a structured program roadmap from a program manager's rough working notes. The input may be typed meeting notes, a photo of a whiteboard or napkin sketch, or both together.
+function buildSystemPrompt(today: string): string {
+  return `You are extracting a structured program roadmap from a program manager's rough working notes. The input may be typed meeting notes, a photo of a whiteboard or napkin sketch, or both together.
+
+Today's date is ${today}.
 
 Your job is to read the input carefully and call the ${EXTRACTION_TOOL_NAME} tool exactly once with your best-effort structured extraction. Rules:
 
 - Never invent milestones, dates, or owners that aren't implied by the input. If a field is genuinely unknown, omit it (if optional) rather than guessing.
-- If the input mentions dates without a year, assume the nearest future occurrence.
+- If the input mentions dates without a year, resolve them relative to today's date above — pick the nearest future occurrence.
 - Swimlanes should mirror the organizational tracks/workstreams visible in the input (e.g. team names, functions). If none are evident, use a single lane named "Program".
 - Every milestone must belong to exactly one swimlane via laneRef.
 - tempKey values are your own short, readable, unique identifiers (e.g. "lane-eng", "ms-fcc-cert") — invent them fresh for this response. They are NOT real ids; they only need to be unique and consistent within this single response, so you can cross-reference a milestone's lane, dependencies, and top-level link.
@@ -24,6 +27,7 @@ Your job is to read the input carefully and call the ${EXTRACTION_TOOL_NAME} too
 - Set showReferenceLine to true only for the rare milestone the input calls out as an important date to visually flag on its own (e.g. a contract deadline, an external regulatory gate) — not for every milestone.
 - bluf.statement is one sentence capturing the program's current "so what". bluf.bullets is at most 4 supporting points.
 - If the input is illegible, empty, or contains no discernible roadmap content, still call the tool, but return empty arrays for swimlanes/topLevelItems/milestones rather than fabricating content. (swimlanes still requires at least one entry — use a single lane named "Program" as a placeholder in that case.)`;
+}
 
 export function buildExtractionMessages(
   input: ExtractionInput,
@@ -56,6 +60,7 @@ export function buildExtractionMessages(
   return [{ role: "user", content }];
 }
 
-export function systemPrompt(): string {
-  return SYSTEM_PROMPT;
+/** `now` is injectable so callers (and tests) can pin "today" instead of relying on the system clock. */
+export function systemPrompt(now: Date = new Date()): string {
+  return buildSystemPrompt(now.toISOString().slice(0, 10));
 }
