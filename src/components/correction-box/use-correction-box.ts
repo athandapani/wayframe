@@ -32,7 +32,8 @@ export type CorrectionBoxAction =
   | { type: "discard" }
   | { type: "undo" }
   | { type: "editMilestone"; ops: PatchOp[] }
-  | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch };
+  | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
+  | { type: "loadDocument"; data: RoadmapData };
 
 /**
  * All state transitions in one place, mirroring issue #9's hand-driven
@@ -97,6 +98,14 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "loadDocument": {
+      // A structured-data import (wayframe#16) or any future ingestion path
+      // replaces the whole document wholesale, not a field at a time — but
+      // still shares this undo stack, so importing over an in-progress
+      // roadmap is a mistake the user can recover from with the same Undo
+      // button, not a destructive dead end.
+      return { ...state, data: action.data, history: [...state.history, state.data], pending: null, error: null };
+    }
   }
 }
 
@@ -112,6 +121,7 @@ export interface UseCorrectionBoxResult {
   undo: () => void;
   editMilestone: (ops: PatchOp[]) => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
+  loadDocument: (data: RoadmapData) => void;
 }
 
 /**
@@ -181,6 +191,7 @@ export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResu
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
+  const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
 
   return {
     data: state.data,
@@ -194,5 +205,6 @@ export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResu
     undo,
     editMilestone,
     editTopLevelItem,
+    loadDocument,
   };
 }

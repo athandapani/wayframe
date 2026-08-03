@@ -8,6 +8,7 @@ import { useCorrectionBox } from "@/components/correction-box/use-correction-box
 import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
+import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { demoRoadmap, demoToday } from "@/data/demo-roadmap";
 
 type Mode = "executive" | "program";
@@ -36,6 +37,7 @@ export function DemoRoadmapView() {
   const box = useCorrectionBox(demoRoadmap);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const selectedMilestone = box.data.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const selectedTopLevelItemRaw = box.data.topLevelItems.find((t) => t.id === selectedTopLevelItemId) ?? null;
@@ -45,6 +47,12 @@ export function DemoRoadmapView() {
     <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
       <div className="min-w-0 flex-1 pb-40">
         <ModeToggle mode={mode} onChange={setMode} />
+        <button
+          onClick={() => setImportOpen(true)}
+          className="fixed top-14 right-4 z-50 rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs shadow dark:border-zinc-600 dark:bg-zinc-900"
+        >
+          Import a schedule
+        </button>
         {mode === "program" ? (
           <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
             <BlufCallout bluf={box.data.bluf} />
@@ -65,6 +73,7 @@ export function DemoRoadmapView() {
       <CorrectionBoxSwitcher box={box} />
       <MilestoneEditorModal data={box.data} milestone={selectedMilestone} onSave={box.editMilestone} onClose={() => setSelectedMilestoneId(null)} />
       <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
+      {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
     </div>
   );
 }
