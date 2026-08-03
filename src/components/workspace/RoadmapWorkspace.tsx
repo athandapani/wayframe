@@ -6,7 +6,7 @@
 // extracted document) and the `/dev/demo-roadmap` QA route (the hardcoded
 // demo fixture). Parameterized by `initialData`/`today` so neither caller
 // hand-maintains its own copy.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { RoadmapData } from "@/components/timeline/types";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
@@ -16,12 +16,24 @@ import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBox
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
+import { exportToDeck } from "@/lib/export/export-to-deck";
 
 type Mode = "executive" | "program";
 
+// Export always ships both views regardless of the toggle (wayframe#27/#28). The
+// inactive one is only mounted, off-screen and aria-hidden, for the duration of
+// an export — ExecutiveView repeats the BLUF statement as subtext (per #8), so
+// keeping both permanently mounted would duplicate accessible page content.
+const OFFSCREEN_CLASS = "pointer-events-none absolute top-0 -left-[99999px]";
+
+function deckFileName(programName: string): string {
+  const slug = programName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${slug || "roadmap"}-deck.pptx`;
+}
+
 function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   return (
-    <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 overflow-hidden rounded-full border border-zinc-300 bg-white text-sm shadow dark:border-zinc-600 dark:bg-zinc-900">
+    <div className="flex overflow-hidden rounded-full border border-zinc-300 bg-white text-sm shadow dark:border-zinc-600 dark:bg-zinc-900">
       {(["executive", "program"] as const).map((m) => (
         <button
           key={m}
@@ -34,6 +46,40 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
           {m}
         </button>
       ))}
+    </div>
+  );
+}
+
+function RoadmapView({
+  mode,
+  data,
+  today,
+  onMilestoneClick,
+  onTopLevelItemClick,
+}: {
+  mode: Mode;
+  data: RoadmapData;
+  today: Date;
+  onMilestoneClick?: (m: { id: string }) => void;
+  onTopLevelItemClick?: (t: { id: string }) => void;
+}) {
+  if (mode === "program") {
+    return (
+      <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
+        <BlufCallout bluf={data.bluf} />
+        <RoadmapTimeline
+          data={data}
+          today={today}
+          width={1600}
+          onMilestoneClick={onMilestoneClick}
+          onTopLevelItemClick={onTopLevelItemClick}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="pt-16">
+      <ExecutiveView data={data} today={today} />
     </div>
   );
 }
@@ -52,35 +98,71 @@ export function RoadmapWorkspace({
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const visibleCaptureRef = useRef<HTMLDivElement>(null);
+  const offscreenCaptureRef = useRef<HTMLDivElement>(null);
 
   const selectedMilestone = box.data.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const selectedTopLevelItemRaw = box.data.topLevelItems.find((t) => t.id === selectedTopLevelItemId) ?? null;
   const selectedTopLevelItem = selectedTopLevelItemRaw && isEditableTopLevelItem(selectedTopLevelItemRaw) ? selectedTopLevelItemRaw : null;
 
+  const otherMode: Mode = mode === "program" ? "executive" : "program";
+
+  async function handleExport() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      // Mount the inactive view off-screen, wait for it to paint, then capture both.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const visibleEl = visibleCaptureRef.current;
+      const offscreenEl = offscreenCaptureRef.current;
+      if (!visibleEl || !offscreenEl) return;
+      const programEl = mode === "program" ? visibleEl : offscreenEl;
+      const executiveEl = mode === "executive" ? visibleEl : offscreenEl;
+      await exportToDeck(
+        [
+          { label: "Program", element: programEl },
+          { label: "Executive", element: executiveEl },
+        ],
+        deckFileName(box.data.programName),
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
       <div className="min-w-0 flex-1 pb-40">
-        <ModeToggle mode={mode} onChange={setMode} />
+        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2">
+          <ModeToggle mode={mode} onChange={setMode} />
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-sm shadow disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900"
+          >
+            {exporting ? "Exporting…" : "Export to Deck"}
+          </button>
+        </div>
         <button
           onClick={() => setImportOpen(true)}
           className="fixed top-14 right-4 z-50 rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs shadow dark:border-zinc-600 dark:bg-zinc-900"
         >
           Import a schedule
         </button>
-        {mode === "program" ? (
-          <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
-            <BlufCallout bluf={box.data.bluf} />
-            <RoadmapTimeline
-              data={box.data}
-              today={today}
-              width={1600}
-              onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
-              onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
-            />
-          </div>
-        ) : (
-          <div className="pt-16">
-            <ExecutiveView data={box.data} today={today} />
+        <div ref={visibleCaptureRef}>
+          <RoadmapView
+            mode={mode}
+            data={box.data}
+            today={today}
+            onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
+            onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
+          />
+        </div>
+        {exporting && (
+          <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
+            <RoadmapView mode={otherMode} data={box.data} today={today} />
           </div>
         )}
       </div>
