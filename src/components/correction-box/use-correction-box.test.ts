@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { RoadmapData } from "@/components/timeline/types";
-import { reduce, type CorrectionBoxState } from "./use-correction-box";
+import { reduce, useCorrectionBox, type CorrectionBoxState } from "./use-correction-box";
+
+const STORAGE_KEY = "wayframe:document";
 
 function baseData(): RoadmapData {
   return {
@@ -109,5 +112,67 @@ describe("correction box reducer", () => {
     expect(next.loading).toBe(false);
     expect(next.pending).toBeNull();
     expect(next.error).toBe("boom");
+  });
+
+  it("hydrated replaces data without pushing history — a refresh reload isn't an undoable edit", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      pending: { inputText: "x", ops: [], skipped: [] },
+      error: "stale error",
+    };
+    const persisted = { ...baseData(), programName: "Persisted" };
+
+    const next = reduce(state, { type: "hydrated", data: persisted });
+    expect(next.data).toBe(persisted);
+    expect(next.history).toHaveLength(0);
+    expect(next.pending).toBeNull();
+    expect(next.error).toBeNull();
+  });
+});
+
+describe("useCorrectionBox localStorage persistence (wayframe#22)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("persists data to localStorage as it changes", async () => {
+    const { result } = renderHook(() => useCorrectionBox(baseData()));
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.editMilestone([{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }]);
+    });
+
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as RoadmapData;
+      expect(saved.milestones[0].status).toBe("complete");
+    });
+  });
+
+  it("rehydrates from a previously persisted document on mount instead of the initial data", async () => {
+    const persisted = { ...baseData(), programName: "Persisted Program" };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+
+    const { result } = renderHook(() => useCorrectionBox(baseData()));
+
+    await waitFor(() => {
+      expect(result.current.data.programName).toBe("Persisted Program");
+    });
+    expect(result.current.historyLength).toBe(0);
+  });
+
+  it("does not clobber a persisted document with initialData before rehydrating", async () => {
+    const persisted = { ...baseData(), programName: "Persisted Program" };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+
+    renderHook(() => useCorrectionBox(baseData()));
+
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as RoadmapData;
+      expect(saved.programName).toBe("Persisted Program");
+    });
   });
 });

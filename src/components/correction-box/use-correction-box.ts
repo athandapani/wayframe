@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import type { RoadmapData, TopLevelItem } from "@/components/timeline/types";
 import type { PatchOp, Skipped } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { applyOps } from "@/lib/corrections/apply";
+
+/** Single-document-per-browser persistence (wayframe#22) — one fixed key, not a multi-roadmap store. */
+const STORAGE_KEY = "wayframe:document";
 
 /** Fields the lighter phase/top-level-milestone editor can touch (wayframe#19) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
 export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate">> &
@@ -33,7 +36,8 @@ export type CorrectionBoxAction =
   | { type: "undo" }
   | { type: "editMilestone"; ops: PatchOp[] }
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
-  | { type: "loadDocument"; data: RoadmapData };
+  | { type: "loadDocument"; data: RoadmapData }
+  | { type: "hydrated"; data: RoadmapData };
 
 /**
  * All state transitions in one place, mirroring issue #9's hand-driven
@@ -106,6 +110,13 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // button, not a destructive dead end.
       return { ...state, data: action.data, history: [...state.history, state.data], pending: null, error: null };
     }
+    case "hydrated": {
+      // Rehydrating a persisted document (wayframe#22) on mount is not a user
+      // edit — it doesn't push onto the undo stack, or undo would take a
+      // visitor back to whatever was rendered before the saved document
+      // loaded instead of being a no-op.
+      return { ...state, data: action.data, pending: null, error: null };
+    }
   }
 }
 
@@ -141,6 +152,38 @@ export function useCorrectionBox(initialData: RoadmapData): UseCorrectionBoxResu
     error: null,
     loading: false,
   }));
+
+  // Gates the persist effect below until the mount-time rehydration attempt
+  // has committed — a plain ref flipped inside the same effect pass isn't
+  // enough, since the dispatched "hydrated" update hasn't landed yet when
+  // the persist effect runs in that same commit; it would briefly write
+  // `initialData` over a saved document before the reload ever saw it
+  // (wayframe#22). Sequencing this through state, not a ref, forces the
+  // persist effect to wait for the next render, after rehydration lands.
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        dispatch({ type: "hydrated", data: JSON.parse(saved) as RoadmapData });
+      }
+    } catch {
+      // Corrupt or inaccessible storage — fall back to initialData silently.
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+    } catch {
+      // Storage full or unavailable (e.g. private browsing) — persistence
+      // is a nice-to-have, not something worth surfacing as a user error.
+    }
+  }, [hydrated, state.data]);
 
   const submit = useCallback(
     async (text: string) => {
