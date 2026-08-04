@@ -55,8 +55,10 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
     expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import a schedule" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sidebar mode" })).not.toBeInTheDocument();
-    // Primary actions stay visible.
-    expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export to Deck" })).not.toBeInTheDocument();
+    // Only the mode toggle and the hamburger trigger stay in the main chrome.
+    expect(screen.getByRole("button", { name: "program" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Options" })).toBeInTheDocument();
   });
 
   it("shows the settings rows once opened, and closes on Escape", async () => {
@@ -65,6 +67,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Ghosts:/ })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Import a schedule" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sidebar mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument());
@@ -135,6 +138,8 @@ describe("RoadmapWorkspace export to deck", () => {
   it("captures both views and writes a deck named after the program on export", async () => {
     render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
 
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Export to Deck" }));
 
     await waitFor(() => expect(exportToDeck).toHaveBeenCalledTimes(1));

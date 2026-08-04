@@ -154,9 +154,16 @@ export function RoadmapWorkspace({
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
       <div className="min-w-0 flex-1 pb-40">
-        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2">
+        <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
+        </div>
+        <div className="fixed top-4 right-4 z-50">
           <OptionsMenu>
+            <OptionsMenuRow label="Export">
+              <button onClick={handleExport} disabled={exporting} className={pillToggle(true) + " disabled:opacity-50"}>
+                {exporting ? "Exporting…" : "Export to Deck"}
+              </button>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Ghosts">
               <button
                 onClick={() => ghost.setEnabled(!ghost.enabled)}
@@ -205,13 +212,6 @@ export function RoadmapWorkspace({
               </button>
             </OptionsMenuRow>
           </OptionsMenu>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-sm shadow disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900"
-          >
-            {exporting ? "Exporting…" : "Export to Deck"}
-          </button>
         </div>
         <div ref={visibleCaptureRef}>
           <RoadmapView
