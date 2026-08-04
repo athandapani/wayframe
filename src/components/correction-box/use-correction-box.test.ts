@@ -122,11 +122,57 @@ describe("correction box reducer", () => {
     };
     const persisted = { ...baseData(), programName: "Persisted" };
 
+    // hydrated recomputes critical path (wayframe#34/#35), so next.data is a
+    // new object even when nothing about the critical-path result changes —
+    // compare by value, not reference.
     const next = reduce(state, { type: "hydrated", data: persisted });
-    expect(next.data).toBe(persisted);
+    expect(next.data).toEqual(persisted);
     expect(next.history).toHaveLength(0);
     expect(next.pending).toBeNull();
     expect(next.error).toBeNull();
+  });
+});
+
+describe("snapshotRollups reducer action (wayframe#33)", () => {
+  // baseData's m1 is not-started with date 2026-01-01, so as of 2026-06-10
+  // it's overdue -> rag "red" per ragForLane's date-aware refinement.
+  it("appends today's rollup snapshot to a lane with no history yet, without pushing undo history", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "snapshotRollups", today: new Date("2026-06-10") });
+    expect(next.data.swimlanes[0].rollupHistory).toEqual([{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }]);
+    expect(next.history).toHaveLength(0);
+  });
+
+  it("is a no-op (same state reference) when today's entry already exists for every lane", () => {
+    const state = initialState();
+    state.data.swimlanes[0].rollupHistory = [{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }];
+    const next = reduce(state, { type: "snapshotRollups", today: new Date("2026-06-10") });
+    expect(next).toBe(state);
+  });
+
+  it("appends a new day's entry alongside prior history rather than replacing it", () => {
+    const state = initialState();
+    state.data.swimlanes[0].rollupHistory = [{ date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 }];
+    const next = reduce(state, { type: "snapshotRollups", today: new Date("2026-06-10") });
+    expect(next.data.swimlanes[0].rollupHistory).toEqual([
+      { date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 },
+      { date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 },
+    ]);
+  });
+});
+
+describe("useCorrectionBox rollup snapshot wiring (wayframe#33)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("writes today's rollup snapshot once, after rehydration", async () => {
+    const { result } = renderHook(() => useCorrectionBox(baseData(), false, new Date("2026-06-10")));
+
+    await waitFor(() => {
+      expect(result.current.data.swimlanes[0].rollupHistory).toEqual([{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }]);
+    });
+    expect(result.current.historyLength).toBe(0);
   });
 });
 

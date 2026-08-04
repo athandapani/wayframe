@@ -119,7 +119,7 @@ function ModalForm({
           </label>
           <label className="col-span-2 flex items-center gap-2">
             <input type="checkbox" checked={draft.isCriticalPath} onChange={(e) => setDraft({ ...draft, isCriticalPath: e.target.checked })} />
-            <span className="text-xs font-medium text-zinc-500">On critical path</span>
+            <span className="text-xs font-medium text-zinc-500">On critical path (override)</span>
           </label>
 
           <div className="col-span-2 rounded border border-dashed border-zinc-200 p-3 dark:border-zinc-700">

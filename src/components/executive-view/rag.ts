@@ -1,10 +1,9 @@
 // Per-lane RAG rollup and top-risks ranking for Executive view (wayframe
 // issue #8). Auto rollup is the default; Swimlane.ragOverride (resolved in
-// the RAG-governance fog item) wins when a lead has set one. Trend is
-// deliberately left unpopulated (see LaneRollup.trend doc) rather than
-// faked: there's no historical/prior-rollup data in the schema to compute
-// a real trend from yet.
-import type { RoadmapData, Milestone, Status, Rag } from "@/components/timeline/types";
+// the RAG-governance fog item) wins when a lead has set one. Trend compares
+// the current rollup against the lane's rollupHistory (wayframe issue #33) —
+// undefined until a lane has at least one snapshot dated before today.
+import type { RoadmapData, Swimlane, Milestone, Status, Rag } from "@/components/timeline/types";
 
 export type { Rag };
 
@@ -15,11 +14,10 @@ export interface LaneRollup {
   atRiskCount: number;
   delayedCount: number;
   /**
-   * Improving/worsening vs. the last rollup. Always undefined today — no
-   * schema field holds a prior rollup or historical snapshot to compare
-   * against. The UI renders nothing when this is undefined; wiring a real
-   * value needs a schema decision first (flagged on the wayfinder map's
-   * "Not yet specified" list, not resolved by this ticket).
+   * Improving/worsening vs. the most recent rollupHistory entry dated before
+   * today (never today's own just-written snapshot — that would trivially
+   * compare equal). Undefined when no such entry exists yet, e.g. a lane's
+   * first-ever view. The UI renders nothing in that case.
    */
   trend?: "up" | "down" | "flat";
 }
@@ -58,17 +56,39 @@ export function ragForLane(milestones: Milestone[], today: Date): Rag {
   return worst;
 }
 
+const RAG_ORDER: Record<Rag, number> = { green: 0, amber: 1, red: 2 };
+
+/**
+ * Most recent rollupHistory entry strictly before today — string comparison
+ * is safe since dates are always "YYYY-MM-DD" (see cascade.ts's isBefore).
+ */
+function priorSnapshot(lane: Swimlane, todayKey: string) {
+  return (lane.rollupHistory ?? [])
+    .filter((s) => s.date < todayKey)
+    .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+}
+
+function trendForLane(lane: Swimlane, currentRag: Rag, todayKey: string): LaneRollup["trend"] {
+  const prior = priorSnapshot(lane, todayKey);
+  if (!prior) return undefined;
+  if (RAG_ORDER[currentRag] === RAG_ORDER[prior.rag]) return "flat";
+  return RAG_ORDER[currentRag] < RAG_ORDER[prior.rag] ? "up" : "down";
+}
+
 export function laneRollups(data: RoadmapData, today: Date): LaneRollup[] {
+  const todayKey = today.toISOString().slice(0, 10);
   return data.swimlanes
     .filter((l) => l.type === "lane")
     .map((lane) => {
       const milestones = data.milestones.filter((m) => m.laneId === lane.id);
+      const rag = lane.ragOverride ?? ragForLane(milestones, today);
       return {
         laneId: lane.id,
         laneName: lane.name,
-        rag: lane.ragOverride ?? ragForLane(milestones, today),
+        rag,
         atRiskCount: milestones.filter((m) => m.status === "at-risk").length,
         delayedCount: milestones.filter((m) => m.status === "delayed").length,
+        trend: trendForLane(lane, rag, todayKey),
       };
     });
 }

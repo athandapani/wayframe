@@ -78,7 +78,9 @@ export const MilestoneDraftSchema = z.object({
   comment: z.string().optional(),
   dependsOn: z.array(DependencyEdgeDraftSchema).default([]),
   linksToTopLevelMilestoneRef: z.string().nullable().default(null), // -> TopLevelItemDraft.tempKey
-  isCriticalPath: z.boolean().default(false),
+  // Manual override for the computed critical-path flag — see
+  // src/components/timeline/types.ts's Milestone.isCriticalPathOverride doc.
+  isCriticalPathOverride: z.boolean().optional(),
   attachments: z.array(AttachmentDraftSchema).optional(),
   // Hand-picked marker abbreviation — see Milestone.shortLabel's doc in
   // src/components/timeline/types.ts.

@@ -29,8 +29,8 @@ function applyOp(m: Milestone, op: PatchOp): Milestone {
       return { ...m, owner: op.newValue || undefined };
     case "comment":
       return { ...m, comment: op.newValue || undefined };
-    case "isCriticalPath":
-      return { ...m, isCriticalPath: op.newValue };
+    case "isCriticalPathOverride":
+      return { ...m, isCriticalPathOverride: op.newValue };
     case "shortLabel":
       return { ...m, shortLabel: op.newValue || undefined };
   }

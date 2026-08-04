@@ -13,6 +13,7 @@ import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
+import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
 import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
@@ -57,6 +58,7 @@ function RoadmapView({
   data,
   today,
   ghostMode,
+  showCriticalPath,
   blufOpen,
   onBlufOpenChange,
   onMilestoneClick,
@@ -66,6 +68,7 @@ function RoadmapView({
   data: RoadmapData;
   today: Date;
   ghostMode: GhostMode;
+  showCriticalPath: boolean;
   blufOpen: boolean;
   onBlufOpenChange: (open: boolean) => void;
   onMilestoneClick?: (m: { id: string }) => void;
@@ -80,6 +83,7 @@ function RoadmapView({
           today={today}
           width={1600}
           ghostMode={ghostMode}
+          showCriticalPath={showCriticalPath}
           onMilestoneClick={onMilestoneClick}
           onTopLevelItemClick={onTopLevelItemClick}
         />
@@ -110,8 +114,9 @@ export function RoadmapWorkspace({
   persist?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("program");
-  const box = useCorrectionBox(initialData, persist);
+  const box = useCorrectionBox(initialData, persist, today);
   const ghost = useGhostMode();
+  const criticalPath = useCriticalPathVisibility();
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -191,6 +196,16 @@ export function RoadmapWorkspace({
                 </div>
               </OptionsMenuRow>
             )}
+            <OptionsMenuRow label="Critical path">
+              <button
+                onClick={() => criticalPath.setVisible(!criticalPath.visible)}
+                aria-pressed={criticalPath.visible}
+                aria-label={`Critical path: ${criticalPath.visible ? "Shown" : "Hidden"}`}
+                className={pillToggle(criticalPath.visible)}
+              >
+                {criticalPath.visible ? "Shown" : "Hidden"}
+              </button>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Correction UI">
               <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} className={pillToggle(true)}>
                 {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
@@ -219,6 +234,7 @@ export function RoadmapWorkspace({
             data={box.data}
             today={today}
             ghostMode={ghost.mode}
+            showCriticalPath={criticalPath.visible}
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
@@ -227,7 +243,7 @@ export function RoadmapWorkspace({
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
+            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
           </div>
         )}
       </div>

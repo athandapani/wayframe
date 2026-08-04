@@ -22,7 +22,7 @@ Your job is to read the input carefully and call the ${EXTRACTION_TOOL_NAME} too
 - tempKey values are your own short, readable, unique identifiers (e.g. "lane-eng", "ms-fcc-cert") — invent them fresh for this response. They are NOT real ids; they only need to be unique and consistent within this single response, so you can cross-reference a milestone's lane, dependencies, and top-level link.
 - dependsOn should capture real logical/technical dependencies you can infer between milestones, not just chronological ordering.
 - Set showConnector to true only for the small number of dependency edges that represent the critical narrative thread worth drawing as a line on the chart — not every edge.
-- isCriticalPath is a manual flag for milestones the input explicitly calls out as critical-path or blocking; don't compute a critical path yourself.
+- isCriticalPathOverride is a manual override for milestones the input explicitly calls out as critical-path or blocking; leave it unset otherwise. The app computes the real critical path itself from dates and dependencies — don't try to compute one yourself.
 - Set a milestone's endDate only when the input explicitly describes it as spanning a date range (e.g. "integration testing, June–August") rather than a single point in time — most milestones should NOT have an endDate.
 - Set showReferenceLine to true only for the rare milestone the input calls out as an important date to visually flag on its own (e.g. a contract deadline, an external regulatory gate) — not for every milestone.
 - bluf.statement is one sentence capturing the program's current "so what". bluf.bullets is at most 4 supporting points.

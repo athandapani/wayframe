@@ -120,7 +120,10 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
               type: ["string", "null"],
               description: "tempKey of a topLevelItems entry, or null",
             },
-            isCriticalPath: { type: "boolean" },
+            isCriticalPathOverride: {
+              type: "boolean",
+              description: "Manual critical-path override — leave unset unless the input explicitly calls this milestone out as critical-path or blocking. The app computes the real critical path itself; don't try to compute it yourself.",
+            },
             attachments: {
               type: "array",
               items: {
@@ -158,7 +161,6 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
             "status",
             "dependsOn",
             "linksToTopLevelMilestoneRef",
-            "isCriticalPath",
           ],
         },
       },

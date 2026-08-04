@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { RoadmapData, TopLevelItem } from "@/components/timeline/types";
+import type { RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
 import type { PatchOp, Skipped } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { applyOps } from "@/lib/corrections/apply";
+import { laneRollups } from "@/components/executive-view/rag";
+import { withComputedCriticalPath } from "@/lib/critical-path/compute";
 
 /** Single-document-per-browser persistence (wayframe#22) — one fixed key, not a multi-roadmap store. */
 const STORAGE_KEY = "wayframe:document";
@@ -52,7 +54,8 @@ export type CorrectionBoxAction =
   | { type: "editMilestone"; ops: PatchOp[] }
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
   | { type: "loadDocument"; data: RoadmapData }
-  | { type: "hydrated"; data: RoadmapData };
+  | { type: "hydrated"; data: RoadmapData }
+  | { type: "snapshotRollups"; today: Date };
 
 /**
  * All state transitions in one place, mirroring issue #9's hand-driven
@@ -73,7 +76,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       if (!state.pending) return state;
       return {
         ...state,
-        data: { ...state.data, milestones: applyOps(state.data.milestones, state.pending.ops) },
+        data: withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, state.pending.ops) }),
         history: [...state.history, state.data],
         pending: null,
         error: null,
@@ -98,7 +101,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const cascaded = applyCascade(state.data.milestones, action.ops);
       return {
         ...state,
-        data: { ...state.data, milestones: applyOps(state.data.milestones, cascaded) },
+        data: withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -106,13 +109,15 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "editTopLevelItem": {
       // Lighter phase/top-level-milestone editor (wayframe#19) — no
       // dependsOn on TopLevelItem, so no cascade; same instant-save +
-      // shared undo stack as editMilestone.
+      // shared undo stack as editMilestone. A top-level milestone's date can
+      // be a linksToTopLevelMilestone constraint for lane milestones, so
+      // critical path still needs recomputing here (wayframe#34/#35).
       return {
         ...state,
-        data: {
+        data: withComputedCriticalPath({
           ...state.data,
           topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
-        },
+        }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -123,14 +128,31 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // still shares this undo stack, so importing over an in-progress
       // roadmap is a mistake the user can recover from with the same Undo
       // button, not a destructive dead end.
-      return { ...state, data: action.data, history: [...state.history, state.data], pending: null, error: null };
+      return { ...state, data: withComputedCriticalPath(action.data), history: [...state.history, state.data], pending: null, error: null };
     }
     case "hydrated": {
       // Rehydrating a persisted document (wayframe#22) on mount is not a user
       // edit — it doesn't push onto the undo stack, or undo would take a
       // visitor back to whatever was rendered before the saved document
       // loaded instead of being a no-op.
-      return { ...state, data: action.data, pending: null, error: null };
+      return { ...state, data: withComputedCriticalPath(action.data), pending: null, error: null };
+    }
+    case "snapshotRollups": {
+      // Passive once-per-calendar-day-per-lane rollup snapshot for the
+      // Executive-view trend arrow (wayframe#33) — same "not a user edit"
+      // treatment as "hydrated" above: it never pushes onto the undo stack.
+      const todayKey = action.today.toISOString().slice(0, 10);
+      const rollupByLaneId = new Map(laneRollups(state.data, action.today).map((r) => [r.laneId, r]));
+      let changed = false;
+      const swimlanes = state.data.swimlanes.map((lane) => {
+        if (lane.type !== "lane" || lane.rollupHistory?.some((s) => s.date === todayKey)) return lane;
+        const r = rollupByLaneId.get(lane.id);
+        if (!r) return lane;
+        changed = true;
+        const snapshot: RollupSnapshot = { date: todayKey, rag: r.rag, atRiskCount: r.atRiskCount, delayedCount: r.delayedCount };
+        return { ...lane, rollupHistory: [...(lane.rollupHistory ?? []), snapshot] };
+      });
+      return changed ? { ...state, data: { ...state.data, swimlanes } } : state;
     }
   }
 }
@@ -163,10 +185,16 @@ export interface UseCorrectionBoxResult {
  * below — off for `/dev/demo-roadmap`'s QA route, which must always mount
  * fresh off the hardcoded demo fixture rather than picking up a real
  * visitor's saved document once it shares this hook with the real `/` page.
+ *
+ * `today` (default `new Date()`) drives the once-per-calendar-day-per-lane
+ * rollup snapshot (wayframe#33) fired once, after rehydration — every other
+ * caller in the app already treats `today` as fixed for the session rather
+ * than a live-ticking clock (e.g. RoadmapWorkspace's props), so this doesn't
+ * re-check mid-session.
  */
-export function useCorrectionBox(initialData: RoadmapData, persist = true): UseCorrectionBoxResult {
+export function useCorrectionBox(initialData: RoadmapData, persist = true, today = new Date()): UseCorrectionBoxResult {
   const [state, dispatch] = useReducer(reduce, initialData, (data) => ({
-    data,
+    data: withComputedCriticalPath(data),
     history: [],
     pending: null,
     error: null,
@@ -206,6 +234,16 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true): UseC
       // is a nice-to-have, not something worth surfacing as a user error.
     }
   }, [persist, hydrated, state.data]);
+
+  // Fires once per mount, after rehydration lands (so it snapshots whatever
+  // document — persisted or fixture — actually ends up rendered). The
+  // reducer is idempotent per calendar day, so a second dispatch this same
+  // day (e.g. a remount) is a no-op that doesn't re-render.
+  useEffect(() => {
+    if (!hydrated) return;
+    dispatch({ type: "snapshotRollups", today });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
 
   const submit = useCallback(
     async (text: string) => {

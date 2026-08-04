@@ -60,7 +60,7 @@ export const PatchOpSchema = z.discriminatedUnion("field", [
   }),
   z.object({
     targetId: z.string().min(1),
-    field: z.literal("isCriticalPath"),
+    field: z.literal("isCriticalPathOverride"),
     newValue: z.boolean(),
     reason: z.string().min(1),
   }),

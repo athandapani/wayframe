@@ -57,12 +57,12 @@ describe("applyOps", () => {
     const ops: PatchOp[] = [
       { targetId: "m1", field: "title", newValue: "New Title", reason: "manual edit" },
       { targetId: "m1", field: "percentComplete", newValue: 40, reason: "manual edit" },
-      { targetId: "m1", field: "isCriticalPath", newValue: true, reason: "manual edit" },
+      { targetId: "m1", field: "isCriticalPathOverride", newValue: true, reason: "manual edit" },
       { targetId: "m1", field: "shortLabel", newValue: "NT", reason: "manual edit" },
     ];
 
     const result = applyOps(milestones, ops);
-    expect(result[0]).toMatchObject({ title: "New Title", percentComplete: 40, isCriticalPath: true, shortLabel: "NT" });
+    expect(result[0]).toMatchObject({ title: "New Title", percentComplete: 40, isCriticalPathOverride: true, shortLabel: "NT" });
   });
 
   it("clears an optional field (owner/comment/shortLabel) when the op's newValue is an empty string", () => {

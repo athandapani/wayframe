@@ -9,6 +9,13 @@ export interface EditableMilestoneFields {
   percentComplete: number;
   owner: string;
   comment: string;
+  /**
+   * Edits isCriticalPathOverride, not isCriticalPath — the latter became a
+   * computed/reducer-owned field in wayframe#34/#35. The checkbox shows the
+   * currently *effective* value (override, falling back to the computed
+   * one) so it reflects what's actually rendered; saving it unchanged emits
+   * no op, same as every other field here.
+   */
   isCriticalPath: boolean;
   shortLabel: string;
 }
@@ -21,7 +28,7 @@ export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields
     percentComplete: m.percentComplete ?? 0,
     owner: m.owner ?? "",
     comment: m.comment ?? "",
-    isCriticalPath: m.isCriticalPath,
+    isCriticalPath: m.isCriticalPathOverride ?? m.isCriticalPath,
     shortLabel: m.shortLabel ?? "",
   };
 }
@@ -44,7 +51,7 @@ export function buildMilestoneEditOps(original: Milestone, draft: EditableMilest
   if (draft.percentComplete !== before.percentComplete) ops.push({ targetId: original.id, field: "percentComplete", newValue: draft.percentComplete, reason });
   if (draft.owner !== before.owner) ops.push({ targetId: original.id, field: "owner", newValue: draft.owner, reason });
   if (draft.comment !== before.comment) ops.push({ targetId: original.id, field: "comment", newValue: draft.comment, reason });
-  if (draft.isCriticalPath !== before.isCriticalPath) ops.push({ targetId: original.id, field: "isCriticalPath", newValue: draft.isCriticalPath, reason });
+  if (draft.isCriticalPath !== before.isCriticalPath) ops.push({ targetId: original.id, field: "isCriticalPathOverride", newValue: draft.isCriticalPath, reason });
   if (draft.shortLabel !== before.shortLabel) ops.push({ targetId: original.id, field: "shortLabel", newValue: draft.shortLabel, reason });
 
   return ops;

@@ -172,6 +172,7 @@ function MilestoneMarker({
   onClick,
   ghostMode,
   ghostCx,
+  showCriticalPath,
 }: {
   m: Milestone;
   cx: number;
@@ -183,19 +184,21 @@ function MilestoneMarker({
   ghostMode: GhostMode;
   /** x position of the original (pre-slip) date, or null if not slipped / ghosts off. */
   ghostCx: number | null;
+  showCriticalPath: boolean;
 }) {
   const r = 8;
   const primaryDy = PRIMARY_TIER_DY[primary.tier];
   const dateDy = DATE_TIER_DY[date.tier];
   const tooltipW = Math.max(40, m.title.length * 6 + 16);
   const hasGhost = ghostCx !== null;
+  const critical = showCriticalPath && m.isCriticalPath;
 
   return (
     <g className={onClick ? "group cursor-pointer" : "group cursor-default"} onClick={onClick ? (e) => onClick(m, e) : undefined}>
       {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
-      <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"} strokeWidth={m.isCriticalPath ? 3 : 1.5} />
+      <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={critical ? theme.criticalPathColor : "#ffffff"} strokeWidth={critical ? 3 : 1.5} />
       <text x={cx} y={cy + primaryDy} textAnchor="middle" fontSize={10} fontWeight={700} fill="currentColor">
         {primary.text}
       </text>
@@ -234,6 +237,8 @@ export interface RoadmapTimelineProps {
   onTopLevelItemClick?: (t: TopLevelItem, evt: React.MouseEvent<SVGGElement>) => void;
   /** Ghost-render slipped milestones (wayframe#29/#30) — off by default; callers opt in. */
   ghostMode?: GhostMode;
+  /** Show computed/override critical-path highlighting (wayframe#34/#35) — a viewer preference, on by default. */
+  showCriticalPath?: boolean;
 }
 
 export function RoadmapTimeline({
@@ -245,6 +250,7 @@ export function RoadmapTimeline({
   onMilestoneClick,
   onTopLevelItemClick,
   ghostMode = "off",
+  showCriticalPath = true,
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -382,7 +388,7 @@ export function RoadmapTimeline({
             .map((d) => {
               const from = milestoneById.get(d.id);
               if (!from) return null;
-              const critical = m.isCriticalPath && from.isCriticalPath;
+              const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
               const x1 = x(from.date);
               const y1 = laneY(from.laneId);
               const x2 = x(m.date);
@@ -443,6 +449,7 @@ export function RoadmapTimeline({
               onClick={onMilestoneClick}
               ghostMode={ghostMode}
               ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
+              showCriticalPath={showCriticalPath}
             />
           ))}
 
