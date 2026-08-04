@@ -41,6 +41,48 @@ function slippedData(): RoadmapData {
   };
 }
 
+function openOptionsMenu() {
+  fireEvent.click(screen.getByRole("button", { name: "Options" }));
+}
+
+describe("RoadmapWorkspace options menu (wayframe#31)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("keeps settings-like controls out of the chrome until the menu is opened", () => {
+    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import a schedule" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sidebar mode" })).not.toBeInTheDocument();
+    // Primary actions stay visible.
+    expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument();
+  });
+
+  it("shows the settings rows once opened, and closes on Escape", async () => {
+    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Ghosts:/ })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Import a schedule" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sidebar mode" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument());
+  });
+
+  it("toggling So-what visibility from the menu hides/shows the BLUF callout", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    expect(screen.getByText("Everything is on track.")).toBeInTheDocument();
+
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "So what: Shown" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "So what: Shown" }));
+
+    await waitFor(() => expect(screen.queryByText("Everything is on track.")).not.toBeInTheDocument());
+    expect(screen.getByText("So what?")).toBeInTheDocument();
+  });
+});
+
 describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -48,6 +90,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
 
   it("defaults to ghosts on, style badge, and shows the slip badge for a slipped milestone", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "badge" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument();
@@ -56,6 +99,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
 
   it("turning ghosts off hides the style switcher and the slip badge", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Ghosts: On" }));
@@ -67,6 +111,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
 
   it("switching style to outline swaps the badge for a dashed outline at the old date", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "outline" }));

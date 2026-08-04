@@ -12,11 +12,12 @@ import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTi
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
-import { useGhostMode, type GhostStyle } from "@/components/timeline/use-ghost-mode";
-import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBoxSwitcher";
+import { useGhostMode } from "@/components/timeline/use-ghost-mode";
+import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
+import { OptionsMenu, OptionsMenuRow } from "./OptionsMenu";
 import { exportToDeck } from "@/lib/export/export-to-deck";
 
 type Mode = "executive" | "program";
@@ -56,6 +57,8 @@ function RoadmapView({
   data,
   today,
   ghostMode,
+  blufOpen,
+  onBlufOpenChange,
   onMilestoneClick,
   onTopLevelItemClick,
 }: {
@@ -63,13 +66,15 @@ function RoadmapView({
   data: RoadmapData;
   today: Date;
   ghostMode: GhostMode;
+  blufOpen: boolean;
+  onBlufOpenChange: (open: boolean) => void;
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
 }) {
   if (mode === "program") {
     return (
       <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
-        <BlufCallout bluf={data.bluf} />
+        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} />
         <RoadmapTimeline
           data={data}
           today={today}
@@ -88,47 +93,10 @@ function RoadmapView({
   );
 }
 
-function GhostControls({
-  enabled,
-  style,
-  onEnabledChange,
-  onStyleChange,
-}: {
-  enabled: boolean;
-  style: GhostStyle;
-  onEnabledChange: (enabled: boolean) => void;
-  onStyleChange: (style: GhostStyle) => void;
-}) {
+function pillToggle(active: boolean) {
   return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => onEnabledChange(!enabled)}
-        aria-pressed={enabled}
-        className={
-          "rounded-full border px-3 py-1.5 text-sm shadow " +
-          (enabled
-            ? "border-zinc-300 bg-white dark:border-zinc-600 dark:bg-zinc-900"
-            : "border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")
-        }
-      >
-        Ghosts: {enabled ? "On" : "Off"}
-      </button>
-      {enabled && (
-        <div className="flex overflow-hidden rounded-full border border-zinc-300 bg-white text-xs shadow dark:border-zinc-600 dark:bg-zinc-900">
-          {(["badge", "outline"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => onStyleChange(s)}
-              className={
-                "px-2.5 py-1.5 capitalize " + (style === s ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")
-              }
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    "rounded-full border px-2.5 py-1 text-xs " +
+    (active ? "border-zinc-300 bg-white dark:border-zinc-600 dark:bg-zinc-900" : "border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")
   );
 }
 
@@ -144,6 +112,8 @@ export function RoadmapWorkspace({
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, persist);
   const ghost = useGhostMode();
+  const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
+  const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -186,7 +156,55 @@ export function RoadmapWorkspace({
       <div className="min-w-0 flex-1 pb-40">
         <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2">
           <ModeToggle mode={mode} onChange={setMode} />
-          <GhostControls enabled={ghost.enabled} style={ghost.style} onEnabledChange={ghost.setEnabled} onStyleChange={ghost.setStyle} />
+          <OptionsMenu>
+            <OptionsMenuRow label="Ghosts">
+              <button
+                onClick={() => ghost.setEnabled(!ghost.enabled)}
+                aria-pressed={ghost.enabled}
+                aria-label={`Ghosts: ${ghost.enabled ? "On" : "Off"}`}
+                className={pillToggle(ghost.enabled)}
+              >
+                {ghost.enabled ? "On" : "Off"}
+              </button>
+            </OptionsMenuRow>
+            {ghost.enabled && (
+              <OptionsMenuRow label="Ghost style">
+                <div className="flex overflow-hidden rounded-full border border-zinc-300 bg-white text-xs dark:border-zinc-600 dark:bg-zinc-900">
+                  {(["badge", "outline"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => ghost.setStyle(s)}
+                      className={
+                        "px-2.5 py-1 capitalize " + (ghost.style === s ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")
+                      }
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </OptionsMenuRow>
+            )}
+            <OptionsMenuRow label="Correction UI">
+              <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} className={pillToggle(true)}>
+                {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
+              </button>
+            </OptionsMenuRow>
+            <OptionsMenuRow label="So what">
+              <button
+                onClick={() => setBlufOpen((v) => !v)}
+                aria-pressed={blufOpen}
+                aria-label={`So what: ${blufOpen ? "Shown" : "Hidden"}`}
+                className={pillToggle(blufOpen)}
+              >
+                {blufOpen ? "Shown" : "Hidden"}
+              </button>
+            </OptionsMenuRow>
+            <OptionsMenuRow label="Import">
+              <button onClick={() => setImportOpen(true)} className={pillToggle(true)}>
+                Import a schedule
+              </button>
+            </OptionsMenuRow>
+          </OptionsMenu>
           <button
             onClick={handleExport}
             disabled={exporting}
@@ -195,29 +213,25 @@ export function RoadmapWorkspace({
             {exporting ? "Exporting…" : "Export to Deck"}
           </button>
         </div>
-        <button
-          onClick={() => setImportOpen(true)}
-          className="fixed top-14 right-4 z-50 rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs shadow dark:border-zinc-600 dark:bg-zinc-900"
-        >
-          Import a schedule
-        </button>
         <div ref={visibleCaptureRef}>
           <RoadmapView
             mode={mode}
             data={box.data}
             today={today}
             ghostMode={ghost.mode}
+            blufOpen={blufOpen}
+            onBlufOpenChange={setBlufOpen}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
           />
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} />
+            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
           </div>
         )}
       </div>
-      <CorrectionBoxSwitcher box={box} />
+      <CorrectionBoxSwitcher box={box} mode={correctionMode} />
       <MilestoneEditorModal data={box.data} milestone={selectedMilestone} onSave={box.editMilestone} onClose={() => setSelectedMilestoneId(null)} />
       <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
       {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
