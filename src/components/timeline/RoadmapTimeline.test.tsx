@@ -4,6 +4,7 @@ import { RoadmapTimeline } from "./RoadmapTimeline";
 import { BlufCallout } from "./BlufCallout";
 import { sampleRoadmap } from "./__fixtures__/sample-roadmap";
 import { deriveShortLabel } from "./short-label";
+import type { RoadmapData } from "./types";
 
 describe("RoadmapTimeline", () => {
   it("renders swimlanes, separators, and milestones", () => {
@@ -32,6 +33,44 @@ describe("RoadmapTimeline", () => {
   it("omits the today reference line when today falls outside the domain", () => {
     render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2030-01-01T00:00:00Z")} />);
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
+  });
+});
+
+describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
+  const slippedRoadmap: RoadmapData = {
+    ...sampleRoadmap,
+    milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, originalDate: "2026-01-25" } : m)),
+  };
+
+  it("renders nothing extra when ghostMode is off, even for a slipped milestone", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="off" />);
+    expect(screen.queryByTestId("ghost-badge-m2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ghost-outline-m2")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing extra for a milestone that hasn't slipped, even with ghosts on", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="badge" />);
+    expect(screen.queryByTestId("ghost-badge-m1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ghost-outline-m1")).not.toBeInTheDocument();
+  });
+
+  it("style badge: shows a +/-Nd slip badge next to the current marker, no mark at the old date", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="badge" />);
+    expect(screen.getByTestId("ghost-badge-m2")).toBeInTheDocument();
+    expect(screen.getByText("+21d")).toBeInTheDocument();
+    expect(screen.queryByTestId("ghost-outline-m2")).not.toBeInTheDocument();
+  });
+
+  it("style outline: shows a dashed outline at the old date, no badge", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="outline" />);
+    expect(screen.getByTestId("ghost-outline-m2")).toBeInTheDocument();
+    expect(screen.queryByTestId("ghost-badge-m2")).not.toBeInTheDocument();
+    expect(screen.queryByText("+21d")).not.toBeInTheDocument();
+  });
+
+  it("shows the old→new date detail in the hover tooltip", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="badge" />);
+    expect(screen.getByText((_, el) => el?.textContent === "Jan 25 → Feb 15")).toBeInTheDocument();
   });
 });
 

@@ -8,10 +8,11 @@
 // hand-maintains its own copy.
 import { useRef, useState } from "react";
 import type { RoadmapData } from "@/components/timeline/types";
-import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
+import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTimeline";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
+import { useGhostMode, type GhostStyle } from "@/components/timeline/use-ghost-mode";
 import { CorrectionBoxSwitcher } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
@@ -54,12 +55,14 @@ function RoadmapView({
   mode,
   data,
   today,
+  ghostMode,
   onMilestoneClick,
   onTopLevelItemClick,
 }: {
   mode: Mode;
   data: RoadmapData;
   today: Date;
+  ghostMode: GhostMode;
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
 }) {
@@ -71,6 +74,7 @@ function RoadmapView({
           data={data}
           today={today}
           width={1600}
+          ghostMode={ghostMode}
           onMilestoneClick={onMilestoneClick}
           onTopLevelItemClick={onTopLevelItemClick}
         />
@@ -80,6 +84,50 @@ function RoadmapView({
   return (
     <div className="pt-16">
       <ExecutiveView data={data} today={today} />
+    </div>
+  );
+}
+
+function GhostControls({
+  enabled,
+  style,
+  onEnabledChange,
+  onStyleChange,
+}: {
+  enabled: boolean;
+  style: GhostStyle;
+  onEnabledChange: (enabled: boolean) => void;
+  onStyleChange: (style: GhostStyle) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => onEnabledChange(!enabled)}
+        aria-pressed={enabled}
+        className={
+          "rounded-full border px-3 py-1.5 text-sm shadow " +
+          (enabled
+            ? "border-zinc-300 bg-white dark:border-zinc-600 dark:bg-zinc-900"
+            : "border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")
+        }
+      >
+        Ghosts: {enabled ? "On" : "Off"}
+      </button>
+      {enabled && (
+        <div className="flex overflow-hidden rounded-full border border-zinc-300 bg-white text-xs shadow dark:border-zinc-600 dark:bg-zinc-900">
+          {(["badge", "outline"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => onStyleChange(s)}
+              className={
+                "px-2.5 py-1.5 capitalize " + (style === s ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")
+              }
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -95,6 +143,7 @@ export function RoadmapWorkspace({
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, persist);
+  const ghost = useGhostMode();
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -137,6 +186,7 @@ export function RoadmapWorkspace({
       <div className="min-w-0 flex-1 pb-40">
         <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2">
           <ModeToggle mode={mode} onChange={setMode} />
+          <GhostControls enabled={ghost.enabled} style={ghost.style} onEnabledChange={ghost.setEnabled} onStyleChange={ghost.setStyle} />
           <button
             onClick={handleExport}
             disabled={exporting}
@@ -156,13 +206,14 @@ export function RoadmapWorkspace({
             mode={mode}
             data={box.data}
             today={today}
+            ghostMode={ghost.mode}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
           />
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} data={box.data} today={today} />
+            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} />
           </div>
         )}
       </div>

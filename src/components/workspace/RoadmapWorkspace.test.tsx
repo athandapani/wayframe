@@ -33,6 +33,49 @@ function baseData(): RoadmapData {
   };
 }
 
+function slippedData(): RoadmapData {
+  const data = baseData();
+  return {
+    ...data,
+    milestones: [{ ...data.milestones[0], originalDate: "2025-12-01" }],
+  };
+}
+
+describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("defaults to ghosts on, style badge, and shows the slip badge for a slipped milestone", async () => {
+    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "badge" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument();
+    expect(screen.getByTestId("ghost-badge-m1")).toBeInTheDocument();
+  });
+
+  it("turning ghosts off hides the style switcher and the slip badge", async () => {
+    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Ghosts: On" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: Off" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "badge" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ghost-badge-m1")).not.toBeInTheDocument();
+  });
+
+  it("switching style to outline swaps the badge for a dashed outline at the old date", async () => {
+    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "outline" }));
+
+    await waitFor(() => expect(screen.getByTestId("ghost-outline-m1")).toBeInTheDocument());
+    expect(screen.queryByTestId("ghost-badge-m1")).not.toBeInTheDocument();
+  });
+});
+
 describe("RoadmapWorkspace export to deck", () => {
   beforeEach(() => {
     window.localStorage.clear();

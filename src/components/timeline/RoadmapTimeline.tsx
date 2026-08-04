@@ -52,6 +52,7 @@ function computeDomain(data: RoadmapData): { domainMin: number; domainMax: numbe
   const allDates = [
     ...data.milestones.map((m) => m.date),
     ...data.milestones.filter((m) => m.endDate).map((m) => m.endDate!),
+    ...data.milestones.filter((m) => m.originalDate).map((m) => m.originalDate!),
     ...data.topLevelItems.map((t) => ("date" in t ? t.date : t.endDate)),
     ...data.topLevelItems.map((t) => ("startDate" in t ? t.startDate : t.date)),
   ];
@@ -78,8 +79,37 @@ function AxisRow({ y, segments, theme, opacity, xOf }: { y: number; segments: Se
 }
 
 // rotated rounded-square = softened "cushion" diamond
-function CushionMarker({ cx, cy, r, fill, stroke, strokeWidth }: { cx: number; cy: number; r: number; fill: string; stroke: string; strokeWidth: number }) {
-  return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={r * 0.4} fill={fill} stroke={stroke} strokeWidth={strokeWidth} transform={`rotate(45 ${cx} ${cy})`} />;
+function CushionMarker({
+  cx,
+  cy,
+  r,
+  fill,
+  stroke,
+  strokeWidth,
+  strokeDasharray,
+}: {
+  cx: number;
+  cy: number;
+  r: number;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  strokeDasharray?: string;
+}) {
+  return (
+    <rect
+      x={cx - r}
+      y={cy - r}
+      width={r * 2}
+      height={r * 2}
+      rx={r * 0.4}
+      fill={fill}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+      strokeDasharray={strokeDasharray}
+      transform={`rotate(45 ${cx} ${cy})`}
+    />
+  );
 }
 
 // full-height opt-in marker line (wayframe#15) — same shape as the always-on
@@ -95,6 +125,43 @@ function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x
   );
 }
 
+// Ghost-rendering a slipped milestone (Milestone.date !== originalDate,
+// wayframe#29/#30). Two selectable styles, both won a live prototype
+// stress-test over a third (a connector line from the old date to the new
+// one — tangled with dependency connectors and was dropped): "badge" draws
+// nothing at the old date at all, just a +/-Nd marker beside the current
+// one; "outline" draws a dashed outline at the old date, no connector.
+export type GhostMode = "off" | "badge" | "outline";
+
+function daysBetween(fromDateStr: string, toDateStr: string): number {
+  return Math.round((parseDate(toDateStr) - parseDate(fromDateStr)) / 86400000);
+}
+
+function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: number }) {
+  return (
+    <g data-testid={`ghost-outline-${m.id}`}>
+      <CushionMarker cx={ghostCx} cy={cy} r={8} fill="none" stroke="currentColor" strokeWidth={1.25} strokeDasharray="2 2" />
+    </g>
+  );
+}
+
+function GhostBadge({ m, cx, cy }: { m: Milestone; cx: number; cy: number }) {
+  const slipDays = daysBetween(m.originalDate!, m.date);
+  const late = slipDays > 0;
+  const label = `${late ? "+" : ""}${slipDays}d`;
+  const badgeW = Math.max(22, label.length * 6 + 8);
+  const bx = cx + 12;
+  const by = cy - 18;
+  return (
+    <g data-testid={`ghost-badge-${m.id}`}>
+      <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={late ? "#f59e0b" : "#0ea5e9"} />
+      <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8} fontWeight={700} fill="#ffffff">
+        {label}
+      </text>
+    </g>
+  );
+}
+
 function MilestoneMarker({
   m,
   cx,
@@ -103,6 +170,8 @@ function MilestoneMarker({
   primary,
   date,
   onClick,
+  ghostMode,
+  ghostCx,
 }: {
   m: Milestone;
   cx: number;
@@ -111,14 +180,19 @@ function MilestoneMarker({
   primary: { text: string; tier: 0 | 1 | 2 };
   date: { text: string; tier: 0 | 1 | 2 };
   onClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
+  ghostMode: GhostMode;
+  /** x position of the original (pre-slip) date, or null if not slipped / ghosts off. */
+  ghostCx: number | null;
 }) {
   const r = 8;
   const primaryDy = PRIMARY_TIER_DY[primary.tier];
   const dateDy = DATE_TIER_DY[date.tier];
   const tooltipW = Math.max(40, m.title.length * 6 + 16);
+  const hasGhost = ghostCx !== null;
 
   return (
     <g className={onClick ? "group cursor-pointer" : "group cursor-default"} onClick={onClick ? (e) => onClick(m, e) : undefined}>
+      {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={m.isCriticalPath ? theme.criticalPathColor : "#ffffff"} strokeWidth={m.isCriticalPath ? 3 : 1.5} />
@@ -128,14 +202,20 @@ function MilestoneMarker({
       <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9} fill="currentColor" opacity={0.6}>
         {date.text}
       </text>
+      {hasGhost && ghostMode === "badge" && <GhostBadge m={m} cx={cx} cy={cy} />}
       {/* hover reveal: full title. CSS-only (no JS state) — a real <title>
           element gets hoisted by React 19 as document metadata even inside
           <svg>, which desyncs SSR/client, so this is the workaround. */}
       <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
-        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={20} rx={4} fill="#18181b" />
+        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasGhost ? 34 : 20} rx={4} fill="#18181b" />
         <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11} fill="#ffffff">
           {m.title}
         </text>
+        {hasGhost && (
+          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9} fill="#ffffff" opacity={0.7}>
+            <tspan textDecoration="line-through">{formatDateShort(m.originalDate!)}</tspan> → {formatDateShort(m.date)}
+          </text>
+        )}
       </g>
     </g>
   );
@@ -152,6 +232,8 @@ export interface RoadmapTimelineProps {
   onMilestoneClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
   /** Opens the lighter phase/top-level-milestone editor (wayframe#19) — not offered for annotations. */
   onTopLevelItemClick?: (t: TopLevelItem, evt: React.MouseEvent<SVGGElement>) => void;
+  /** Ghost-render slipped milestones (wayframe#29/#30) — off by default; callers opt in. */
+  ghostMode?: GhostMode;
 }
 
 export function RoadmapTimeline({
@@ -162,6 +244,7 @@ export function RoadmapTimeline({
   today = new Date(),
   onMilestoneClick,
   onTopLevelItemClick,
+  ghostMode = "off",
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -358,6 +441,8 @@ export function RoadmapTimeline({
               primary={primaryPlacement.get(m.id) ?? { text: m.shortLabel ?? deriveShortLabel(m.title), tier: 0 }}
               date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
               onClick={onMilestoneClick}
+              ghostMode={ghostMode}
+              ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
             />
           ))}
 
