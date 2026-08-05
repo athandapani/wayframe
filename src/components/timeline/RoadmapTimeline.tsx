@@ -11,7 +11,7 @@
 // the always-on Today line.
 "use client";
 
-import type { RoadmapData, Swimlane, Milestone, Status, TopLevelItem } from "./types";
+import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken } from "./color-utils";
@@ -113,70 +113,6 @@ function CushionMarker({
   );
 }
 
-/**
- * Status-encoded marker silhouettes (prototype/theme-system).
- *
- * Colour alone cannot carry status: with five hues that must still read as
- * their meaning, the best pairwise greyscale separation achievable is
- * ~1.1–1.5:1 (the shipped palette managed 1.06:1 between at-risk and
- * complete — the two states with opposite meaning). Shape is therefore the
- * primary channel and colour reinforces it, so the chart survives
- * greyscale printing, a B&W deck, and red-green colour blindness.
- *
- * Circle / triangle / square are the three most reliably distinguishable
- * silhouettes at this size; outline-vs-filled adds a fourth state without
- * needing a fourth shape.
- */
-function StatusMarker({
-  cx,
-  cy,
-  r,
-  status,
-  fill,
-  halo,
-  haloWidth = 1.5,
-}: {
-  cx: number;
-  cy: number;
-  r: number;
-  status: Status;
-  fill: string;
-  halo: string;
-  haloWidth?: number;
-}) {
-  const common = { fill, stroke: halo, strokeWidth: haloWidth };
-  switch (status) {
-    case "not-started":
-      // hollow — nothing has happened yet, so it reads as an empty slot
-      return <circle cx={cx} cy={cy} r={r * 0.82} fill="none" stroke={fill} strokeWidth={2.25} />;
-    case "on-track":
-      return <circle cx={cx} cy={cy} r={r * 0.86} {...common} />;
-    case "at-risk": {
-      // triangle — universally reads as "warning"
-      const h = r * 1.05;
-      return <path d={`M${cx} ${cy - h} L${cx + h * 1.05} ${cy + h * 0.78} L${cx - h * 1.05} ${cy + h * 0.78} Z`} {...common} strokeLinejoin="round" />;
-    }
-    case "delayed": {
-      const s = r * 0.82;
-      return <rect x={cx - s} y={cy - s} width={s * 2} height={s * 2} rx={1.5} {...common} />;
-    }
-    case "complete":
-      return (
-        <g>
-          <circle cx={cx} cy={cy} r={r * 0.86} {...common} />
-          <path
-            d={`M${cx - r * 0.42} ${cy + r * 0.04} l${r * 0.3} ${r * 0.32} l${r * 0.56} -${r * 0.6}`}
-            fill="none"
-            stroke={halo}
-            strokeWidth={1.9}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </g>
-      );
-  }
-}
-
 // full-height opt-in marker line (wayframe#15) — same shape as the always-on
 // Today line, parameterized so both share one implementation.
 function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x: number; topY: number; bottomY: number; label: string; color: string; dash?: string }) {
@@ -266,8 +202,8 @@ function MilestoneMarker({
       {/* Critical path is an ink collar, never a red ring — red already
           means "delayed", and the two measured 1.28:1 apart, so the
           highest-severity state used to be the least legible. */}
-      {critical && <circle cx={cx} cy={cy} r={r + 3.5} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} opacity={0.9} />}
-      <StatusMarker cx={cx} cy={cy} r={r} status={m.status} fill={theme.statusColor[m.status]} halo={theme.markerHalo} />
+      {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
+      <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={theme.markerHalo} strokeWidth={1.5} />
       <text x={cx} y={cy + primaryDy} textAnchor="middle" fontSize={10} fontWeight={700} fill="currentColor">
         {primary.text}
       </text>
@@ -445,23 +381,35 @@ export function RoadmapTimeline({
             return (
               <g key={row.swimlane.id}>
                 <rect x={0} y={y0} width={width} height={row.height} fill={theme.separatorBg} />
-                <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill={theme.separatorText} dominantBaseline="middle">
+                <text
+                  x={16}
+                  y={y0 + row.height / 2}
+                  fontSize={10.5}
+                  fontWeight={700}
+                  letterSpacing="0.09em"
+                  fill={theme.separatorText}
+                  dominantBaseline="middle"
+                  // CSS, not .toUpperCase() — keeps the real string in the DOM
+                  // so assistive tech doesn't announce it as an initialism.
+                  style={{ textTransform: "uppercase" }}
+                >
                   {row.swimlane.name}
                 </text>
               </g>
             );
           }
-          // Lane identity is organisational metadata, not state, so it gets
-          // a neutral slab plus a thin colour rail rather than a saturated
-          // block. Frees the visual budget for the status markers, which
-          // are the thing a reader actually needs to find.
+          // No header slab. Lane identity is a colour rail plus a faint wash
+          // over the plot area; the name sits directly on the chart ground in
+          // ink. Filling the header — whether with the lane colour or with a
+          // neutral — puts the heaviest mark on the chart next to the thing
+          // that carries the least information.
           const tint = laneColor(row.swimlane, row.laneIndex);
           return (
             <g key={row.swimlane.id}>
               <rect x={MARGIN.left} y={y0} width={innerWidth} height={row.height} fill={tint} fillOpacity={theme.laneWashOpacity} />
-              <rect x={0} y={y0} width={MARGIN.left} height={row.height} fill={theme.laneHeaderBg} />
-              <rect x={MARGIN.left - RAIL_W} y={y0} width={RAIL_W} height={row.height} fill={tint} />
-              <text x={12} y={y0 + row.height / 2} fontSize={12} fontWeight={650} fill={theme.laneHeaderText} dominantBaseline="middle">
+              <line x1={0} x2={width} y1={y0} y2={y0} stroke={theme.rowDivider} strokeWidth={1} />
+              <rect x={MARGIN.left - RAIL_W} y={y0 + 1} width={RAIL_W} height={row.height - 1} fill={tint} />
+              <text x={16} y={y0 + row.height / 2} fontSize={12.5} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
                 {row.swimlane.name}
               </text>
             </g>
