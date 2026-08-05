@@ -26,7 +26,13 @@ import { PRIMARY_TIER_DY, DATE_TIER_DY, layoutPrimaryLabels, layoutDateLabels } 
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
-const LANE_HEIGHT = 90;
+const LANE_HEIGHT = 100;
+/**
+ * Bare ground left above and below each lane's wash. Lanes used to sit flush
+ * against each other with a 1px divider, which read as one continuous field;
+ * a real gutter is what makes crossing into a new lane register.
+ */
+const LANE_GUTTER = 7;
 const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
 const AXIS_ROW_HEIGHT = 22;
@@ -193,7 +199,11 @@ function criticalStroke(style: CriticalPathStyle): { width: number; dash?: strin
 // Today line, parameterized so both share one implementation.
 function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x: number; topY: number; bottomY: number; label: string; color: string; dash?: string }) {
   return (
-    <g>
+    // Reference lines are painted after the markers, so without this they
+    // swallow clicks on any milestone sitting on the same date — the GA
+    // milestone sits exactly on the GA reference line and couldn't be
+    // opened at all.
+    <g pointerEvents="none">
       <line x1={cx} x2={cx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
       <text x={cx + 4} y={topY - 4} fontSize={9} fontWeight={700} fill={color}>
         {label}
@@ -598,9 +608,19 @@ export function RoadmapTimeline({
           const tint = laneColor(row.swimlane, row.laneIndex);
           return (
             <g key={row.swimlane.id}>
-              <rect x={MARGIN.left} y={y0} width={innerWidth} height={row.height} fill={tint} fillOpacity={theme.laneWashOpacity} />
-              <line x1={0} x2={width} y1={y0} y2={y0} stroke={theme.rowDivider} strokeWidth={1} />
-              <rect x={MARGIN.left - RAIL_W} y={y0 + 1} width={RAIL_W} height={row.height - 1} fill={tint} />
+              {/* The wash and rail are inset by LANE_GUTTER so bare ground
+                  shows between lanes. Adjacent washes that touch read as one
+                  continuous field with a hairline in it; a real gap is what
+                  makes the lane change register. */}
+              <rect
+                x={MARGIN.left}
+                y={y0 + LANE_GUTTER}
+                width={innerWidth}
+                height={row.height - LANE_GUTTER * 2}
+                fill={tint}
+                fillOpacity={theme.laneWashOpacity}
+              />
+              <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
               <text x={16} y={y0 + row.height / 2} fontSize={12.5} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
                 {row.swimlane.name}
               </text>
@@ -677,14 +697,54 @@ export function RoadmapTimeline({
             const w = Math.max(PILL_HEIGHT_SM, x(m.endDate!) - px);
             const cy = laneY(m.laneId);
             const fill = darken(laneTint(m.laneId), 0.4);
+            // Pills carry the same critical/trace state as point markers.
+            // They didn't before, so a duration on the critical path — which
+            // both production ramps are — dropped out of the highlight and
+            // the red line appeared to pass through nothing.
+            const critical = showCriticalPath && m.isCriticalPath;
+            const traceState = tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null;
+            // The label is clipped to the pill instead of running past its
+            // end — a long title used to overrun the chart's right edge.
+            const labelChars = Math.floor((w - PILL_HEIGHT_SM) / 4.8);
+            const label = labelChars >= 6 ? wrapText(m.title, labelChars, 1)[0] : null;
             return (
-              <g key={m.id} className={onMilestoneClick ? "cursor-pointer" : undefined} onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}>
+              <g
+                key={m.id}
+                className={onMilestoneClick ? "cursor-pointer" : undefined}
+                opacity={traceState === "out" ? 0.22 : 1}
+                onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}
+              >
                 <rect x={px} y={cy - PILL_HEIGHT_SM / 2} width={w} height={PILL_HEIGHT_SM} rx={PILL_HEIGHT_SM / 2} fill={fill} />
-                {w > 60 && (
+                {critical && (
+                  <rect
+                    x={px - 2}
+                    y={cy - PILL_HEIGHT_SM / 2 - 2}
+                    width={w + 4}
+                    height={PILL_HEIGHT_SM + 4}
+                    rx={(PILL_HEIGHT_SM + 4) / 2}
+                    fill="none"
+                    stroke={theme.criticalPathColor}
+                    strokeWidth={2}
+                  />
+                )}
+                {traceState === "in" && (
+                  <rect
+                    x={px - (critical ? 5 : 2)}
+                    y={cy - PILL_HEIGHT_SM / 2 - (critical ? 5 : 2)}
+                    width={w + (critical ? 10 : 4)}
+                    height={PILL_HEIGHT_SM + (critical ? 10 : 4)}
+                    rx={(PILL_HEIGHT_SM + 10) / 2}
+                    fill="none"
+                    stroke={theme.traceColor}
+                    strokeWidth={2}
+                  />
+                )}
+                {label && (
                   <text x={px + PILL_HEIGHT_SM / 2} y={cy + 3} fontSize={9} fill="#ffffff">
-                    {m.title}
+                    {label}
                   </text>
                 )}
+                <title>{`${m.title} — ${formatDateShort(m.date)} to ${formatDateShort(m.endDate!)}`}</title>
               </g>
             );
           })}

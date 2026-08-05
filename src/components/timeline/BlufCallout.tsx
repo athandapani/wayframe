@@ -89,13 +89,16 @@ export function BlufCallout({
     persist(pos);
   }
 
-  // Right/top anchored so the default position is unchanged; the drag offset
-  // moves it from there. x grows leftward because the anchor is the right edge.
+  // In normal flow beneath the chart by default, not floating over it. It
+  // used to overlay the plot area, where it always covered *something* —
+  // which milestones depended on the document — so a screenshot of the whole
+  // programme was never actually complete. Dragging lifts it out with a
+  // transform, leaving the flow position as the anchor it returns to.
+  const moved = pos.x !== 0 || pos.y !== 0;
   const anchor: React.CSSProperties = {
-    position: "absolute",
-    top: 64 + pos.y,
-    right: 16 - pos.x,
-    zIndex: 20,
+    position: moved ? "relative" : "static",
+    transform: moved ? `translate(${pos.x}px, ${pos.y}px)` : undefined,
+    zIndex: moved ? 20 : undefined,
   };
   const surface = { background: theme.panelBg, borderColor: theme.panelBorder, color: theme.panelInk };
 
@@ -104,7 +107,7 @@ export function BlufCallout({
       <button
         onClick={() => onOpenChange(true)}
         style={{ ...anchor, ...surface, borderWidth: 1 }}
-        className="rounded-full border px-3 py-1 text-xs font-semibold shadow"
+        className="mt-3 rounded-full border px-3 py-1 text-xs font-semibold shadow"
       >
         So what?
       </button>
@@ -112,7 +115,10 @@ export function BlufCallout({
   }
 
   return (
-    <div style={{ ...anchor, ...surface, borderWidth: 1 }} className="w-72 rounded-lg border p-3 text-xs shadow-lg">
+    // max-w-md keeps it clear of the centred correction bar, which is fixed
+    // to the viewport — page padding can't separate them when the content
+    // already fits on screen.
+    <div style={{ ...anchor, ...surface, borderWidth: 1 }} className="mt-3 w-full max-w-md rounded-lg border p-3 text-xs shadow-lg">
       <div
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -96,7 +96,6 @@ function RoadmapView({
   if (mode === "program") {
     return (
       <div className="relative mx-auto max-w-[1600px] p-8 pt-16" style={{ background: theme.ground }}>
-        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} />
         <RoadmapTimeline
           data={data}
           today={today}
@@ -111,6 +110,7 @@ function RoadmapView({
           onMilestoneDateChange={onMilestoneDateChange}
           tracedIds={tracedIds}
         />
+        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} />
       </div>
     );
   }
@@ -223,7 +223,10 @@ export function RoadmapWorkspace({
         } as React.CSSProperties
       }
     >
-      <div className="min-w-0 flex-1 pb-40">
+      {/* Clears the fixed correction bar at the bottom — the So-what panel
+          now sits in flow at the end of the content and would otherwise run
+          underneath it. */}
+      <div className="min-w-0 flex-1 pb-56">
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
         </div>
