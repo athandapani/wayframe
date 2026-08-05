@@ -15,7 +15,8 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
   return (
     <>
       {box.pending && (
-        <div className="fixed bottom-24 left-1/2 z-40 w-[560px] -translate-x-1/2 rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+          className="fixed bottom-24 left-1/2 z-40 w-[560px] -translate-x-1/2 rounded-xl border p-4 shadow-2xl">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Proposed correction</p>
           <ul className="mb-3 space-y-1 text-sm">
             {opRows.map((op) => (
@@ -54,7 +55,8 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
           box.submit(text);
           setText("");
         }}
-        className="fixed bottom-16 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-center gap-2 rounded-full border border-zinc-300 bg-white px-4 py-2 shadow-xl dark:border-zinc-600 dark:bg-zinc-900"
+        style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+        className="fixed bottom-16 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-center gap-2 rounded-full border px-4 py-2 shadow-xl"
       >
         <input
           value={text}
@@ -74,7 +76,8 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
         <button
           type="submit"
           disabled={box.loading}
-          className="rounded-full bg-zinc-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+          style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
+          className="rounded-full px-3 py-1 text-sm disabled:opacity-50"
         >
           {box.loading ? "Thinking…" : "Send"}
         </button>

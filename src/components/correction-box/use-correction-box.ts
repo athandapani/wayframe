@@ -55,6 +55,7 @@ export type CorrectionBoxAction =
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
   | { type: "loadDocument"; data: RoadmapData }
   | { type: "hydrated"; data: RoadmapData }
+  | { type: "setLaneColor"; laneId: string; color: string | undefined }
   | { type: "snapshotRollups"; today: Date };
 
 /**
@@ -137,6 +138,20 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // loaded instead of being a no-op.
       return { ...state, data: withComputedCriticalPath(action.data), pending: null, error: null };
     }
+    case "setLaneColor": {
+      // Lane colour is document content (Swimlane.color), not a viewer
+      // preference — it travels with the roadmap and survives export — so
+      // it's a normal undoable edit, unlike the theme itself.
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          swimlanes: state.data.swimlanes.map((l) => (l.id === action.laneId ? { ...l, color: action.color } : l)),
+        },
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "snapshotRollups": {
       // Passive once-per-calendar-day-per-lane rollup snapshot for the
       // Executive-view trend arrow (wayframe#33) — same "not a user edit"
@@ -169,6 +184,7 @@ export interface UseCorrectionBoxResult {
   undo: () => void;
   editMilestone: (ops: PatchOp[]) => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
+  setLaneColor: (laneId: string, color: string | undefined) => void;
   loadDocument: (data: RoadmapData) => void;
 }
 
@@ -294,6 +310,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
+  const setLaneColor = useCallback((laneId: string, color: string | undefined) => dispatch({ type: "setLaneColor", laneId, color }), []);
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
 
   return {
@@ -308,6 +325,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     undo,
     editMilestone,
     editTopLevelItem,
+    setLaneColor,
     loadDocument,
   };
 }

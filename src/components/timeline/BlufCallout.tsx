@@ -5,20 +5,32 @@
 // of truth instead of drifting out of sync.
 "use client";
 
+import type { Theme } from "./theme";
+
 export function BlufCallout({
   bluf,
   open,
   onOpenChange,
+  theme,
 }: {
   bluf: { statement: string; bullets: string[] };
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Colours come from the active chart theme, not from the OS dark-mode
+   * class (prototype/theme-system). Otherwise picking a dark chart theme
+   * left this panel light — a dark chart floating on light chrome.
+   */
+  theme: Theme;
 }) {
+  const surface = { background: theme.panelBg, borderColor: theme.panelBorder, color: theme.panelInk };
+
   if (!open) {
     return (
       <button
         onClick={() => onOpenChange(true)}
-        className="absolute top-16 right-4 z-20 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 shadow dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+        style={{ ...surface, borderWidth: 1 }}
+        className="absolute top-16 right-4 z-20 rounded-full border px-3 py-1 text-xs font-semibold shadow"
       >
         So what?
       </button>
@@ -26,10 +38,12 @@ export function BlufCallout({
   }
 
   return (
-    <div className="absolute top-16 right-4 z-20 w-72 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 shadow-lg dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+    <div style={{ ...surface, borderWidth: 1 }} className="absolute top-16 right-4 z-20 w-72 rounded-lg border p-3 text-xs shadow-lg">
       <div className="mb-1 flex items-start justify-between gap-2">
-        <span className="font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">So what</span>
-        <button onClick={() => onOpenChange(false)} className="leading-none text-amber-600 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-100" aria-label="Dismiss">
+        <span className="font-bold tracking-wide uppercase" style={{ color: theme.accent }}>
+          So what
+        </span>
+        <button onClick={() => onOpenChange(false)} className="leading-none opacity-60 hover:opacity-100" aria-label="Dismiss">
           ×
         </button>
       </div>

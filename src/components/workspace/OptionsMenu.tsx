@@ -34,12 +34,16 @@ export function OptionsMenu({ children }: { children: React.ReactNode }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label="Options"
-        className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-sm shadow dark:border-zinc-600 dark:bg-zinc-900"
+        style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+        className="rounded-full border px-3 py-1.5 text-sm shadow"
       >
         ☰
       </button>
       {open && (
-        <div className="absolute top-full right-0 z-50 mt-2 w-72 space-y-3 rounded-xl border border-zinc-200 bg-white p-3 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div
+          style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+          className="absolute top-full right-0 z-50 mt-2 w-72 space-y-3 rounded-xl border p-3 text-sm shadow-xl"
+        >
           {children}
         </div>
       )}
@@ -50,7 +54,7 @@ export function OptionsMenu({ children }: { children: React.ReactNode }) {
 export function OptionsMenuRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-zinc-600 dark:text-zinc-300">{label}</span>
+      <span className="opacity-70">{label}</span>
       <div className="flex items-center gap-1.5">{children}</div>
     </div>
   );

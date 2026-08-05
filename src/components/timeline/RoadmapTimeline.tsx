@@ -11,7 +11,7 @@
 // the always-on Today line.
 "use client";
 
-import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
+import type { RoadmapData, Swimlane, Milestone, Status, TopLevelItem } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken } from "./color-utils";
@@ -27,6 +27,7 @@ const TOP_BAND_HEIGHT = 90;
 const AXIS_ROW_HEIGHT = 22;
 const PILL_HEIGHT_LG = 20;
 const PILL_HEIGHT_SM = 14; // in-lane duration pills (wayframe#15)
+const RAIL_W = 4; // lane-colour rail on the inner edge of the lane header
 
 interface RowInfo {
   swimlane: Swimlane;
@@ -68,8 +69,8 @@ function AxisRow({ y, segments, theme, opacity, xOf }: { y: number; segments: Se
       {segments.map((s) => (
         <g key={s.label + s.start}>
           <rect x={xOf(s.start)} y={y} width={xOf(s.end) - xOf(s.start)} height={AXIS_ROW_HEIGHT} fill={theme.axisBg} fillOpacity={opacity} />
-          <line x1={xOf(s.start)} x2={xOf(s.start)} y1={y} y2={y + AXIS_ROW_HEIGHT} stroke="#ffffff" strokeOpacity={0.25} />
-          <text x={(xOf(s.start) + xOf(s.end)) / 2} y={y + AXIS_ROW_HEIGHT - 7} textAnchor="middle" fontSize={11} fontWeight={700} fill="#ffffff">
+          <line x1={xOf(s.start)} x2={xOf(s.start)} y1={y} y2={y + AXIS_ROW_HEIGHT} stroke={theme.axisText} strokeOpacity={0.25} />
+          <text x={(xOf(s.start) + xOf(s.end)) / 2} y={y + AXIS_ROW_HEIGHT - 7} textAnchor="middle" fontSize={11} fontWeight={700} fill={theme.axisText}>
             {s.label}
           </text>
         </g>
@@ -110,6 +111,70 @@ function CushionMarker({
       transform={`rotate(45 ${cx} ${cy})`}
     />
   );
+}
+
+/**
+ * Status-encoded marker silhouettes (prototype/theme-system).
+ *
+ * Colour alone cannot carry status: with five hues that must still read as
+ * their meaning, the best pairwise greyscale separation achievable is
+ * ~1.1–1.5:1 (the shipped palette managed 1.06:1 between at-risk and
+ * complete — the two states with opposite meaning). Shape is therefore the
+ * primary channel and colour reinforces it, so the chart survives
+ * greyscale printing, a B&W deck, and red-green colour blindness.
+ *
+ * Circle / triangle / square are the three most reliably distinguishable
+ * silhouettes at this size; outline-vs-filled adds a fourth state without
+ * needing a fourth shape.
+ */
+function StatusMarker({
+  cx,
+  cy,
+  r,
+  status,
+  fill,
+  halo,
+  haloWidth = 1.5,
+}: {
+  cx: number;
+  cy: number;
+  r: number;
+  status: Status;
+  fill: string;
+  halo: string;
+  haloWidth?: number;
+}) {
+  const common = { fill, stroke: halo, strokeWidth: haloWidth };
+  switch (status) {
+    case "not-started":
+      // hollow — nothing has happened yet, so it reads as an empty slot
+      return <circle cx={cx} cy={cy} r={r * 0.82} fill="none" stroke={fill} strokeWidth={2.25} />;
+    case "on-track":
+      return <circle cx={cx} cy={cy} r={r * 0.86} {...common} />;
+    case "at-risk": {
+      // triangle — universally reads as "warning"
+      const h = r * 1.05;
+      return <path d={`M${cx} ${cy - h} L${cx + h * 1.05} ${cy + h * 0.78} L${cx - h * 1.05} ${cy + h * 0.78} Z`} {...common} strokeLinejoin="round" />;
+    }
+    case "delayed": {
+      const s = r * 0.82;
+      return <rect x={cx - s} y={cy - s} width={s * 2} height={s * 2} rx={1.5} {...common} />;
+    }
+    case "complete":
+      return (
+        <g>
+          <circle cx={cx} cy={cy} r={r * 0.86} {...common} />
+          <path
+            d={`M${cx - r * 0.42} ${cy + r * 0.04} l${r * 0.3} ${r * 0.32} l${r * 0.56} -${r * 0.6}`}
+            fill="none"
+            stroke={halo}
+            strokeWidth={1.9}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </g>
+      );
+  }
 }
 
 // full-height opt-in marker line (wayframe#15) — same shape as the always-on
@@ -198,7 +263,11 @@ function MilestoneMarker({
       {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
-      <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={critical ? theme.criticalPathColor : "#ffffff"} strokeWidth={critical ? 3 : 1.5} />
+      {/* Critical path is an ink collar, never a red ring — red already
+          means "delayed", and the two measured 1.28:1 apart, so the
+          highest-severity state used to be the least legible. */}
+      {critical && <circle cx={cx} cy={cy} r={r + 3.5} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} opacity={0.9} />}
+      <StatusMarker cx={cx} cy={cy} r={r} status={m.status} fill={theme.statusColor[m.status]} halo={theme.markerHalo} />
       <text x={cx} y={cy + primaryDy} textAnchor="middle" fontSize={10} fontWeight={700} fill="currentColor">
         {primary.text}
       </text>
@@ -256,9 +325,19 @@ export function RoadmapTimeline({
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
+  /**
+   * A lane's accent. `Swimlane.color` is a per-document override (same
+   * pattern as ragOverride / isCriticalPathOverride) so a viewer can pick
+   * lane colours without leaving the theme; unset falls back to the active
+   * theme's palette, cycling by lane index.
+   */
+  function laneColor(lane: Swimlane, laneIndex: number): string {
+    return lane.color ?? theme.laneTint[laneIndex % theme.laneTint.length];
+  }
   function laneTint(laneId: string): string {
     const row = rowById.get(laneId);
-    return theme.laneTint[(row?.laneIndex ?? 0) % theme.laneTint.length];
+    if (!row) return theme.laneTint[0];
+    return laneColor(row.swimlane, row.laneIndex);
   }
   const { domainMin, domainMax } = computeDomain(data);
   const todayTs = today.getTime();
@@ -300,8 +379,11 @@ export function RoadmapTimeline({
   if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
 
   return (
-    <div className="overflow-x-auto" data-testid="roadmap-timeline">
-      <svg width={width} height={height} className="text-zinc-800 dark:text-zinc-200" style={{ fontFamily: theme.font }}>
+    <div className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
+      {/* `color` (not a Tailwind class) drives every `currentColor` in the
+          chart, so the theme owns the ink rather than the page's dark-mode
+          class deciding it. */}
+      <svg width={width} height={height} style={{ fontFamily: theme.font, color: theme.ink, background: theme.ground }}>
         {axisRows.map((row, i) => (
           <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} />
         ))}
@@ -363,18 +445,23 @@ export function RoadmapTimeline({
             return (
               <g key={row.swimlane.id}>
                 <rect x={0} y={y0} width={width} height={row.height} fill={theme.separatorBg} />
-                <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill="#ffffff" dominantBaseline="middle">
+                <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill={theme.separatorText} dominantBaseline="middle">
                   {row.swimlane.name}
                 </text>
               </g>
             );
           }
-          const tint = theme.laneTint[row.laneIndex % theme.laneTint.length];
+          // Lane identity is organisational metadata, not state, so it gets
+          // a neutral slab plus a thin colour rail rather than a saturated
+          // block. Frees the visual budget for the status markers, which
+          // are the thing a reader actually needs to find.
+          const tint = laneColor(row.swimlane, row.laneIndex);
           return (
             <g key={row.swimlane.id}>
-              <rect x={MARGIN.left} y={y0} width={innerWidth} height={row.height} fill={tint} fillOpacity={0.07} />
-              <rect x={0} y={y0} width={MARGIN.left} height={row.height} fill={darken(tint, 0.4)} />
-              <text x={8} y={y0 + row.height / 2} fontSize={12} fontWeight={700} fill="#ffffff" dominantBaseline="middle">
+              <rect x={MARGIN.left} y={y0} width={innerWidth} height={row.height} fill={tint} fillOpacity={theme.laneWashOpacity} />
+              <rect x={0} y={y0} width={MARGIN.left} height={row.height} fill={theme.laneHeaderBg} />
+              <rect x={MARGIN.left - RAIL_W} y={y0} width={RAIL_W} height={row.height} fill={tint} />
+              <text x={12} y={y0 + row.height / 2} fontSize={12} fontWeight={650} fill={theme.laneHeaderText} dominantBaseline="middle">
                 {row.swimlane.name}
               </text>
             </g>
@@ -399,8 +486,8 @@ export function RoadmapTimeline({
                   key={`${d.id}->${m.id}`}
                   d={`M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`}
                   fill="none"
-                  stroke={critical ? theme.criticalPathColor : "currentColor"}
-                  strokeOpacity={critical ? 0.9 : 0.35}
+                  stroke={critical ? theme.criticalPathColor : theme.connector}
+                  strokeOpacity={critical ? 0.95 : 0.55}
                   strokeWidth={critical ? 2.5 : 1.25}
                   markerEnd="url(#roadmap-timeline-arrow)"
                 />

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { defaultTheme } from "./theme";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { RoadmapTimeline } from "./RoadmapTimeline";
@@ -91,7 +92,7 @@ describe("deriveShortLabel", () => {
 
 function ControlledBlufCallout({ bluf }: { bluf: { statement: string; bullets: string[] } }) {
   const [open, setOpen] = useState(true);
-  return <BlufCallout bluf={bluf} open={open} onOpenChange={setOpen} />;
+  return <BlufCallout bluf={bluf} open={open} onOpenChange={setOpen} theme={defaultTheme} />;
 }
 
 describe("BlufCallout", () => {

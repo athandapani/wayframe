@@ -38,6 +38,13 @@ export interface Swimlane {
    */
   ragOverride?: Rag;
   /**
+   * Per-lane colour override (prototype/theme-system). Unset falls back to
+   * the active theme's lane palette, cycling by lane index — so switching
+   * themes restyles every lane that hasn't been explicitly pinned, and
+   * leaves the pinned ones alone. Mirrors ragOverride's placement.
+   */
+  color?: string;
+  /**
    * Append-only, unbounded daily rollup log — one entry written passively per
    * calendar day per lane on document load/view (wayframe issue #33), never
    * through useCorrectionBox's undo-tracked reducer actions (same treatment

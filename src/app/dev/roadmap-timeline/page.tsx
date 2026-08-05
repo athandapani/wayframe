@@ -7,6 +7,7 @@ import { useState } from "react";
 import { notFound } from "next/navigation";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
+import { defaultTheme } from "@/components/timeline/theme";
 import { sampleRoadmap } from "@/components/timeline/__fixtures__/sample-roadmap";
 
 export default function RoadmapTimelineDevPreview() {
@@ -17,7 +18,7 @@ export default function RoadmapTimelineDevPreview() {
   return (
     <div className="min-h-screen bg-zinc-50 p-8 dark:bg-black">
       <div className="relative mx-auto max-w-[1600px]">
-        <BlufCallout bluf={sampleRoadmap.bluf} open={blufOpen} onOpenChange={setBlufOpen} />
+        <BlufCallout bluf={sampleRoadmap.bluf} open={blufOpen} onOpenChange={setBlufOpen} theme={defaultTheme} />
         <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />
       </div>
     </div>

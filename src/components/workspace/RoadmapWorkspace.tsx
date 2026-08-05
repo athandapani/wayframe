@@ -9,11 +9,15 @@
 import { useRef, useState } from "react";
 import type { RoadmapData } from "@/components/timeline/types";
 import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTimeline";
+import type { Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
+import { useTheme } from "@/components/timeline/use-theme";
+import { THEME_LIST } from "@/components/timeline/theme";
+import { LaneColorPicker } from "./LaneColorPicker";
 import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
@@ -36,15 +40,13 @@ function deckFileName(programName: string): string {
 
 function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   return (
-    <div className="flex overflow-hidden rounded-full border border-zinc-300 bg-white text-sm shadow dark:border-zinc-600 dark:bg-zinc-900">
+    <div className="flex overflow-hidden rounded-full border text-sm shadow" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
       {(["executive", "program"] as const).map((m) => (
         <button
           key={m}
           onClick={() => onChange(m)}
-          className={
-            "px-4 py-1.5 capitalize " +
-            (mode === m ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")
-          }
+          style={mode === m ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
+          className={"px-4 py-1.5 capitalize " + (mode === m ? "font-semibold" : "opacity-60")}
         >
           {m}
         </button>
@@ -59,6 +61,7 @@ function RoadmapView({
   today,
   ghostMode,
   showCriticalPath,
+  theme,
   blufOpen,
   onBlufOpenChange,
   onMilestoneClick,
@@ -69,6 +72,7 @@ function RoadmapView({
   today: Date;
   ghostMode: GhostMode;
   showCriticalPath: boolean;
+  theme: Theme;
   blufOpen: boolean;
   onBlufOpenChange: (open: boolean) => void;
   onMilestoneClick?: (m: { id: string }) => void;
@@ -76,14 +80,15 @@ function RoadmapView({
 }) {
   if (mode === "program") {
     return (
-      <div className="relative mx-auto max-w-[1600px] p-8 pt-16">
-        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} />
+      <div className="relative mx-auto max-w-[1600px] p-8 pt-16" style={{ background: theme.ground }}>
+        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} />
         <RoadmapTimeline
           data={data}
           today={today}
           width={1600}
           ghostMode={ghostMode}
           showCriticalPath={showCriticalPath}
+          theme={theme}
           onMilestoneClick={onMilestoneClick}
           onTopLevelItemClick={onTopLevelItemClick}
         />
@@ -91,18 +96,18 @@ function RoadmapView({
     );
   }
   return (
-    <div className="pt-16">
+    <div className="pt-16" style={{ background: theme.ground, color: theme.ink }}>
       <ExecutiveView data={data} today={today} />
     </div>
   );
 }
 
 function pillToggle(active: boolean) {
-  return (
-    "rounded-full border px-2.5 py-1 text-xs " +
-    (active ? "border-zinc-300 bg-white dark:border-zinc-600 dark:bg-zinc-900" : "border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")
-  );
+  return "rounded-full border px-2.5 py-1 text-xs " + (active ? "" : "opacity-55");
 }
+
+/** Chrome surfaces read the theme through the CSS vars published on the workspace root. */
+const PILL_STYLE: React.CSSProperties = { background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" };
 
 export function RoadmapWorkspace({
   initialData,
@@ -117,6 +122,7 @@ export function RoadmapWorkspace({
   const box = useCorrectionBox(initialData, persist, today);
   const ghost = useGhostMode();
   const criticalPath = useCriticalPathVisibility();
+  const { themeId, theme, setTheme } = useTheme();
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -157,7 +163,22 @@ export function RoadmapWorkspace({
   }
 
   return (
-    <div className="flex min-h-screen bg-zinc-50 dark:bg-black">
+    <div
+      className="flex min-h-screen"
+      // Chrome (mode toggle, options menu, correction bar) renders as
+      // siblings rather than children of the chart, so the theme is
+      // published here as CSS custom properties instead of being
+      // prop-drilled into every one of them.
+      style={
+        {
+          background: theme.pageBg,
+          "--wf-panel": theme.panelBg,
+          "--wf-border": theme.panelBorder,
+          "--wf-ink": theme.panelInk,
+          "--wf-accent": theme.accent,
+        } as React.CSSProperties
+      }
+    >
       <div className="min-w-0 flex-1 pb-40">
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
@@ -165,29 +186,64 @@ export function RoadmapWorkspace({
         <div className="fixed top-4 right-4 z-50">
           <OptionsMenu>
             <OptionsMenuRow label="Export">
-              <button onClick={handleExport} disabled={exporting} className={pillToggle(true) + " disabled:opacity-50"}>
+              <button onClick={handleExport} disabled={exporting} style={PILL_STYLE} className={pillToggle(true) + " disabled:opacity-50"}>
                 {exporting ? "Exporting…" : "Export to Deck"}
               </button>
             </OptionsMenuRow>
+            <div className="border-b pb-3" style={{ borderColor: "var(--wf-border)" }}>
+              <p className="mb-1.5 opacity-70">Theme</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {THEME_LIST.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    aria-pressed={themeId === t.id}
+                    title={t.tagline}
+                    style={{
+                      // Selection has to come from the theme's own accent —
+                      // an OS-dark-mode class here rendered the *inactive*
+                      // themes as the highlighted ones on a dark panel.
+                      borderColor: themeId === t.id ? "var(--wf-accent)" : "var(--wf-border)",
+                      borderWidth: themeId === t.id ? 2 : 1,
+                    }}
+                    className="rounded-lg border p-1.5 text-left text-[11px]"
+                  >
+                    {/* a real swatch of the theme, not just its name */}
+                    <span className="mb-1 flex h-6 overflow-hidden rounded" style={{ background: t.ground }}>
+                      {t.laneTint.slice(0, 3).map((c) => (
+                        <span key={c} className="flex-1" style={{ background: c }} />
+                      ))}
+                      <span className="flex-1" style={{ background: t.statusColor.delayed }} />
+                    </span>
+                    <span className={themeId === t.id ? "font-semibold" : ""}>{t.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="border-b pb-3" style={{ borderColor: "var(--wf-border)" }}>
+              <p className="mb-1.5 opacity-70">Lane colours</p>
+              <LaneColorPicker swimlanes={box.data.swimlanes} theme={theme} onChange={box.setLaneColor} />
+            </div>
             <OptionsMenuRow label="Ghosts">
               <button
                 onClick={() => ghost.setEnabled(!ghost.enabled)}
                 aria-pressed={ghost.enabled}
                 aria-label={`Ghosts: ${ghost.enabled ? "On" : "Off"}`}
-                className={pillToggle(ghost.enabled)}
+                style={PILL_STYLE} className={pillToggle(ghost.enabled)}
               >
                 {ghost.enabled ? "On" : "Off"}
               </button>
             </OptionsMenuRow>
             {ghost.enabled && (
               <OptionsMenuRow label="Ghost style">
-                <div className="flex overflow-hidden rounded-full border border-zinc-300 bg-white text-xs dark:border-zinc-600 dark:bg-zinc-900">
+                <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
                   {(["badge", "outline"] as const).map((s) => (
                     <button
                       key={s}
                       onClick={() => ghost.setStyle(s)}
+                      style={ghost.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
                       className={
-                        "px-2.5 py-1 capitalize " + (ghost.style === s ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")
+                        "px-2.5 py-1 capitalize " + (ghost.style === s ? "font-semibold" : "opacity-60")
                       }
                     >
                       {s}
@@ -201,13 +257,13 @@ export function RoadmapWorkspace({
                 onClick={() => criticalPath.setVisible(!criticalPath.visible)}
                 aria-pressed={criticalPath.visible}
                 aria-label={`Critical path: ${criticalPath.visible ? "Shown" : "Hidden"}`}
-                className={pillToggle(criticalPath.visible)}
+                style={PILL_STYLE} className={pillToggle(criticalPath.visible)}
               >
                 {criticalPath.visible ? "Shown" : "Hidden"}
               </button>
             </OptionsMenuRow>
             <OptionsMenuRow label="Correction UI">
-              <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} className={pillToggle(true)}>
+              <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
                 {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
               </button>
             </OptionsMenuRow>
@@ -216,13 +272,13 @@ export function RoadmapWorkspace({
                 onClick={() => setBlufOpen((v) => !v)}
                 aria-pressed={blufOpen}
                 aria-label={`So what: ${blufOpen ? "Shown" : "Hidden"}`}
-                className={pillToggle(blufOpen)}
+                style={PILL_STYLE} className={pillToggle(blufOpen)}
               >
                 {blufOpen ? "Shown" : "Hidden"}
               </button>
             </OptionsMenuRow>
             <OptionsMenuRow label="Import">
-              <button onClick={() => setImportOpen(true)} className={pillToggle(true)}>
+              <button onClick={() => setImportOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
                 Import a schedule
               </button>
             </OptionsMenuRow>
@@ -235,6 +291,7 @@ export function RoadmapWorkspace({
             today={today}
             ghostMode={ghost.mode}
             showCriticalPath={criticalPath.visible}
+            theme={theme}
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
@@ -243,7 +300,7 @@ export function RoadmapWorkspace({
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
+            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
           </div>
         )}
       </div>
