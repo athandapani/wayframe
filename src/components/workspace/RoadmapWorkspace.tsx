@@ -12,6 +12,8 @@ import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTi
 import type { Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
+import { WayframeLogo } from "@/components/brand/WayframeLogo";
+import { HelpPanel } from "./HelpPanel";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
@@ -162,6 +164,7 @@ export function RoadmapWorkspace({
   const [exporting, setExporting] = useState(false);
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const openFileRef = useRef<HTMLInputElement>(null);
 
   const visibleCaptureRef = useRef<HTMLDivElement>(null);
@@ -238,6 +241,18 @@ export function RoadmapWorkspace({
           now sits in flow at the end of the content and would otherwise run
           underneath it. */}
       <div className="min-w-0 flex-1 pb-56">
+        <div className="fixed top-3 left-4 z-50 flex items-center gap-2" style={{ color: "var(--wf-ink)" }}>
+          <WayframeLogo accent={theme.accent} caption="Notes in, roadmap out" />
+          <button
+            onClick={() => setHelpOpen(true)}
+            aria-label="What Wayframe can do"
+            title="What Wayframe can do"
+            style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+            className="ml-1 h-5 w-5 rounded-full border text-[11px] leading-none font-semibold opacity-70 hover:opacity-100"
+          >
+            ?
+          </button>
+        </div>
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
         </div>
@@ -277,6 +292,11 @@ export function RoadmapWorkspace({
         )}
         <div className="fixed top-4 right-4 z-50">
           <OptionsMenu>
+            <OptionsMenuRow label="Help">
+              <button onClick={() => setHelpOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                What can this do?
+              </button>
+            </OptionsMenuRow>
             <OptionsMenuRow label="File">
               <button onClick={() => saveDocumentFile(box.data)} style={PILL_STYLE} className={pillToggle(true)}>
                 Save
@@ -476,6 +496,7 @@ export function RoadmapWorkspace({
       />
       <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
       {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
+      {helpOpen && <HelpPanel theme={theme} onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }

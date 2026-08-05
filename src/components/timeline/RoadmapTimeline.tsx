@@ -614,15 +614,13 @@ export function RoadmapTimeline({
               </g>
             );
           }
-          const cx = x(t.date);
-          return (
-            <g key={t.id}>
-              <line x1={cx} x2={cx} y1={y - 20} y2={height - MARGIN.bottom} stroke="#a855f7" strokeDasharray="4 3" opacity={0.7} />
-              <text x={cx + 4} y={y - 22} fontSize={10} fill="#a855f7">
-                {t.title}
-              </text>
-            </g>
-          );
+          // Annotations draw nothing here. Their full-height line used to be
+          // emitted in this block, which runs before the swimlane rows, so
+          // every lane wash and separator band painted straight over it —
+          // the Board Review line disappeared behind the Commercialization
+          // header. It's drawn in the vertical-marker layer below instead,
+          // with the other full-height lines.
+          return null;
         })}
 
         {/* swimlane rows: separators (group headers) + lanes with a solid darker header block */}
@@ -844,6 +842,16 @@ export function RoadmapTimeline({
               dragDx={drag?.id === m.id ? drag.dx : undefined}
               dragging={drag?.id === m.id}
             />
+          ))}
+
+        {/* Vertical marker layer. Everything full-height is drawn here,
+            after the lanes, so a date line always reads across the whole
+            chart instead of being interrupted by a lane wash or a
+            separator band. */}
+        {data.topLevelItems
+          .filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation")
+          .map((t) => (
+            <ReferenceLine key={`ann-${t.id}`} x={x(t.date)} topY={topBandY + 22} bottomY={height - MARGIN.bottom} label={t.title} color="#a855f7" dash="4 3" />
           ))}
 
         {/* opt-in reference lines (wayframe#15) — any milestone, lane-level or top-level, flagged showReferenceLine */}
