@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { Milestone, RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
+import type { Milestone, RoadmapData, RollupSnapshot, Swimlane, TopLevelItem } from "@/components/timeline/types";
 import type { PatchOp, Skipped } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { applyOps } from "@/lib/corrections/apply";
@@ -60,6 +60,10 @@ export type CorrectionBoxAction =
   | { type: "addMilestone"; laneId: string; date: string; newId: string }
   | { type: "setMilestoneDate"; id: string; date: string }
   | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean }
+  | { type: "addSwimlane"; swimlaneType: "lane" | "separator"; newId: string }
+  | { type: "renameSwimlane"; id: string; name: string }
+  | { type: "removeSwimlane"; id: string }
+  | { type: "moveSwimlane"; id: string; delta: -1 | 1 }
   | { type: "snapshotRollups"; today: Date };
 
 /**
@@ -208,6 +212,69 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "addSwimlane": {
+      // Appended at the end and renumbered from scratch — `order` is the
+      // only thing that positions a row, and letting gaps accumulate makes
+      // the move-up/down maths fragile.
+      const nextOrder = state.data.swimlanes.reduce((max, l) => Math.max(max, l.order), -1) + 1;
+      const swimlane: Swimlane = {
+        id: action.newId,
+        order: nextOrder,
+        type: action.swimlaneType,
+        name: action.swimlaneType === "lane" ? "New lane" : "New group",
+      };
+      return {
+        ...state,
+        data: { ...state.data, swimlanes: [...state.data.swimlanes, swimlane] },
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "renameSwimlane": {
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          swimlanes: state.data.swimlanes.map((l) => (l.id === action.id ? { ...l, name: action.name } : l)),
+        },
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "removeSwimlane": {
+      // A lane owns its milestones, so deleting it deletes them — and then
+      // any OTHER milestone that depended on one of them would be left
+      // pointing at an id that no longer exists. That's exactly the broken
+      // reference the file loader refuses to open, so the edge is stripped
+      // here rather than left for a save/reload to discover.
+      const doomed = new Set(state.data.milestones.filter((m) => m.laneId === action.id).map((m) => m.id));
+      const milestones = state.data.milestones
+        .filter((m) => m.laneId !== action.id)
+        .map((m) => (m.dependsOn.some((d) => doomed.has(d.id)) ? { ...m, dependsOn: m.dependsOn.filter((d) => !doomed.has(d.id)) } : m));
+      const swimlanes = state.data.swimlanes
+        .filter((l) => l.id !== action.id)
+        .sort((a, b) => a.order - b.order)
+        .map((l, i) => ({ ...l, order: i }));
+      return {
+        ...state,
+        data: withComputedCriticalPath({ ...state.data, swimlanes, milestones }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "moveSwimlane": {
+      const ordered = [...state.data.swimlanes].sort((a, b) => a.order - b.order);
+      const i = ordered.findIndex((l) => l.id === action.id);
+      const j = i + action.delta;
+      if (i === -1 || j < 0 || j >= ordered.length) return state;
+      [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+      return {
+        ...state,
+        data: { ...state.data, swimlanes: ordered.map((l, k) => ({ ...l, order: k })) },
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "snapshotRollups": {
       // Passive once-per-calendar-day-per-lane rollup snapshot for the
       // Executive-view trend arrow (wayframe#33) — same "not a user edit"
@@ -245,6 +312,10 @@ export interface UseCorrectionBoxResult {
   addMilestone: (laneId: string, date: string) => string;
   setMilestoneDate: (id: string, date: string) => void;
   toggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
+  addSwimlane: (swimlaneType: "lane" | "separator") => void;
+  renameSwimlane: (id: string, name: string) => void;
+  removeSwimlane: (id: string) => void;
+  moveSwimlane: (id: string, delta: -1 | 1) => void;
   loadDocument: (data: RoadmapData) => void;
 }
 
@@ -381,6 +452,10 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     (dependentId: string, dependencyId: string, add: boolean) => dispatch({ type: "toggleDependency", dependentId, dependencyId, add }),
     [],
   );
+  const addSwimlane = useCallback((swimlaneType: "lane" | "separator") => dispatch({ type: "addSwimlane", swimlaneType, newId: nanoid() }), []);
+  const renameSwimlane = useCallback((id: string, name: string) => dispatch({ type: "renameSwimlane", id, name }), []);
+  const removeSwimlane = useCallback((id: string) => dispatch({ type: "removeSwimlane", id }), []);
+  const moveSwimlane = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlane", id, delta }), []);
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
 
   return {
@@ -399,6 +474,10 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     addMilestone,
     setMilestoneDate,
     toggleDependency,
+    addSwimlane,
+    renameSwimlane,
+    removeSwimlane,
+    moveSwimlane,
     loadDocument,
   };
 }

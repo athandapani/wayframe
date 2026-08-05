@@ -38,6 +38,7 @@ const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
       { name: "Edit a milestone", detail: "Click any marker: title, date, status, % complete, owner, comment, critical-path override.", where: "Click a marker" },
       { name: "Drag to reschedule", detail: "Drag a marker along the timeline to move its date. Dependants cascade automatically.", where: "Drag a marker" },
       { name: "Add a milestone", detail: "The + in a lane header creates one and opens it for editing.", where: "Lane header" },
+      { name: "Add, rename or reorder swimlanes", detail: "Lanes and the group bands between them. Deleting a lane names how many milestones go with it.", where: "Options ▸ Swimlanes" },
       { name: "Link predecessors and successors", detail: "Build the dependency graph from either end; the critical path recomputes as you go.", where: "Milestone editor" },
       { name: "Undo anything", detail: "One history stack covers AI edits, manual edits, drags and imports alike.", where: "Bar at the bottom" },
     ],
@@ -58,7 +59,7 @@ const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
     blurb: "",
     features: [
       { name: "Three themes", detail: "Blueprint, Graphite and Press — each tuned as a whole, not a palette swap.", where: "Options ▸ Theme" },
-      { name: "Per-lane colours", detail: "Pin any lane's colour; the rest follow the theme.", where: "Options ▸ Lane colours" },
+      { name: "Per-lane colours", detail: "Pin any lane's colour; the rest follow the theme.", where: "Options ▸ Swimlanes" },
       { name: "Save and open", detail: "Download the whole roadmap as a file and open it again later, or hand it to someone else.", where: "Options ▸ File" },
       { name: "Export to deck", detail: "Both views as PowerPoint slides, whichever one you're looking at.", where: "Options ▸ Export" },
     ],

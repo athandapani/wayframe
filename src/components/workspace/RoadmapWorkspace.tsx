@@ -24,7 +24,7 @@ import type { LabelDensity } from "@/components/timeline/title-layout";
 import { useTheme } from "@/components/timeline/use-theme";
 import { THEME_LIST } from "@/components/timeline/theme";
 import { laneColors } from "@/components/timeline/lane-colors";
-import { LaneColorPicker } from "./LaneColorPicker";
+import { SwimlaneManager } from "./SwimlaneManager";
 import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
@@ -165,6 +165,7 @@ export function RoadmapWorkspace({
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [lanesOpen, setLanesOpen] = useState(false);
   const openFileRef = useRef<HTMLInputElement>(null);
 
   const visibleCaptureRef = useRef<HTMLDivElement>(null);
@@ -351,10 +352,11 @@ export function RoadmapWorkspace({
                 ))}
               </div>
             </div>
-            <div className="border-b pb-3" style={{ borderColor: "var(--wf-border)" }}>
-              <p className="mb-1.5 opacity-70">Lane colours</p>
-              <LaneColorPicker swimlanes={box.data.swimlanes} theme={theme} onChange={box.setLaneColor} />
-            </div>
+            <OptionsMenuRow label="Swimlanes">
+              <button onClick={() => setLanesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                Add / edit lanes
+              </button>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Marker labels">
               <select
                 value={labels.density}
@@ -497,6 +499,18 @@ export function RoadmapWorkspace({
       <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
       {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
       {helpOpen && <HelpPanel theme={theme} onClose={() => setHelpOpen(false)} />}
+      {lanesOpen && (
+        <SwimlaneManager
+          data={box.data}
+          theme={theme}
+          onAdd={box.addSwimlane}
+          onRename={box.renameSwimlane}
+          onRemove={box.removeSwimlane}
+          onMove={box.moveSwimlane}
+          onColor={box.setLaneColor}
+          onClose={() => setLanesOpen(false)}
+        />
+      )}
     </div>
   );
 }
