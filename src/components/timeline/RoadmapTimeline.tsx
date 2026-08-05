@@ -243,6 +243,7 @@ function MilestoneMarker({
   ghostMode,
   ghostCx,
   showCriticalPath,
+  traceState,
   onDragStart,
   dragDx,
   dragging,
@@ -258,6 +259,8 @@ function MilestoneMarker({
   /** x position of the original (pre-slip) date, or null if not slipped / ghosts off. */
   ghostCx: number | null;
   showCriticalPath: boolean;
+  /** "in" = part of the active trace, "out" = dimmed, null = no trace running. */
+  traceState: "in" | "out" | null;
   /** Non-null when the chart is draggable; called on pointer-down to begin a drag. */
   onDragStart?: (m: Milestone, evt: React.PointerEvent<SVGGElement>) => void;
   /** Live x offset while this marker is being dragged. */
@@ -277,7 +280,9 @@ function MilestoneMarker({
     <g
       className={onDragStart ? "group cursor-grab active:cursor-grabbing" : onClick ? "group cursor-pointer" : "group cursor-default"}
       transform={dragDx ? `translate(${dragDx} 0)` : undefined}
-      opacity={dragging ? 0.85 : 1}
+      // Dimming everything outside the trace is what makes the traced path
+      // legible on a dense chart — highlighting alone doesn't separate it.
+      opacity={dragging ? 0.85 : traceState === "out" ? 0.22 : 1}
       onClick={onClick ? (e) => onClick(m, e) : undefined}
       onPointerDown={onDragStart ? (e) => onDragStart(m, e) : undefined}
     >
@@ -288,6 +293,7 @@ function MilestoneMarker({
           means "delayed", and the two measured 1.28:1 apart, so the
           highest-severity state used to be the least legible. */}
       {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
+      {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={theme.markerHalo} strokeWidth={1.5} />
       <text x={cx} y={cy + primaryDy} textAnchor="middle" fontSize={10} fontWeight={700} fill="currentColor">
         {primary.text}
@@ -335,6 +341,8 @@ export interface RoadmapTimelineProps {
   onAddMilestone?: (laneId: string) => void;
   /** Fired after a marker is dragged to a new date (snapped to a day). */
   onMilestoneDateChange?: (milestoneId: string, isoDate: string) => void;
+  /** Ids in the active trace — highlighted in the theme's trace colour. */
+  tracedIds?: Set<string>;
 }
 
 export function RoadmapTimeline({
@@ -350,6 +358,7 @@ export function RoadmapTimeline({
   criticalPathStyle = "thick",
   onAddMilestone,
   onMilestoneDateChange,
+  tracedIds,
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -569,12 +578,16 @@ export function RoadmapTimeline({
             // critical set don't overlap at all in the demo document.
             .filter((d) => {
               const from = milestoneById.get(d.id);
-              return d.showConnector || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath);
+              // A traced edge always draws, same reasoning as a critical one:
+              // a path is only legible if every hop in it is visible.
+              const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(d.id);
+              return d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath);
             })
             .map((d) => {
               const from = milestoneById.get(d.id);
               if (!from) return null;
               const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
+              const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(from.id);
               const x1 = x(from.date);
               const y1 = laneY(from.laneId);
               const x2 = x(m.date);
@@ -582,14 +595,18 @@ export function RoadmapTimeline({
               const midX = x1 + (x2 - x1) / 2;
               const path = `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
               if (!critical) {
+                // Critical wins the line where the two overlap; the trace
+                // still lifts the markers, so a traced critical edge
+                // doesn't lose which one it is.
                 return (
                   <path
                     key={`${d.id}->${m.id}`}
+                    data-testid={traced ? `traced-connector-${d.id}-${m.id}` : undefined}
                     d={path}
                     fill="none"
-                    stroke={theme.connector}
-                    strokeOpacity={0.55}
-                    strokeWidth={1.25}
+                    stroke={traced ? theme.traceColor : theme.connector}
+                    strokeOpacity={traced ? 0.95 : 0.55}
+                    strokeWidth={traced ? 2.5 : 1.25}
                     markerEnd="url(#roadmap-timeline-arrow)"
                   />
                 );
@@ -647,6 +664,7 @@ export function RoadmapTimeline({
               ghostMode={ghostMode}
               ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
               showCriticalPath={showCriticalPath}
+              traceState={tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null}
               onDragStart={onMilestoneDateChange ? beginDrag : undefined}
               dragDx={drag?.id === m.id ? drag.dx : undefined}
               dragging={drag?.id === m.id}

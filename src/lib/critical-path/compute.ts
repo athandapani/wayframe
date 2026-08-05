@@ -72,6 +72,14 @@ export function computeCriticalPathIds(data: Pick<RoadmapData, "milestones" | "t
 
   const linked = (m: Milestone) => (m.linksToTopLevelMilestone !== null ? topLevelDateById.get(m.linksToTopLevelMilestone) : undefined);
 
+  /**
+   * When a milestone carries a duration (`endDate`, wayframe#15) it's a span,
+   * not a point, and the span's END is what paces anything downstream — a
+   * six-week qualification window that starts early can still finish last.
+   * Milestones without a duration finish on their own date.
+   */
+  const finishOf = (m: Milestone) => m.endDate ?? m.date;
+
   /** Hops in the longest chain ending at `id`, plus the predecessor that gives it. */
   const memo = new Map<string, { depth: number; via: string | null }>();
   const visiting = new Set<string>();
@@ -104,7 +112,7 @@ export function computeCriticalPathIds(data: Pick<RoadmapData, "milestones" | "t
   const eligible = milestones.filter(connected);
   if (eligible.length === 0) return new Set();
   const programEnd = eligible.reduce((acc, m) => {
-    const d = [m.date, linked(m)].filter(Boolean) as string[];
+    const d = [finishOf(m), linked(m)].filter(Boolean) as string[];
     const latest = d.reduce((a, b) => (a > b ? a : b));
     return latest > acc ? latest : acc;
   }, "");
@@ -114,7 +122,7 @@ export function computeCriticalPathIds(data: Pick<RoadmapData, "milestones" | "t
   // the deepest chains count: a single milestone that happens to land on
   // the finish date shouldn't read as critical as a six-hop chain that
   // fought its way there.
-  const atEnd = eligible.filter((m) => m.date === programEnd || linked(m) === programEnd);
+  const atEnd = eligible.filter((m) => finishOf(m) === programEnd || linked(m) === programEnd);
   const deepest = atEnd.reduce((max, m) => Math.max(max, longestChainTo(m.id).depth), 0);
   const endpoints = atEnd.filter((m) => longestChainTo(m.id).depth === deepest);
 

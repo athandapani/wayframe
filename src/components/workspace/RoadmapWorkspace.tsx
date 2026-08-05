@@ -26,6 +26,8 @@ import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/mi
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow } from "./OptionsMenu";
 import { exportToDeck } from "@/lib/export/export-to-deck";
+import { saveDocumentFile, parseDocumentFile } from "@/lib/document-file/document-file";
+import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 
 type Mode = "executive" | "program";
 
@@ -71,6 +73,7 @@ function RoadmapView({
   onTopLevelItemClick,
   onAddMilestone,
   onMilestoneDateChange,
+  tracedIds,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -85,6 +88,7 @@ function RoadmapView({
   onTopLevelItemClick?: (t: { id: string }) => void;
   onAddMilestone?: (laneId: string) => void;
   onMilestoneDateChange?: (id: string, date: string) => void;
+  tracedIds?: Set<string>;
 }) {
   if (mode === "program") {
     return (
@@ -102,6 +106,7 @@ function RoadmapView({
           onTopLevelItemClick={onTopLevelItemClick}
           onAddMilestone={onAddMilestone}
           onMilestoneDateChange={onMilestoneDateChange}
+          tracedIds={tracedIds}
         />
       </div>
     );
@@ -141,6 +146,9 @@ export function RoadmapWorkspace({
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
+  const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
+  const openFileRef = useRef<HTMLInputElement>(null);
 
   const visibleCaptureRef = useRef<HTMLDivElement>(null);
   const offscreenCaptureRef = useRef<HTMLDivElement>(null);
@@ -150,6 +158,19 @@ export function RoadmapWorkspace({
   const selectedTopLevelItem = selectedTopLevelItemRaw && isEditableTopLevelItem(selectedTopLevelItemRaw) ? selectedTopLevelItemRaw : null;
 
   const otherMode: Mode = mode === "program" ? "executive" : "program";
+
+  // A trace is view state, not document content — nothing is written to the
+  // roadmap, so it never competes with the computed critical path and two
+  // readers can trace different milestones from the same file.
+  const tracedIds = trace ? traceFrom(box.data.milestones, trace.rootId, trace.direction) : undefined;
+  const traceRoot = trace ? box.data.milestones.find((m) => m.id === trace.rootId) : null;
+
+  async function handleOpenFile(file: File) {
+    setFileError(null);
+    const result = parseDocumentFile(await file.text());
+    if (result.ok) box.loadDocument(result.document);
+    else setFileError({ message: result.message, issues: result.issues });
+  }
 
   // New milestones land on today's date so they appear near the Today line
   // rather than at the far edge of the domain, then open straight into the
@@ -203,8 +224,61 @@ export function RoadmapWorkspace({
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
         </div>
+        {/* An active trace needs a visible way out — dimmed markers with no
+            explanation read as a rendering bug rather than a filter. */}
+        {trace && traceRoot && (
+          <div
+            className="fixed top-16 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border px-3 py-1.5 text-xs shadow"
+            style={{ background: "var(--wf-panel)", borderColor: theme.traceColor, color: "var(--wf-ink)" }}
+          >
+            <span>
+              <span className="inline-block h-2 w-2 rounded-full align-middle" style={{ background: theme.traceColor }} /> Highlighting{" "}
+              {trace.direction === "upstream" ? "everything feeding" : trace.direction === "downstream" ? "everything waiting on" : "everything around"}{" "}
+              <strong>{traceRoot.title}</strong> ({tracedIds ? tracedIds.size : 0} milestones)
+            </span>
+            <button onClick={() => setTrace(null)} className="rounded-full border px-2 py-0.5" style={{ borderColor: "var(--wf-border)" }}>
+              Clear
+            </button>
+          </div>
+        )}
+        {fileError && (
+          <div className="fixed top-16 left-1/2 z-50 w-[420px] -translate-x-1/2 rounded-lg border border-red-400 bg-red-50 p-3 text-xs text-red-800 shadow dark:bg-red-950 dark:text-red-200">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-semibold">{fileError.message}</p>
+              <button onClick={() => setFileError(null)} aria-label="Dismiss" className="leading-none">
+                ×
+              </button>
+            </div>
+            {fileError.issues.length > 0 && (
+              <ul className="mt-1 list-inside list-disc">
+                {fileError.issues.map((i) => (
+                  <li key={i}>{i}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <div className="fixed top-4 right-4 z-50">
           <OptionsMenu>
+            <OptionsMenuRow label="File">
+              <button onClick={() => saveDocumentFile(box.data)} style={PILL_STYLE} className={pillToggle(true)}>
+                Save
+              </button>
+              <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
+                Open
+              </button>
+              <input
+                ref={openFileRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleOpenFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </OptionsMenuRow>
             <OptionsMenuRow label="Export">
               <button onClick={handleExport} disabled={exporting} style={PILL_STYLE} className={pillToggle(true) + " disabled:opacity-50"}>
                 {exporting ? "Exporting…" : "Export to Deck"}
@@ -335,6 +409,7 @@ export function RoadmapWorkspace({
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onAddMilestone={handleAddMilestone}
             onMilestoneDateChange={box.setMilestoneDate}
+            tracedIds={tracedIds}
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
           />
         </div>
@@ -351,6 +426,10 @@ export function RoadmapWorkspace({
         onSave={box.editMilestone}
         onClose={() => setSelectedMilestoneId(null)}
         onToggleDependency={box.toggleDependency}
+        onTrace={(direction) => {
+          if (selectedMilestoneId) setTrace({ rootId: selectedMilestoneId, direction });
+          setSelectedMilestoneId(null);
+        }}
       />
       <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
       {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}

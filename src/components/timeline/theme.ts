@@ -71,8 +71,10 @@ export interface Theme {
   laneRamp: LaneRamp;
 
   statusColor: Record<Status, string>;
-  /** Critical-path line colour. */
+  /** Critical-path line colour — always red, always the same meaning. */
   criticalPathColor: string;
+  /** Ad-hoc trace highlight. Deliberately not red, so it can never be read as critical. */
+  traceColor: string;
   connector: string;
   /** Halo stroke that lifts a marker off the lane wash. */
   markerHalo: string;
@@ -131,6 +133,7 @@ export const blueprintTheme: Theme = {
 
   statusColor: LIGHT_STATUS,
   criticalPathColor: "#c81e2d",
+  traceColor: "#1f6fb2",
   connector: "#a8b7c6",
   markerHalo: "#ffffff",
 
@@ -175,6 +178,7 @@ export const graphiteTheme: Theme = {
     delayed: "#f4514f",
   },
   criticalPathColor: "#ff5f57",
+  traceColor: "#4fa6e9",
   connector: "#3d4753",
   markerHalo: "#0d1117",
 
@@ -211,6 +215,7 @@ export const pressTheme: Theme = {
 
   statusColor: LIGHT_STATUS,
   criticalPathColor: "#c8102e",
+  traceColor: "#0a5fae",
   connector: "#c4c4c4",
   markerHalo: "#ffffff",
 

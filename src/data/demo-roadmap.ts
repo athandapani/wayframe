@@ -84,8 +84,14 @@ export const demoRoadmap: RoadmapData = {
     { id: "mfg-2", laneId: "lane-mfg", title: "Long-Lead Component Sourcing (Motors, Lidar)", date: "2025-12-15", status: "complete", comment: "Dual-sourced lidar to de-risk a single supplier.", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "mfg-3", laneId: "lane-mfg", title: "Pilot Line Bring-up", date: "2026-09-15", endDate: "2026-09-28", status: "on-track", owner: "J. O'Hara — Supply Chain Mgr", percentComplete: 55, dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
     { id: "mfg-4", laneId: "lane-mfg", title: "Supplier PPAP Approval", date: "2026-10-01", status: "on-track", owner: "J. O'Hara — Supply Chain Mgr", dependsOn: [{ id: "mfg-3", showConnector: false }], linksToTopLevelMilestone: null, isCriticalPath: true },
-    { id: "mfg-5", laneId: "lane-mfg", title: "Production Ramp — Phase 1 (50 units/mo)", date: "2027-01-15", status: "not-started", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
-    { id: "mfg-6", laneId: "lane-mfg", title: "Production Ramp — Phase 2 (200 units/mo)", date: "2027-04-01", status: "not-started", dependsOn: [{ id: "mfg-5", showConnector: false }], linksToTopLevelMilestone: null, isCriticalPath: true },
+    // The two ramps carry durations (endDate) — a ramp is a span, not a
+    // point — and Phase 1 depends on GA, since you don't ramp production of
+    // a product that hasn't launched. Together these give the document a
+    // critical path worth looking at: the chain now runs autonomy ->
+    // certification/pilot -> GA -> ramp, ending on the latest finish in the
+    // program, instead of the two-node stub it was before.
+    { id: "mfg-5", laneId: "lane-mfg", title: "Production Ramp — Phase 1 (50 units/mo)", date: "2027-01-15", endDate: "2027-03-05", status: "not-started", owner: "J. O'Hara — Supply Chain Mgr", dependsOn: [{ id: "launch-4", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: false },
+    { id: "mfg-6", laneId: "lane-mfg", title: "Production Ramp — Phase 2 (200 units/mo)", date: "2027-04-01", endDate: "2027-07-01", status: "not-started", dependsOn: [{ id: "mfg-5", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: false },
 
     // Field Pilot Deployments
     { id: "pilot-1", laneId: "lane-pilot", title: "Pilot Site Selection (3 warehouses)", date: "2026-03-01", status: "complete", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },

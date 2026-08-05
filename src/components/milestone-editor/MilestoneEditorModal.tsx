@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { Milestone, RoadmapData, Status } from "@/components/timeline/types";
 import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMilestoneFields } from "@/lib/corrections/build-milestone-ops";
 import type { PatchOp } from "@/lib/corrections/schema";
+import type { TraceDirection } from "@/lib/critical-path/trace";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
@@ -94,12 +95,14 @@ function ModalForm({
   onSave,
   onClose,
   onToggleDependency,
+  onTrace,
 }: {
   data: RoadmapData;
   milestone: Milestone;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
+  onTrace: (direction: TraceDirection) => void;
 }) {
   const [draft, setDraft] = useState<EditableMilestoneFields>(() => milestoneToEditableFields(milestone));
 
@@ -217,6 +220,28 @@ function ModalForm({
               onAdd={(otherId) => onToggleDependency(otherId, milestone.id, true)}
               onRemove={(otherId) => onToggleDependency(otherId, milestone.id, false)}
             />
+            <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
+              <p className="mb-1 text-xs font-semibold text-zinc-500">
+                Highlight on the chart <span className="font-normal text-zinc-400">— a view, nothing is saved</span>
+              </p>
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    ["upstream", "Everything feeding this"],
+                    ["downstream", "Everything waiting on this"],
+                    ["both", "Both directions"],
+                  ] as const
+                ).map(([dir, label]) => (
+                  <button
+                    key={dir}
+                    onClick={() => onTrace(dir)}
+                    className="rounded border border-zinc-300 px-2 py-1 text-[11px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="text-xs text-zinc-400">Attachments: {milestone.attachments?.length ?? 0} — read-only for now.</p>
           </div>
         </div>
@@ -240,13 +265,17 @@ export function MilestoneEditorModal({
   onSave,
   onClose,
   onToggleDependency,
+  onTrace,
 }: {
   data: RoadmapData;
   milestone: Milestone | null;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
+  onTrace: (direction: TraceDirection) => void;
 }) {
   if (!milestone) return null;
-  return <ModalForm key={milestone.id} data={data} milestone={milestone} onSave={onSave} onClose={onClose} onToggleDependency={onToggleDependency} />;
+  return (
+    <ModalForm key={milestone.id} data={data} milestone={milestone} onSave={onSave} onClose={onClose} onToggleDependency={onToggleDependency} onTrace={onTrace} />
+  );
 }
