@@ -11,7 +11,7 @@
 // the always-on Today line.
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
 import type { Theme } from "./theme";
@@ -20,6 +20,7 @@ import { darken } from "./color-utils";
 import { parseDate, formatDateShort, formatDateCompact } from "./date-utils";
 import { deriveShortLabel } from "./short-label";
 import { laneColorAt } from "./lane-colors";
+import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import { PRIMARY_TIER_DY, DATE_TIER_DY, layoutPrimaryLabels, layoutDateLabels } from "./label-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
@@ -33,6 +34,12 @@ const PILL_HEIGHT_LG = 20;
 const PILL_HEIGHT_SM = 14; // in-lane duration pills (wayframe#15)
 const RAIL_W = 4; // lane-colour rail on the inner edge of the lane header
 const DRAG_THRESHOLD_PX = 3; // below this a gesture is a click, not a drag
+/**
+ * Below this the chart stops shrinking and the container scrolls instead —
+ * squeezing a multi-year programme into a phone width makes every label
+ * collide and helps nobody.
+ */
+const MIN_CHART_WIDTH = 900;
 
 interface RowInfo {
   swimlane: Swimlane;
@@ -324,7 +331,6 @@ export interface RoadmapTimelineProps {
   data: RoadmapData;
   theme?: Theme;
   axisTiers?: AxisTierConfig;
-  width?: number;
   /** Defaults to the real current date; override for tests/screenshots. */
   today?: Date;
   /** Opens the manual milestone editor (wayframe#19) — omit to keep markers non-interactive. */
@@ -335,6 +341,13 @@ export interface RoadmapTimelineProps {
   ghostMode?: GhostMode;
   /** Show computed/override critical-path highlighting (wayframe#34/#35) — a viewer preference, on by default. */
   showCriticalPath?: boolean;
+  /**
+   * Fixed chart width. Omit it and the chart measures its own container and
+   * fills it — which is what makes the whole programme fit in a screenshot
+   * instead of running off the right edge. Callers that need a deterministic
+   * size (the off-screen export capture) still pass one.
+   */
+  width?: number;
   /** Line treatment for critical-path connectors — a viewer preference. */
   criticalPathStyle?: CriticalPathStyle;
   /** Renders a per-lane "+" in the lane header when provided. */
@@ -349,7 +362,7 @@ export function RoadmapTimeline({
   data,
   theme = defaultTheme,
   axisTiers = AXIS_PRESETS[1],
-  width = 1500,
+  width: fixedWidth,
   today = new Date(),
   onMilestoneClick,
   onTopLevelItemClick,
@@ -375,6 +388,23 @@ export function RoadmapTimeline({
    * left alone so a click still opens the editor.
    */
   const [drag, setDrag] = useState<{ id: string; startX: number; dx: number; moved: boolean } | null>(null);
+
+  // Measured from the container, not from the window: the chart sits inside
+  // a padded, max-width wrapper, so window width would overshoot by exactly
+  // the padding and reintroduce the overflow this removes.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (fixedWidth !== undefined) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const apply = () => setMeasuredWidth(el.clientWidth);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fixedWidth]);
+  const width = fixedWidth ?? Math.max(measuredWidth ?? MIN_CHART_WIDTH, MIN_CHART_WIDTH);
   const laneCount = rows.filter((r) => r.swimlane.type === "lane").length;
   /**
    * A lane's accent. `Swimlane.color` is a per-document override (same
@@ -459,7 +489,7 @@ export function RoadmapTimeline({
   if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
 
   return (
-    <div className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
+    <div ref={containerRef} className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
       {/* `color` (not a Tailwind class) drives every `currentColor` in the
           chart, so the theme owns the ink rather than the page's dark-mode
           class deciding it. */}
@@ -475,10 +505,21 @@ export function RoadmapTimeline({
           <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} />
         ))}
 
-        {/* top-level band */}
-        <text x={8} y={topBandY + 16} fontSize={11} fontWeight={600} opacity={0.5}>
-          PROGRAM
-        </text>
+        {/* Top-level band header. This used to read a generic "PROGRAM" —
+            the roadmap's actual name appeared nowhere on the chart, so an
+            exported slide or a screenshot didn't say what programme it was
+            for. Wrapped to the header column since real programme names
+            don't fit on one line. */}
+        {wrapText(data.programName, 26, 3).map((line, i) => (
+          <text key={i} x={16} y={topBandY + 14 + i * 15} fontSize={13} fontWeight={700} fill={theme.ink}>
+            {line}
+          </text>
+        ))}
+        {data.owner && (
+          <text x={16} y={topBandY + 14 + wrapText(data.programName, 26, 3).length * 15 + 4} fontSize={10} fill={theme.inkMuted}>
+            {data.owner}
+          </text>
+        )}
         {data.topLevelItems.map((t: TopLevelItem) => {
           const y = topBandY + TOP_BAND_HEIGHT / 2;
           if (t.type === "phase") {

@@ -74,6 +74,7 @@ function RoadmapView({
   onAddMilestone,
   onMilestoneDateChange,
   tracedIds,
+  chartWidth,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -89,6 +90,8 @@ function RoadmapView({
   onAddMilestone?: (laneId: string) => void;
   onMilestoneDateChange?: (id: string, date: string) => void;
   tracedIds?: Set<string>;
+  /** Pinned width for the off-screen export capture; omitted on screen so the chart fits its container. */
+  chartWidth?: number;
 }) {
   if (mode === "program") {
     return (
@@ -97,7 +100,7 @@ function RoadmapView({
         <RoadmapTimeline
           data={data}
           today={today}
-          width={1600}
+          width={chartWidth}
           ghostMode={ghostMode}
           showCriticalPath={showCriticalPath}
           criticalPathStyle={criticalPathStyle}
@@ -415,7 +418,7 @@ export function RoadmapWorkspace({
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} criticalPathStyle={criticalPathLine.style} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
+            <RoadmapView mode={otherMode} chartWidth={1600} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} criticalPathStyle={criticalPathLine.style} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
           </div>
         )}
       </div>
