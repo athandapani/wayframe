@@ -18,15 +18,26 @@ import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken } from "./color-utils";
 import { parseDate, formatDateShort, formatDateCompact } from "./date-utils";
-import { deriveShortLabel } from "./short-label";
+
 import { laneColorAt } from "./lane-colors";
 import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
-import { PRIMARY_TIER_DY, DATE_TIER_DY, layoutPrimaryLabels, layoutDateLabels } from "./label-layout";
+import { DATE_TIER_DY, layoutDateLabels } from "./label-layout";
+import { layoutTitleLabels, shouldLabel, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
-const LANE_HEIGHT = 100;
+/**
+ * Taller than it was: markers now carry wrapped real titles on two tiers
+ * rather than a single line of initials, and that needs vertical room.
+ */
+const LANE_HEIGHT = 132;
+/** Line height of a wrapped marker label. */
+const LABEL_LINE_H = 11;
+/** Gap between the marker and the bottom line of its label block. */
+const LABEL_BASE_DY = -14;
+/** Extra lift for tier-1 labels so they clear a full two-line tier-0 block. */
+const LABEL_TIER_LIFT = 27;
 /**
  * Bare ground left above and below each lane's wash. Lanes used to sit flush
  * against each other with a 1px divider, which read as one continuous field;
@@ -269,7 +280,7 @@ function MilestoneMarker({
   cx: number;
   cy: number;
   theme: Theme;
-  primary: { text: string; tier: 0 | 1 | 2 };
+  primary: TitlePlacement | null;
   date: { text: string; tier: 0 | 1 | 2 };
   onClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
   ghostMode: GhostMode;
@@ -285,8 +296,10 @@ function MilestoneMarker({
   dragging?: boolean;
 }) {
   const r = 8;
-  const primaryDy = PRIMARY_TIER_DY[primary.tier];
   const dateDy = DATE_TIER_DY[date.tier];
+  // Label block grows upward from its baseline, so the last line sits
+  // closest to the marker and the first line ends up on top.
+  const labelBaseDy = LABEL_BASE_DY - (primary ? primary.tier * LABEL_TIER_LIFT : 0);
   const tooltipW = Math.max(40, m.title.length * 6 + 16);
   const hasGhost = ghostCx !== null;
   const critical = showCriticalPath && m.isCriticalPath;
@@ -304,7 +317,11 @@ function MilestoneMarker({
       onPointerDown={onDragStart ? (e) => onDragStart(m, e) : undefined}
     >
       {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
-      {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
+      {/* Tier-1 labels sit far enough above the marker to need a leader
+          line back to it, or they read as belonging to the lane above. */}
+      {primary && primary.tier === 1 && (
+        <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + labelBaseDy + 3} stroke="currentColor" strokeOpacity={0.25} />
+      )}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
       {/* Critical path is an ink collar, never a red ring — red already
           means "delayed", and the two measured 1.28:1 apart, so the
@@ -312,9 +329,19 @@ function MilestoneMarker({
       {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
       {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={theme.markerHalo} strokeWidth={1.5} />
-      <text x={cx} y={cy + primaryDy} textAnchor="middle" fontSize={10} fontWeight={700} fill="currentColor">
-        {primary.text}
-      </text>
+      {primary?.lines.map((line, i) => (
+        <text
+          key={i}
+          x={cx}
+          y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H}
+          textAnchor="middle"
+          fontSize={10}
+          fontWeight={600}
+          fill="currentColor"
+        >
+          {line}
+        </text>
+      ))}
       <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9} fill="currentColor" opacity={0.6}>
         {date.text}
       </text>
@@ -366,6 +393,8 @@ export interface RoadmapTimelineProps {
   onMilestoneDateChange?: (milestoneId: string, isoDate: string) => void;
   /** Ids in the active trace — highlighted in the theme's trace colour. */
   tracedIds?: Set<string>;
+  /** Which markers carry a label — a viewer preference for dense programmes. */
+  labelDensity?: LabelDensity;
 }
 
 export function RoadmapTimeline({
@@ -382,6 +411,7 @@ export function RoadmapTimeline({
   onAddMilestone,
   onMilestoneDateChange,
   tracedIds,
+  labelDensity = "all",
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -452,14 +482,33 @@ export function RoadmapTimeline({
     return lanesTop + row.relY + row.height / 2;
   }
 
-  // per-lane label collision layout
-  const primaryPlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
+  // per-lane label layout — titles are wrapped into the room each marker
+  // actually has, computed per lane so a crowded lane doesn't shrink labels
+  // in a sparse one.
+  const primaryPlacement = new Map<string, TitlePlacement>();
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
   for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
     // Duration-pill milestones (endDate set) show their own inline title and
-    // don't participate in the point-marker tiered-label collision layout.
+    // don't participate in the point-marker tiered-label layout.
     const laneMilestones = data.milestones.filter((m) => m.laneId === laneRow.swimlane.id && !m.endDate);
-    const primary = layoutPrimaryLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), text: m.shortLabel ?? deriveShortLabel(m.title) })));
+    // Pills are passed in too: they print their own title inside the bar, so
+    // they take no label tier, but they occupy the row and point labels have
+    // to route around them.
+    const lanePills = data.milestones.filter((m) => m.laneId === laneRow.swimlane.id && m.endDate);
+    const primary = layoutTitleLabels([
+      ...laneMilestones.map((m) => ({
+        id: m.id,
+        x: x(m.date),
+        title: m.title,
+        shortLabel: m.shortLabel,
+        critical: showCriticalPath && m.isCriticalPath,
+        labelled: shouldLabel(labelDensity, {
+          critical: showCriticalPath && m.isCriticalPath,
+          offTrack: m.status === "at-risk" || m.status === "delayed",
+        }),
+      })),
+      ...lanePills.map((m) => ({ id: m.id, x: x(m.date), endX: x(m.endDate!), title: m.title, labelled: false })),
+    ]);
     const dates = layoutDateLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })));
     for (const [k, v] of primary) primaryPlacement.set(k, v);
     for (const [k, v] of dates) datePlacement.set(k, v);
@@ -759,7 +808,7 @@ export function RoadmapTimeline({
               cx={x(m.date)}
               cy={laneY(m.laneId)}
               theme={theme}
-              primary={primaryPlacement.get(m.id) ?? { text: m.shortLabel ?? deriveShortLabel(m.title), tier: 0 }}
+              primary={primaryPlacement.get(m.id) ?? null}
               date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
               onClick={onMilestoneClick}
               ghostMode={ghostMode}

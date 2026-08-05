@@ -20,11 +20,22 @@ describe("RoadmapTimeline", () => {
     expect(screen.getByText("Review")).toBeInTheDocument();
   });
 
-  it("shows a derived short label for each milestone and the full title in a hover tooltip", () => {
+  it("labels markers with the real title, not an initialism", () => {
+    // The derived abbreviation is gone: it produced unreadable output
+    // ("UL 3100 Certification Issued" -> "U3CI") and leaked punctuation
+    // ("Hazard Analysis (Preliminary)" -> "HA("). The title appears twice
+    // per marker — once as the label, once in the hover tooltip.
     render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
-    expect(screen.getByText(deriveShortLabel("First milestone"))).toBeInTheDocument();
-    expect(screen.getByText("First milestone")).toBeInTheDocument();
-    expect(screen.getByText("Second milestone")).toBeInTheDocument();
+    expect(screen.getAllByText("First milestone").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Second milestone").length).toBeGreaterThan(0);
+    expect(screen.queryByText(deriveShortLabel("First milestone"))).not.toBeInTheDocument();
+  });
+
+  it("hides marker labels when density is 'none', keeping the tooltip", () => {
+    render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} labelDensity="none" />);
+    // Only the tooltip copy survives, so the count drops rather than the
+    // title disappearing outright.
+    expect(screen.getAllByText("First milestone")).toHaveLength(1);
   });
 
   it("renders the today reference line when today falls within the domain", () => {

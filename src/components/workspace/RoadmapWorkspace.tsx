@@ -16,6 +16,8 @@ import { useCorrectionBox } from "@/components/correction-box/use-correction-box
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
 import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
+import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
+import type { LabelDensity } from "@/components/timeline/title-layout";
 import { useTheme } from "@/components/timeline/use-theme";
 import { THEME_LIST } from "@/components/timeline/theme";
 import { laneColors } from "@/components/timeline/lane-colors";
@@ -75,6 +77,7 @@ function RoadmapView({
   onMilestoneDateChange,
   tracedIds,
   chartWidth,
+  labelDensity,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -92,6 +95,7 @@ function RoadmapView({
   tracedIds?: Set<string>;
   /** Pinned width for the off-screen export capture; omitted on screen so the chart fits its container. */
   chartWidth?: number;
+  labelDensity: LabelDensity;
 }) {
   if (mode === "program") {
     return (
@@ -109,6 +113,7 @@ function RoadmapView({
           onAddMilestone={onAddMilestone}
           onMilestoneDateChange={onMilestoneDateChange}
           tracedIds={tracedIds}
+          labelDensity={labelDensity}
         />
         <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} />
       </div>
@@ -143,6 +148,7 @@ export function RoadmapWorkspace({
   const criticalPath = useCriticalPathVisibility();
   const { themeId, theme, setTheme } = useTheme();
   const criticalPathLine = useCriticalPathStyle();
+  const labels = useLabelDensity();
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -324,6 +330,21 @@ export function RoadmapWorkspace({
               <p className="mb-1.5 opacity-70">Lane colours</p>
               <LaneColorPicker swimlanes={box.data.swimlanes} theme={theme} onChange={box.setLaneColor} />
             </div>
+            <OptionsMenuRow label="Marker labels">
+              <select
+                value={labels.density}
+                onChange={(e) => labels.setDensity(e.target.value as LabelDensity)}
+                aria-label="Marker label density"
+                style={PILL_STYLE}
+                className="rounded-full border px-2 py-1 text-xs"
+              >
+                {LABEL_DENSITIES.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Ghosts">
               <button
                 onClick={() => ghost.setEnabled(!ghost.enabled)}
@@ -416,12 +437,13 @@ export function RoadmapWorkspace({
             onAddMilestone={handleAddMilestone}
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
+            labelDensity={labels.density}
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
           />
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} chartWidth={1600} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} criticalPathStyle={criticalPathLine.style} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
+            <RoadmapView mode={otherMode} chartWidth={1600} labelDensity={labels.density} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} criticalPathStyle={criticalPathLine.style} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
           </div>
         )}
       </div>
