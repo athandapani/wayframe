@@ -11,6 +11,7 @@ import type { RoadmapData } from "@/components/timeline/types";
 import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTimeline";
 import type { Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
+import { ChartLegend } from "@/components/timeline/ChartLegend";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
@@ -78,6 +79,7 @@ function RoadmapView({
   tracedIds,
   chartWidth,
   labelDensity,
+  legend,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -96,6 +98,8 @@ function RoadmapView({
   /** Pinned width for the off-screen export capture; omitted on screen so the chart fits its container. */
   chartWidth?: number;
   labelDensity: LabelDensity;
+  /** Rendered under the chart; omitted for the off-screen export capture keeps the slide clean. */
+  legend?: React.ReactNode;
 }) {
   if (mode === "program") {
     return (
@@ -115,6 +119,7 @@ function RoadmapView({
           tracedIds={tracedIds}
           labelDensity={labelDensity}
         />
+        {legend}
         <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} />
       </div>
     );
@@ -438,6 +443,16 @@ export function RoadmapWorkspace({
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
+            legend={
+              <ChartLegend
+                theme={theme}
+                criticalPathStyle={criticalPathLine.style}
+                showCriticalPath={criticalPath.visible}
+                ghostMode={ghost.mode}
+                tracing={trace !== null}
+                hasDurations={box.data.milestones.some((m) => m.endDate)}
+              />
+            }
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
           />
         </div>

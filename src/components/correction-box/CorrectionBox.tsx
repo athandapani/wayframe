@@ -56,13 +56,27 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
           setText("");
         }}
         style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
-        className="fixed bottom-16 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-center gap-2 rounded-full border px-4 py-2 shadow-xl"
+        className="fixed bottom-16 left-1/2 z-40 flex w-[660px] -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-2 shadow-xl"
       >
+        {/* Nothing on the chart said this bar was AI-driven — it read as a
+            search box. The badge names the capability, and the placeholder
+            shows the shape of a request rather than describing it. */}
+        <span
+          aria-hidden="true"
+          style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
+          className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M6 0l1.3 3.4L11 4.8 7.6 6.1 6 9.6 4.4 6.1 1 4.8l3.5-1.4z" />
+          </svg>
+          Ask AI
+        </span>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={box.loading}
-          placeholder='e.g. "push certification milestones by two weeks"'
+          aria-label="Describe a change for AI to make"
+          placeholder='Describe a change — "delay UL 3100 by two weeks"'
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400 disabled:opacity-50"
         />
         <button
@@ -82,6 +96,14 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
           {box.loading ? "Thinking…" : "Send"}
         </button>
       </form>
+
+      {/* Says what happens next, which is the part that makes people willing
+          to try it: nothing is applied until you've seen the diff. */}
+      {!box.pending && !box.error && (
+        <p className="pointer-events-none fixed bottom-9 left-1/2 z-40 -translate-x-1/2 text-[11px] opacity-55" style={{ color: "var(--wf-ink)" }}>
+          Plain English. You&apos;ll see a preview before anything changes — and Undo reverses it.
+        </p>
+      )}
     </>
   );
 }

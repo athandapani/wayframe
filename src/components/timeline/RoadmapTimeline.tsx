@@ -717,14 +717,14 @@ export function RoadmapTimeline({
                     stroke={traced ? theme.traceColor : theme.connector}
                     strokeOpacity={traced ? 0.95 : 0.55}
                     strokeWidth={traced ? 2.5 : 1.25}
-                    markerEnd="url(#roadmap-timeline-arrow)"
+                    markerEnd={traced ? "url(#roadmap-arrow-trace)" : "url(#roadmap-arrow-connector)"}
                   />
                 );
               }
               const cs = criticalStroke(criticalPathStyle);
               return (
                 <g key={`${d.id}->${m.id}`} data-testid={`critical-connector-${d.id}-${m.id}`}>
-                  <path d={path} fill="none" stroke={theme.criticalPathColor} strokeWidth={cs.width} strokeDasharray={cs.dash} markerEnd="url(#roadmap-timeline-arrow)" />
+                  <path d={path} fill="none" stroke={theme.criticalPathColor} strokeWidth={cs.width} strokeDasharray={cs.dash} markerEnd="url(#roadmap-arrow-critical)" />
                   {/* "double" = overprint the middle in the ground colour */}
                   {cs.overprint !== undefined && <path d={path} fill="none" stroke={theme.ground} strokeWidth={cs.overprint} />}
                 </g>
@@ -733,9 +733,34 @@ export function RoadmapTimeline({
         )}
 
         <defs>
-          <marker id="roadmap-timeline-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity={0.5} />
-          </marker>
+          {/* markerUnits="userSpaceOnUse" is the important bit. The default
+              is "strokeWidth", which scales the arrowhead by the line's
+              weight — a 6px arrow rendered at 24px on a 4px critical
+              connector and 7.5px on a 1.25px one, so the same symbol came
+              out three times bigger on some lines than others. Fixed size,
+              and one marker per line type so the head matches its line
+              rather than sitting grey on a red path. */}
+          {(
+            [
+              ["connector", theme.connector, 0.55],
+              ["critical", theme.criticalPathColor, 1],
+              ["trace", theme.traceColor, 0.95],
+            ] as const
+          ).map(([name, color, opacity]) => (
+            <marker
+              key={name}
+              id={`roadmap-arrow-${name}`}
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="9"
+              markerHeight="9"
+              markerUnits="userSpaceOnUse"
+              orient="auto-start-reverse"
+            >
+              <path d="M0,1.5 L9,5 L0,8.5 z" fill={color} opacity={opacity} />
+            </marker>
+          ))}
         </defs>
 
         {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
