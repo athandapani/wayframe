@@ -11,12 +11,16 @@
 // the always-on Today line.
 "use client";
 
+import { useState } from "react";
+
 import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken } from "./color-utils";
 import { parseDate, formatDateShort, formatDateCompact } from "./date-utils";
 import { deriveShortLabel } from "./short-label";
+import { laneColorAt } from "./lane-colors";
+import type { CriticalPathStyle } from "./use-critical-path-style";
 import { PRIMARY_TIER_DY, DATE_TIER_DY, layoutPrimaryLabels, layoutDateLabels } from "./label-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 
@@ -28,6 +32,7 @@ const AXIS_ROW_HEIGHT = 22;
 const PILL_HEIGHT_LG = 20;
 const PILL_HEIGHT_SM = 14; // in-lane duration pills (wayframe#15)
 const RAIL_W = 4; // lane-colour rail on the inner edge of the lane header
+const DRAG_THRESHOLD_PX = 3; // below this a gesture is a click, not a drag
 
 interface RowInfo {
   swimlane: Swimlane;
@@ -113,6 +118,70 @@ function CushionMarker({
   );
 }
 
+/**
+ * Per-lane "add a milestone" affordance, in the top corner of the lane
+ * header. Sits in the header rather than floating over the plot area so it
+ * never overlaps a marker, and it's the only place in the chart that
+ * creates content — everything else edits what's already there.
+ */
+function AddMilestoneButton({
+  laneId,
+  x,
+  y,
+  theme,
+  onAdd,
+}: {
+  laneId: string;
+  x: number;
+  y: number;
+  theme: Theme;
+  onAdd: (laneId: string) => void;
+}) {
+  const r = 8;
+  return (
+    <g
+      className="cursor-pointer opacity-45 transition-opacity hover:opacity-100"
+      onClick={(e) => {
+        e.stopPropagation();
+        onAdd(laneId);
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Add a milestone to this lane`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onAdd(laneId);
+        }
+      }}
+    >
+      <circle cx={x} cy={y} r={r} fill="none" stroke={theme.ink} strokeWidth={1.25} />
+      <line x1={x - 4} x2={x + 4} y1={y} y2={y} stroke={theme.ink} strokeWidth={1.5} strokeLinecap="round" />
+      <line x1={x} x2={x} y1={y - 4} y2={y + 4} stroke={theme.ink} strokeWidth={1.5} strokeLinecap="round" />
+      <title>Add a milestone</title>
+    </g>
+  );
+}
+
+/**
+ * Critical-path connectors. Style is a viewer preference — "double" is a
+ * wide stroke overprinted with a narrower ground-coloured one, which reads
+ * as two parallel lines on the orthogonal elbow paths without needing real
+ * path insetting.
+ */
+function criticalStroke(style: CriticalPathStyle): { width: number; dash?: string; overprint?: number } {
+  switch (style) {
+    case "solid":
+      return { width: 2 };
+    case "thick":
+      return { width: 4 };
+    case "dashed":
+      return { width: 2.5, dash: "7 4" };
+    case "double":
+      return { width: 5, overprint: 1.8 };
+  }
+}
+
 // full-height opt-in marker line (wayframe#15) — same shape as the always-on
 // Today line, parameterized so both share one implementation.
 function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x: number; topY: number; bottomY: number; label: string; color: string; dash?: string }) {
@@ -174,6 +243,9 @@ function MilestoneMarker({
   ghostMode,
   ghostCx,
   showCriticalPath,
+  onDragStart,
+  dragDx,
+  dragging,
 }: {
   m: Milestone;
   cx: number;
@@ -186,6 +258,11 @@ function MilestoneMarker({
   /** x position of the original (pre-slip) date, or null if not slipped / ghosts off. */
   ghostCx: number | null;
   showCriticalPath: boolean;
+  /** Non-null when the chart is draggable; called on pointer-down to begin a drag. */
+  onDragStart?: (m: Milestone, evt: React.PointerEvent<SVGGElement>) => void;
+  /** Live x offset while this marker is being dragged. */
+  dragDx?: number;
+  dragging?: boolean;
 }) {
   const r = 8;
   const primaryDy = PRIMARY_TIER_DY[primary.tier];
@@ -194,8 +271,16 @@ function MilestoneMarker({
   const hasGhost = ghostCx !== null;
   const critical = showCriticalPath && m.isCriticalPath;
 
+  // The whole marker translates during a drag so the label and date ride
+  // along with it, rather than the diamond detaching from its own caption.
   return (
-    <g className={onClick ? "group cursor-pointer" : "group cursor-default"} onClick={onClick ? (e) => onClick(m, e) : undefined}>
+    <g
+      className={onDragStart ? "group cursor-grab active:cursor-grabbing" : onClick ? "group cursor-pointer" : "group cursor-default"}
+      transform={dragDx ? `translate(${dragDx} 0)` : undefined}
+      opacity={dragging ? 0.85 : 1}
+      onClick={onClick ? (e) => onClick(m, e) : undefined}
+      onPointerDown={onDragStart ? (e) => onDragStart(m, e) : undefined}
+    >
       {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {primary.tier === 2 && <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + primaryDy + 4} stroke="currentColor" strokeOpacity={0.3} />}
       {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
@@ -244,6 +329,12 @@ export interface RoadmapTimelineProps {
   ghostMode?: GhostMode;
   /** Show computed/override critical-path highlighting (wayframe#34/#35) — a viewer preference, on by default. */
   showCriticalPath?: boolean;
+  /** Line treatment for critical-path connectors — a viewer preference. */
+  criticalPathStyle?: CriticalPathStyle;
+  /** Renders a per-lane "+" in the lane header when provided. */
+  onAddMilestone?: (laneId: string) => void;
+  /** Fired after a marker is dragged to a new date (snapped to a day). */
+  onMilestoneDateChange?: (milestoneId: string, isoDate: string) => void;
 }
 
 export function RoadmapTimeline({
@@ -256,23 +347,38 @@ export function RoadmapTimeline({
   onTopLevelItemClick,
   ghostMode = "off",
   showCriticalPath = true,
+  criticalPathStyle = "thick",
+  onAddMilestone,
+  onMilestoneDateChange,
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
   /**
+   * Drag-to-reschedule. Pointer capture on the marker's <g>, x translated
+   * back to a date through the inverse of the x scale and snapped to a
+   * whole day. The commit goes out through onMilestoneDateChange so it
+   * lands as a normal edit — cascade and undo included — rather than
+   * mutating the document behind the reducer's back.
+   *
+   * A drag only counts past DRAG_THRESHOLD_PX; below that the gesture is
+   * left alone so a click still opens the editor.
+   */
+  const [drag, setDrag] = useState<{ id: string; startX: number; dx: number; moved: boolean } | null>(null);
+  const laneCount = rows.filter((r) => r.swimlane.type === "lane").length;
+  /**
    * A lane's accent. `Swimlane.color` is a per-document override (same
-   * pattern as ragOverride / isCriticalPathOverride) so a viewer can pick
-   * lane colours without leaving the theme; unset falls back to the active
-   * theme's palette, cycling by lane index.
+   * pattern as ragOverride / isCriticalPathOverride); unset generates from
+   * the theme's ramp, spread across however many lanes exist — so adding a
+   * seventh lane gives it its own colour instead of reusing the first's.
    */
   function laneColor(lane: Swimlane, laneIndex: number): string {
-    return lane.color ?? theme.laneTint[laneIndex % theme.laneTint.length];
+    return lane.color ?? laneColorAt(theme.laneRamp, laneIndex, laneCount);
   }
   function laneTint(laneId: string): string {
     const row = rowById.get(laneId);
-    if (!row) return theme.laneTint[0];
+    if (!row) return laneColorAt(theme.laneRamp, 0, laneCount);
     return laneColor(row.swimlane, row.laneIndex);
   }
   const { domainMin, domainMax } = computeDomain(data);
@@ -310,6 +416,35 @@ export function RoadmapTimeline({
     for (const [k, v] of dates) datePlacement.set(k, v);
   }
 
+  /** Inverse of x(): a pixel position back to an ISO date, snapped to a day. */
+  function dateAtX(px: number): string {
+    const ts = domainMin + ((px - MARGIN.left) / innerWidth) * (domainMax - domainMin);
+    const d = new Date(ts);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10);
+  }
+
+  function beginDrag(m: Milestone, evt: React.PointerEvent<SVGGElement>) {
+    if (!onMilestoneDateChange) return;
+    evt.currentTarget.setPointerCapture(evt.pointerId);
+    setDrag({ id: m.id, startX: evt.clientX, dx: 0, moved: false });
+  }
+
+  function moveDrag(evt: React.PointerEvent<SVGSVGElement>) {
+    if (!drag) return;
+    const dx = evt.clientX - drag.startX;
+    setDrag({ ...drag, dx, moved: drag.moved || Math.abs(dx) > DRAG_THRESHOLD_PX });
+  }
+
+  function endDrag() {
+    if (!drag) return;
+    const m = milestoneById.get(drag.id);
+    if (m && drag.moved && onMilestoneDateChange) {
+      const next = dateAtX(x(m.date) + drag.dx);
+      if (next !== m.date) onMilestoneDateChange(m.id, next);
+    }
+    setDrag(null);
+  }
+
   const axisRows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
   if (axisTiers.tier2 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
   if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
@@ -319,7 +454,14 @@ export function RoadmapTimeline({
       {/* `color` (not a Tailwind class) drives every `currentColor` in the
           chart, so the theme owns the ink rather than the page's dark-mode
           class deciding it. */}
-      <svg width={width} height={height} style={{ fontFamily: theme.font, color: theme.ink, background: theme.ground }}>
+      <svg
+        width={width}
+        height={height}
+        style={{ fontFamily: theme.font, color: theme.ink, background: theme.ground }}
+        onPointerMove={drag ? moveDrag : undefined}
+        onPointerUp={drag ? endDrag : undefined}
+        onPointerCancel={drag ? endDrag : undefined}
+      >
         {axisRows.map((row, i) => (
           <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} />
         ))}
@@ -412,6 +554,7 @@ export function RoadmapTimeline({
               <text x={16} y={y0 + row.height / 2} fontSize={12.5} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
                 {row.swimlane.name}
               </text>
+              {onAddMilestone && <AddMilestoneButton laneId={row.swimlane.id} x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} onAdd={onAddMilestone} />}
             </g>
           );
         })}
@@ -419,7 +562,15 @@ export function RoadmapTimeline({
         {/* dependency connectors — orthogonal "elbow" steps */}
         {data.milestones.flatMap((m) =>
           m.dependsOn
-            .filter((d) => d.showConnector)
+            // showConnector curates which ordinary edges are worth drawing
+            // (wayframe#5), but a critical edge always draws: the critical
+            // path is only legible as a *line* if every hop in it is
+            // visible, and in practice the curated subset and the computed
+            // critical set don't overlap at all in the demo document.
+            .filter((d) => {
+              const from = milestoneById.get(d.id);
+              return d.showConnector || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath);
+            })
             .map((d) => {
               const from = milestoneById.get(d.id);
               if (!from) return null;
@@ -429,16 +580,27 @@ export function RoadmapTimeline({
               const x2 = x(m.date);
               const y2 = laneY(m.laneId);
               const midX = x1 + (x2 - x1) / 2;
+              const path = `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
+              if (!critical) {
+                return (
+                  <path
+                    key={`${d.id}->${m.id}`}
+                    d={path}
+                    fill="none"
+                    stroke={theme.connector}
+                    strokeOpacity={0.55}
+                    strokeWidth={1.25}
+                    markerEnd="url(#roadmap-timeline-arrow)"
+                  />
+                );
+              }
+              const cs = criticalStroke(criticalPathStyle);
               return (
-                <path
-                  key={`${d.id}->${m.id}`}
-                  d={`M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`}
-                  fill="none"
-                  stroke={critical ? theme.criticalPathColor : theme.connector}
-                  strokeOpacity={critical ? 0.95 : 0.55}
-                  strokeWidth={critical ? 2.5 : 1.25}
-                  markerEnd="url(#roadmap-timeline-arrow)"
-                />
+                <g key={`${d.id}->${m.id}`} data-testid={`critical-connector-${d.id}-${m.id}`}>
+                  <path d={path} fill="none" stroke={theme.criticalPathColor} strokeWidth={cs.width} strokeDasharray={cs.dash} markerEnd="url(#roadmap-timeline-arrow)" />
+                  {/* "double" = overprint the middle in the ground colour */}
+                  {cs.overprint !== undefined && <path d={path} fill="none" stroke={theme.ground} strokeWidth={cs.overprint} />}
+                </g>
               );
             }),
         )}
@@ -485,6 +647,9 @@ export function RoadmapTimeline({
               ghostMode={ghostMode}
               ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
               showCriticalPath={showCriticalPath}
+              onDragStart={onMilestoneDateChange ? beginDrag : undefined}
+              dragDx={drag?.id === m.id ? drag.dx : undefined}
+              dragging={drag?.id === m.id}
             />
           ))}
 

@@ -19,6 +19,12 @@
 // header a solid dark slab, which just replaced six loud colour blocks
 // with six heavy dark ones.
 //
+// CRITICAL PATH is a red line along the dependency chain, with a
+// user-selectable line style (solid / thick / dashed / double) — see
+// use-critical-path-style.ts. Red overlaps with "delayed" as a hue, which
+// is why the emphasis lives in the CONNECTOR rather than the marker fill:
+// a line and a diamond don't compete for the same read.
+//
 // STATUS IS COLOUR-ONLY, ON PURPOSE. Markers are all diamonds. An earlier
 // revision encoded status as distinct silhouettes (circle/triangle/square)
 // because colour alone cannot separate five semantic hues in greyscale or
@@ -30,6 +36,7 @@
 // calm recedes. It doesn't fully solve greyscale, but it is a real
 // improvement over the shipped palette and it costs the reader nothing.
 import type { Status } from "./types";
+import type { LaneRamp } from "./lane-colors";
 
 export interface Theme {
   id: ThemeId;
@@ -55,11 +62,16 @@ export interface Theme {
 
   /** Opacity of the lane-colour wash across the plot area. Keep it faint. */
   laneWashOpacity: number;
-  /** Per-lane accent for the rail and the wash. Cycles by lane index. */
-  laneTint: string[];
+  /**
+   * Lane accents are generated from this spec for however many lanes the
+   * document has — see lane-colors.ts. It used to be a fixed array of six
+   * hex values indexed with % 6, so a seventh lane silently reused the
+   * first one's colour.
+   */
+  laneRamp: LaneRamp;
 
   statusColor: Record<Status, string>;
-  /** Ink collar for the critical path — never a status hue. */
+  /** Critical-path line colour. */
   criticalPathColor: string;
   connector: string;
   /** Halo stroke that lifts a marker off the lane wash. */
@@ -77,12 +89,12 @@ export type ThemeId = "blueprint" | "graphite" | "press";
 
 const SYSTEM_SANS = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 
-/** OKLCH L=0.58, hues 250°+60n, chroma to gamut edge. Cool, even, unhurried. */
-const BLUEPRINT_LANES = ["#3f7ebb", "#8f66ad", "#b35b6b", "#a56d1c", "#638839", "#078d87"];
-/** OKLCH L=0.55, higher chroma cap — saturated enough to survive a projector. */
-const PRESS_LANES = ["#1b70cf", "#954db2", "#be3c52", "#996600", "#438500", "#058282"];
-/** OKLCH L=0.72 — lifted for a dark ground so rails stay legible. */
-const GRAPHITE_LANES = ["#5daaf5", "#be8be3", "#eb7e91", "#da9436", "#88b555", "#0cbdb6"];
+/** Cool, even, unhurried. */
+const BLUEPRINT_RAMP: LaneRamp = { L: 0.58, C: 0.115, startHue: 250 };
+/** Higher chroma — saturated enough to survive a projector. */
+const PRESS_RAMP: LaneRamp = { L: 0.55, C: 0.165, startHue: 255 };
+/** Lifted lightness so rails stay legible on a dark ground. */
+const GRAPHITE_RAMP: LaneRamp = { L: 0.72, C: 0.135, startHue: 250 };
 
 /** Shared light-theme status ramp: lightness descends as severity rises. */
 const LIGHT_STATUS: Record<Status, string> = {
@@ -115,10 +127,10 @@ export const blueprintTheme: Theme = {
   separatorText: "#33475c",
 
   laneWashOpacity: 0.075,
-  laneTint: BLUEPRINT_LANES,
+  laneRamp: BLUEPRINT_RAMP,
 
   statusColor: LIGHT_STATUS,
-  criticalPathColor: "#16202b",
+  criticalPathColor: "#c81e2d",
   connector: "#a8b7c6",
   markerHalo: "#ffffff",
 
@@ -151,7 +163,7 @@ export const graphiteTheme: Theme = {
   separatorText: "#9fb0c0",
 
   laneWashOpacity: 0.075,
-  laneTint: GRAPHITE_LANES,
+  laneRamp: GRAPHITE_RAMP,
 
   // On a dark ground severity reads as brighter; "complete" is the dimmest
   // coloured state so finished work recedes.
@@ -162,7 +174,7 @@ export const graphiteTheme: Theme = {
     "at-risk": "#ffa839",
     delayed: "#f4514f",
   },
-  criticalPathColor: "#e6edf3",
+  criticalPathColor: "#ff5f57",
   connector: "#3d4753",
   markerHalo: "#0d1117",
 
@@ -195,10 +207,10 @@ export const pressTheme: Theme = {
   separatorText: "#3d3d3d",
 
   laneWashOpacity: 0.07,
-  laneTint: PRESS_LANES,
+  laneRamp: PRESS_RAMP,
 
   statusColor: LIGHT_STATUS,
-  criticalPathColor: "#101010",
+  criticalPathColor: "#c8102e",
   connector: "#c4c4c4",
   markerHalo: "#ffffff",
 

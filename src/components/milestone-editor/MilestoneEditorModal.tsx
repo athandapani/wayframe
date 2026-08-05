@@ -13,9 +13,77 @@ import type { PatchOp } from "@/lib/corrections/schema";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
-function dependencyTitles(data: RoadmapData, m: Milestone): string[] {
-  const byId = new Map(data.milestones.map((x) => [x.id, x.title]));
-  return m.dependsOn.map((d) => byId.get(d.id) ?? d.id);
+interface EdgeRef {
+  id: string;
+  title: string;
+}
+
+/**
+ * Add/remove one direction of the dependency graph. Both directions use
+ * this — a successor is just a predecessor edge read from the other end,
+ * so the parent swaps which id it passes as dependent vs dependency.
+ *
+ * Edits apply immediately rather than on Save, matching wayframe#18: the
+ * graph shape drives the cascade and the critical-path recompute, and
+ * batching those into the Save button would mean the modal shows a stale
+ * critical-path checkbox while you're still editing edges.
+ */
+function EdgeEditor({
+  label,
+  hint,
+  edges,
+  candidates,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  hint: string;
+  edges: EdgeRef[];
+  candidates: EdgeRef[];
+  onAdd: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold text-zinc-500">
+        {label} <span className="font-normal text-zinc-400">— {hint}</span>
+      </p>
+      {edges.length === 0 ? (
+        <p className="mb-1.5 text-xs text-zinc-400">None</p>
+      ) : (
+        <ul className="mb-1.5 space-y-1">
+          {edges.map((e) => (
+            <li key={e.id} className="flex items-center gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate">{e.title}</span>
+              <button
+                onClick={() => onRemove(e.id)}
+                aria-label={`Remove ${e.title} from ${label.toLowerCase()}`}
+                className="shrink-0 rounded border border-zinc-300 px-1.5 text-[11px] text-zinc-500 hover:text-zinc-800 dark:border-zinc-600 dark:hover:text-zinc-200"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <select
+        value=""
+        aria-label={`Add a ${label.toLowerCase().replace(/s$/, "")}`}
+        onChange={(e) => {
+          if (e.target.value) onAdd(e.target.value);
+        }}
+        disabled={candidates.length === 0}
+        className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs disabled:opacity-40 dark:border-zinc-600"
+      >
+        <option value="">{candidates.length === 0 ? "Nothing available" : `Add a ${label.toLowerCase().replace(/s$/, "")}…`}</option>
+        {candidates.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.title}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 // Keyed on milestone.id by the wrapper below so a fresh draft mounts per
@@ -25,13 +93,21 @@ function ModalForm({
   milestone,
   onSave,
   onClose,
+  onToggleDependency,
 }: {
   data: RoadmapData;
   milestone: Milestone;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
+  onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
 }) {
   const [draft, setDraft] = useState<EditableMilestoneFields>(() => milestoneToEditableFields(milestone));
+
+  const byId = new Map(data.milestones.map((x) => [x.id, x]));
+  const ref = (id: string): EdgeRef => ({ id, title: byId.get(id)?.title ?? id });
+  const predecessors = milestone.dependsOn.map((d) => ref(d.id));
+  const successors = data.milestones.filter((o) => o.dependsOn.some((d) => d.id === milestone.id)).map((o) => ref(o.id));
+  const otherMilestones = data.milestones.filter((o) => o.id !== milestone.id).map((o) => ref(o.id));
 
   function handleSave() {
     const ops = buildMilestoneEditOps(milestone, draft);
@@ -122,19 +198,26 @@ function ModalForm({
             <span className="text-xs font-medium text-zinc-500">On critical path (override)</span>
           </label>
 
-          <div className="col-span-2 rounded border border-dashed border-zinc-200 p-3 dark:border-zinc-700">
-            <p className="mb-1 text-xs font-semibold text-zinc-500">Dependencies</p>
-            {dependencyTitles(data, milestone).length === 0 ? (
-              <p className="text-xs text-zinc-400">None</p>
-            ) : (
-              <ul className="text-xs text-zinc-500">
-                {dependencyTitles(data, milestone).map((t) => (
-                  <li key={t}>→ {t}</li>
-                ))}
-              </ul>
-            )}
-            <p className="mt-2 text-xs text-zinc-400">Attachments: {milestone.attachments?.length ?? 0}</p>
-            <p className="mt-1 text-[11px] text-zinc-400">Read-only in v1 — editing these is a deferred follow-up, not this ticket.</p>
+          <div className="col-span-2 space-y-3 rounded border border-dashed border-zinc-200 p-3 dark:border-zinc-700">
+            <EdgeEditor
+              label="Predecessors"
+              hint="Must finish before this milestone"
+              edges={predecessors}
+              candidates={otherMilestones.filter((o) => !predecessors.some((p) => p.id === o.id))}
+              onAdd={(otherId) => onToggleDependency(milestone.id, otherId, true)}
+              onRemove={(otherId) => onToggleDependency(milestone.id, otherId, false)}
+            />
+            <EdgeEditor
+              label="Successors"
+              hint="Wait on this milestone"
+              edges={successors}
+              candidates={otherMilestones.filter((o) => !successors.some((s) => s.id === o.id))}
+              // A successor edge is the same edge read from the other end —
+              // it lives on the *other* milestone's dependsOn, so the ids swap.
+              onAdd={(otherId) => onToggleDependency(otherId, milestone.id, true)}
+              onRemove={(otherId) => onToggleDependency(otherId, milestone.id, false)}
+            />
+            <p className="text-xs text-zinc-400">Attachments: {milestone.attachments?.length ?? 0} — read-only for now.</p>
           </div>
         </div>
 
@@ -156,12 +239,14 @@ export function MilestoneEditorModal({
   milestone,
   onSave,
   onClose,
+  onToggleDependency,
 }: {
   data: RoadmapData;
   milestone: Milestone | null;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
+  onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
 }) {
   if (!milestone) return null;
-  return <ModalForm key={milestone.id} data={data} milestone={milestone} onSave={onSave} onClose={onClose} />;
+  return <ModalForm key={milestone.id} data={data} milestone={milestone} onSave={onSave} onClose={onClose} onToggleDependency={onToggleDependency} />;
 }

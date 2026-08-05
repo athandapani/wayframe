@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
+import type { Milestone, RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
 import type { PatchOp, Skipped } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { applyOps } from "@/lib/corrections/apply";
 import { laneRollups } from "@/components/executive-view/rag";
 import { withComputedCriticalPath } from "@/lib/critical-path/compute";
+import { nanoid } from "nanoid";
 
 /** Single-document-per-browser persistence (wayframe#22) — one fixed key, not a multi-roadmap store. */
 const STORAGE_KEY = "wayframe:document";
@@ -56,6 +57,9 @@ export type CorrectionBoxAction =
   | { type: "loadDocument"; data: RoadmapData }
   | { type: "hydrated"; data: RoadmapData }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
+  | { type: "addMilestone"; laneId: string; date: string; newId: string }
+  | { type: "setMilestoneDate"; id: string; date: string }
+  | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean }
   | { type: "snapshotRollups"; today: Date };
 
 /**
@@ -152,6 +156,58 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "addMilestone": {
+      // Created empty and immediately opened for editing by the caller —
+      // the alternative (a modal that creates on save) leaves no marker on
+      // the chart to anchor the interaction to.
+      const milestone: Milestone = {
+        id: action.newId,
+        laneId: action.laneId,
+        title: "New milestone",
+        date: action.date,
+        status: "not-started",
+        dependsOn: [],
+        linksToTopLevelMilestone: null,
+        isCriticalPath: false,
+      };
+      return {
+        ...state,
+        data: withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "setMilestoneDate": {
+      // Drag-to-reschedule. Routed through applyCascade exactly like a date
+      // edit typed into the modal, so dragging a predecessor still pushes
+      // its dependents instead of silently breaking the chain.
+      const ops: PatchOp[] = [{ targetId: action.id, field: "date", newValue: action.date, reason: "Moved on the timeline" }];
+      const cascaded = applyCascade(state.data.milestones, ops);
+      return {
+        ...state,
+        data: withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "toggleDependency": {
+      // Predecessors and successors are the same edge seen from either end,
+      // so one action serves both: the editor flips which id it passes as
+      // dependent vs dependency. Self-edges are refused outright; a cycle
+      // would make the critical-path walk meaningless.
+      if (action.dependentId === action.dependencyId) return state;
+      const milestones = state.data.milestones.map((m) => {
+        if (m.id !== action.dependentId) return m;
+        const without = m.dependsOn.filter((d) => d.id !== action.dependencyId);
+        return action.add ? { ...m, dependsOn: [...without, { id: action.dependencyId, showConnector: true }] } : { ...m, dependsOn: without };
+      });
+      return {
+        ...state,
+        data: withComputedCriticalPath({ ...state.data, milestones }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "snapshotRollups": {
       // Passive once-per-calendar-day-per-lane rollup snapshot for the
       // Executive-view trend arrow (wayframe#33) — same "not a user edit"
@@ -185,6 +241,10 @@ export interface UseCorrectionBoxResult {
   editMilestone: (ops: PatchOp[]) => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
   setLaneColor: (laneId: string, color: string | undefined) => void;
+  /** Creates an empty milestone in the lane and returns its id so the caller can open it. */
+  addMilestone: (laneId: string, date: string) => string;
+  setMilestoneDate: (id: string, date: string) => void;
+  toggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   loadDocument: (data: RoadmapData) => void;
 }
 
@@ -311,6 +371,16 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
   const setLaneColor = useCallback((laneId: string, color: string | undefined) => dispatch({ type: "setLaneColor", laneId, color }), []);
+  const addMilestone = useCallback((laneId: string, date: string) => {
+    const newId = nanoid();
+    dispatch({ type: "addMilestone", laneId, date, newId });
+    return newId;
+  }, []);
+  const setMilestoneDate = useCallback((id: string, date: string) => dispatch({ type: "setMilestoneDate", id, date }), []);
+  const toggleDependency = useCallback(
+    (dependentId: string, dependencyId: string, add: boolean) => dispatch({ type: "toggleDependency", dependentId, dependencyId, add }),
+    [],
+  );
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
 
   return {
@@ -326,6 +396,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     editMilestone,
     editTopLevelItem,
     setLaneColor,
+    addMilestone,
+    setMilestoneDate,
+    toggleDependency,
     loadDocument,
   };
 }

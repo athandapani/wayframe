@@ -15,8 +15,10 @@ import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
+import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
 import { useTheme } from "@/components/timeline/use-theme";
 import { THEME_LIST } from "@/components/timeline/theme";
+import { laneColors } from "@/components/timeline/lane-colors";
 import { LaneColorPicker } from "./LaneColorPicker";
 import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
@@ -61,22 +63,28 @@ function RoadmapView({
   today,
   ghostMode,
   showCriticalPath,
+  criticalPathStyle,
   theme,
   blufOpen,
   onBlufOpenChange,
   onMilestoneClick,
   onTopLevelItemClick,
+  onAddMilestone,
+  onMilestoneDateChange,
 }: {
   mode: Mode;
   data: RoadmapData;
   today: Date;
   ghostMode: GhostMode;
   showCriticalPath: boolean;
+  criticalPathStyle: CriticalPathStyle;
   theme: Theme;
   blufOpen: boolean;
   onBlufOpenChange: (open: boolean) => void;
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
+  onAddMilestone?: (laneId: string) => void;
+  onMilestoneDateChange?: (id: string, date: string) => void;
 }) {
   if (mode === "program") {
     return (
@@ -88,9 +96,12 @@ function RoadmapView({
           width={1600}
           ghostMode={ghostMode}
           showCriticalPath={showCriticalPath}
+          criticalPathStyle={criticalPathStyle}
           theme={theme}
           onMilestoneClick={onMilestoneClick}
           onTopLevelItemClick={onTopLevelItemClick}
+          onAddMilestone={onAddMilestone}
+          onMilestoneDateChange={onMilestoneDateChange}
         />
       </div>
     );
@@ -123,6 +134,7 @@ export function RoadmapWorkspace({
   const ghost = useGhostMode();
   const criticalPath = useCriticalPathVisibility();
   const { themeId, theme, setTheme } = useTheme();
+  const criticalPathLine = useCriticalPathStyle();
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -138,6 +150,14 @@ export function RoadmapWorkspace({
   const selectedTopLevelItem = selectedTopLevelItemRaw && isEditableTopLevelItem(selectedTopLevelItemRaw) ? selectedTopLevelItemRaw : null;
 
   const otherMode: Mode = mode === "program" ? "executive" : "program";
+
+  // New milestones land on today's date so they appear near the Today line
+  // rather than at the far edge of the domain, then open straight into the
+  // editor — an untitled diamond with no follow-up is a dead end.
+  function handleAddMilestone(laneId: string) {
+    const iso = today.toISOString().slice(0, 10);
+    setSelectedMilestoneId(box.addMilestone(laneId, iso));
+  }
 
   async function handleExport() {
     if (exporting) return;
@@ -210,7 +230,7 @@ export function RoadmapWorkspace({
                   >
                     {/* a real swatch of the theme, not just its name */}
                     <span className="mb-1 flex h-6 overflow-hidden rounded" style={{ background: t.ground }}>
-                      {t.laneTint.slice(0, 3).map((c) => (
+                      {laneColors(t.laneRamp, 3).map((c) => (
                         <span key={c} className="flex-1" style={{ background: c }} />
                       ))}
                       <span className="flex-1" style={{ background: t.statusColor.delayed }} />
@@ -262,6 +282,23 @@ export function RoadmapWorkspace({
                 {criticalPath.visible ? "Shown" : "Hidden"}
               </button>
             </OptionsMenuRow>
+            {criticalPath.visible && (
+              <OptionsMenuRow label="Critical line">
+                <select
+                  value={criticalPathLine.style}
+                  onChange={(e) => criticalPathLine.setStyle(e.target.value as CriticalPathStyle)}
+                  aria-label="Critical path line style"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {CRITICAL_PATH_STYLES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+            )}
             <OptionsMenuRow label="Correction UI">
               <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
                 {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
@@ -291,21 +328,30 @@ export function RoadmapWorkspace({
             today={today}
             ghostMode={ghost.mode}
             showCriticalPath={criticalPath.visible}
+            criticalPathStyle={criticalPathLine.style}
             theme={theme}
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
+            onAddMilestone={handleAddMilestone}
+            onMilestoneDateChange={box.setMilestoneDate}
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
           />
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
+            <RoadmapView mode={otherMode} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} criticalPathStyle={criticalPathLine.style} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
           </div>
         )}
       </div>
       <CorrectionBoxSwitcher box={box} mode={correctionMode} />
-      <MilestoneEditorModal data={box.data} milestone={selectedMilestone} onSave={box.editMilestone} onClose={() => setSelectedMilestoneId(null)} />
+      <MilestoneEditorModal
+        data={box.data}
+        milestone={selectedMilestone}
+        onSave={box.editMilestone}
+        onClose={() => setSelectedMilestoneId(null)}
+        onToggleDependency={box.toggleDependency}
+      />
       <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
       {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
     </div>

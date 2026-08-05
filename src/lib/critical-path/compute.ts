@@ -1,31 +1,43 @@
 import type { Milestone, RoadmapData, TopLevelItem } from "@/components/timeline/types";
 
 /**
- * True critical-path (CPM) calculation, per wayframe#34's design decision.
+ * Critical path = the longest dependency chain that ends at the program's
+ * finish.
  *
- * Every milestone already carries a fixed `date` (extraction or manual
- * edit already set it) — this isn't computing dates from scratch the way a
- * traditional scheduling tool does. Instead it's a backward pass over the
- * existing dates: a milestone's "late-allowable date" is the latest its own
- * date could be without pushing any successor later than that successor's
- * own committed date. A milestone with no successors is unconstrained, so
- * its late-allowable date is just its own date. `slack = lateAllowableDate
- * - date`; `slack <= 0` (zero *or negative*) means critical — a predecessor
- * already later than what a successor's date implies is the most critical
- * state, not a separate one.
+ * WHY THIS AND NOT SLACK. wayframe#34 specified a zero/negative-slack
+ * backward pass over each milestone's already-fixed `date`. That was
+ * implemented and shipped, and it does not work — not as a bug, but
+ * structurally:
+ *
+ *   - A node with no successors got a late-allowable date equal to its own
+ *     date, so every chain-end was critical by construction. On the demo
+ *     document that produced five "critical" milestones with no dependency
+ *     edge between any two of them.
+ *   - Anchoring terminals to the program finish instead fixes that, but
+ *     exposes the deeper problem: without durations, a milestone whose
+ *     successor is later can always slip up to that successor's date, so it
+ *     has slack. Zero slack only occurs when two linked dates are exactly
+ *     equal. A connected chain is therefore essentially unreachable.
+ *
+ * Real CPM gets its connectivity from durations (finish-to-start), and this
+ * model has none — milestones are points, not spans. So "critical path" is
+ * redefined here as the chain that paces the program: walk back from the
+ * latest milestone, at each step taking the predecessor that starts the
+ * longest chain. That is connected by construction, which is what makes it
+ * drawable as a line, and it answers the question a reader actually asks —
+ * "what sequence determines the finish date?"
+ *
+ * Ties (equal chain depth) resolve to the later predecessor: of two
+ * equally-long chains, the one running latest is the one with least room.
  *
  * The graph is one DAG across the whole document: lane Milestone.dependsOn
- * edges (cross-lane included, matching how they already render), plus each
- * milestone's linksToTopLevelMilestone as an implicit edge into a top-level
- * `milestone`-type TopLevelItem (never a `phase` — linksToTopLevelMilestone
- * only ever references a top-level milestone in practice; phase date-range
- * math is intentionally out of scope, see #34).
+ * edges, cross-lane included. `linksToTopLevelMilestone` still contributes
+ * the program-finish date (a lane milestone tied to a top-level milestone
+ * can pace the program) but is not itself walked, since top-level items
+ * have no predecessors to continue a chain into.
  *
- * A milestone with no dependency relationship in any direction (no
- * dependsOn, nothing depends on it, no linksToTopLevelMilestone) is
- * excluded entirely rather than trivially computing critical — without
- * this, every disconnected milestone would show critical purely because
- * nothing constrains it, which isn't what "critical path" means here.
+ * A milestone with no dependency relationship in any direction is excluded:
+ * an isolated point is not part of any path.
  */
 
 function topLevelMilestoneDates(topLevelItems: readonly TopLevelItem[]): Map<string, string> {
@@ -36,7 +48,7 @@ function topLevelMilestoneDates(topLevelItems: readonly TopLevelItem[]): Map<str
   return dates;
 }
 
-/** Ids of milestones the given milestone must happen no later than, per the current data. */
+/** Ids of milestones that depend on the given milestone. */
 function buildDependents(milestones: readonly Milestone[]): Map<string, string[]> {
   const dependents = new Map<string, string[]>();
   for (const m of milestones) {
@@ -54,41 +66,65 @@ export function computeCriticalPathIds(data: Pick<RoadmapData, "milestones" | "t
   const dependents = buildDependents(milestones);
   const topLevelDateById = topLevelMilestoneDates(data.topLevelItems);
 
-  function linkedTopLevelDate(m: Milestone): string | undefined {
-    return m.linksToTopLevelMilestone !== null ? topLevelDateById.get(m.linksToTopLevelMilestone) : undefined;
+  function connected(m: Milestone): boolean {
+    return m.dependsOn.length > 0 || (dependents.get(m.id)?.length ?? 0) > 0;
   }
 
-  function isIsolated(m: Milestone): boolean {
-    return m.dependsOn.length === 0 && (dependents.get(m.id)?.length ?? 0) === 0 && linkedTopLevelDate(m) === undefined;
-  }
+  const linked = (m: Milestone) => (m.linksToTopLevelMilestone !== null ? topLevelDateById.get(m.linksToTopLevelMilestone) : undefined);
 
-  const memo = new Map<string, string>();
+  /** Hops in the longest chain ending at `id`, plus the predecessor that gives it. */
+  const memo = new Map<string, { depth: number; via: string | null }>();
   const visiting = new Set<string>();
 
-  function lateAllowableDate(id: string): string {
+  function longestChainTo(id: string): { depth: number; via: string | null } {
     const cached = memo.get(id);
-    if (cached !== undefined) return cached;
-    const m = byId.get(id)!;
-    // A cyclic dependsOn graph shouldn't occur in valid data — fall back to
-    // the node's own date rather than recursing forever if it does.
-    if (visiting.has(id)) return m.date;
+    if (cached) return cached;
+    // Cyclic data shouldn't occur, but a cycle here would otherwise recurse
+    // forever — treat the revisited node as a chain start.
+    if (visiting.has(id)) return { depth: 0, via: null };
     visiting.add(id);
 
-    const constraints: string[] = [];
-    for (const depId of dependents.get(id) ?? []) constraints.push(lateAllowableDate(depId));
-    const linked = linkedTopLevelDate(m);
-    if (linked !== undefined) constraints.push(linked);
+    const m = byId.get(id)!;
+    let best: { depth: number; via: string | null } = { depth: 0, via: null };
+    for (const dep of m.dependsOn) {
+      const pred = byId.get(dep.id);
+      if (!pred) continue;
+      const candidate = longestChainTo(dep.id).depth + 1;
+      const better = candidate > best.depth || (candidate === best.depth && best.via !== null && pred.date > byId.get(best.via)!.date);
+      if (better) best = { depth: candidate, via: dep.id };
+    }
 
-    const result = constraints.length > 0 ? constraints.reduce((min, d) => (d < min ? d : min)) : m.date;
     visiting.delete(id);
-    memo.set(id, result);
-    return result;
+    memo.set(id, best);
+    return best;
   }
 
+  // The program's finish, including any top-level milestone a lane
+  // milestone is tied to.
+  const eligible = milestones.filter(connected);
+  if (eligible.length === 0) return new Set();
+  const programEnd = eligible.reduce((acc, m) => {
+    const d = [m.date, linked(m)].filter(Boolean) as string[];
+    const latest = d.reduce((a, b) => (a > b ? a : b));
+    return latest > acc ? latest : acc;
+  }, "");
+
+  // Every milestone sitting at the finish anchors a chain — ties included,
+  // so two lanes landing on the same end date both show. Among those, only
+  // the deepest chains count: a single milestone that happens to land on
+  // the finish date shouldn't read as critical as a six-hop chain that
+  // fought its way there.
+  const atEnd = eligible.filter((m) => m.date === programEnd || linked(m) === programEnd);
+  const deepest = atEnd.reduce((max, m) => Math.max(max, longestChainTo(m.id).depth), 0);
+  const endpoints = atEnd.filter((m) => longestChainTo(m.id).depth === deepest);
+
   const critical = new Set<string>();
-  for (const m of milestones) {
-    if (isIsolated(m)) continue;
-    if (lateAllowableDate(m.id) <= m.date) critical.add(m.id);
+  for (const end of endpoints) {
+    let cursor: string | null = end.id;
+    while (cursor && !critical.has(cursor)) {
+      critical.add(cursor);
+      cursor = longestChainTo(cursor).via;
+    }
   }
   return critical;
 }

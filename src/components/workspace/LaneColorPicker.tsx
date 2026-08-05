@@ -10,6 +10,7 @@
 // switch after someone has pinned one or two lanes.
 import type { Swimlane } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
+import { laneColorAt } from "@/components/timeline/lane-colors";
 
 export function LaneColorPicker({
   swimlanes,
@@ -25,7 +26,7 @@ export function LaneColorPicker({
   return (
     <div className="space-y-2">
       {lanes.map((lane, i) => {
-        const fallback = theme.laneTint[i % theme.laneTint.length];
+        const fallback = laneColorAt(theme.laneRamp, i, lanes.length);
         const pinned = lane.color !== undefined;
         return (
           <div key={lane.id} className="flex items-center gap-2">
