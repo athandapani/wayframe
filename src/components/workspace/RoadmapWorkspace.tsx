@@ -33,6 +33,8 @@ import { OptionsMenu, OptionsMenuRow } from "./OptionsMenu";
 import { exportToDeck } from "@/lib/export/export-to-deck";
 import { saveDocumentFile, parseDocumentFile } from "@/lib/document-file/document-file";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
+import { useTimelineSummary } from "@/components/executive-view/use-timeline-summary";
+import type { ExecutiveTimelineSummary } from "@/components/executive-view/timeline-summary";
 
 type Mode = "executive" | "program";
 
@@ -82,6 +84,7 @@ function RoadmapView({
   chartWidth,
   labelDensity,
   legend,
+  timelineSummary,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -102,6 +105,8 @@ function RoadmapView({
   labelDensity: LabelDensity;
   /** Rendered under the chart; omitted for the off-screen export capture keeps the slide clean. */
   legend?: React.ReactNode;
+  /** Executive-view summary (wayframe#37) — undefined until "Generate" is clicked in the options menu. */
+  timelineSummary?: ExecutiveTimelineSummary | null;
 }) {
   if (mode === "program") {
     return (
@@ -128,7 +133,7 @@ function RoadmapView({
   }
   return (
     <div className="pt-16" style={{ background: theme.ground, color: theme.ink }}>
-      <ExecutiveView data={data} today={today} />
+      <ExecutiveView data={data} today={today} timelineSummary={timelineSummary} />
     </div>
   );
 }
@@ -151,6 +156,7 @@ export function RoadmapWorkspace({
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, persist, today);
+  const timelineSummary = useTimelineSummary(box.data);
   const ghost = useGhostMode();
   const criticalPath = useCriticalPathVisibility();
   const { themeId, theme, setTheme } = useTheme();
@@ -447,6 +453,11 @@ export function RoadmapWorkspace({
                 Import a schedule
               </button>
             </OptionsMenuRow>
+            <OptionsMenuRow label="Executive timeline">
+              <button onClick={timelineSummary.update} style={PILL_STYLE} className={pillToggle(true)}>
+                {timelineSummary.summary ? "Update Executive view" : "Generate"}
+              </button>
+            </OptionsMenuRow>
           </OptionsMenu>
         </div>
         <div ref={visibleCaptureRef}>
@@ -465,6 +476,7 @@ export function RoadmapWorkspace({
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
+            timelineSummary={timelineSummary.summary}
             legend={
               <ChartLegend
                 theme={theme}
