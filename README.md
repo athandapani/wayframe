@@ -4,7 +4,7 @@ A generic, point-at-any-program roadmap visualization tool. Type a rough plan, s
 of a whiteboard, upload a CSV, or connect a Smartsheet — Wayframe synthesizes it into a clean,
 swimlane roadmap you can refine, correct in plain English, and share.
 
-**Live:** [wayframe-dexddk663-athandapani-8888s-projects.vercel.app](https://wayframe-dexddk663-athandapani-8888s-projects.vercel.app)
+**Live:** [wayframe-athandapani-8888s-projects.vercel.app](https://wayframe-athandapani-8888s-projects.vercel.app)
 
 Chartered and built via a wayfinder map — see the repo's Issues for the decision history
 ([#3](https://github.com/athandapani/wayframe/issues/3),
