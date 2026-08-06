@@ -33,6 +33,9 @@ import { OptionsMenu, OptionsMenuRow } from "./OptionsMenu";
 import { exportToDeck } from "@/lib/export/export-to-deck";
 import { saveDocumentFile, parseDocumentFile } from "@/lib/document-file/document-file";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
+// PROTOTYPE (wayframe#37) — the trigger lives in the shared OptionsMenu so it's
+// reachable from Program view, not just embedded inside ExecutiveView.
+import { useTimelineSummary } from "@/components/executive-view/prototype-timeline-summary/use-timeline-summary";
 
 type Mode = "executive" | "program";
 
@@ -82,6 +85,8 @@ function RoadmapView({
   chartWidth,
   labelDensity,
   legend,
+  timelineSummary,
+  timelineSummaryLoading,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -102,6 +107,9 @@ function RoadmapView({
   labelDensity: LabelDensity;
   /** Rendered under the chart; omitted for the off-screen export capture keeps the slide clean. */
   legend?: React.ReactNode;
+  /** PROTOTYPE (wayframe#37) */
+  timelineSummary?: ReturnType<typeof useTimelineSummary>["summary"];
+  timelineSummaryLoading?: boolean;
 }) {
   if (mode === "program") {
     return (
@@ -128,7 +136,7 @@ function RoadmapView({
   }
   return (
     <div className="pt-16" style={{ background: theme.ground, color: theme.ink }}>
-      <ExecutiveView data={data} today={today} />
+      <ExecutiveView data={data} today={today} timelineSummary={timelineSummary} timelineSummaryLoading={timelineSummaryLoading} />
     </div>
   );
 }
@@ -151,6 +159,8 @@ export function RoadmapWorkspace({
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, persist, today);
+  // PROTOTYPE (wayframe#37) — see use-timeline-summary.ts.
+  const timelineSummary = useTimelineSummary(box.data, today);
   const ghost = useGhostMode();
   const criticalPath = useCriticalPathVisibility();
   const { themeId, theme, setTheme } = useTheme();
@@ -447,6 +457,18 @@ export function RoadmapWorkspace({
                 Import a schedule
               </button>
             </OptionsMenuRow>
+            {process.env.NODE_ENV !== "production" && (
+              <OptionsMenuRow label="Executive timeline (prototype)">
+                <button
+                  onClick={timelineSummary.update}
+                  disabled={timelineSummary.loading}
+                  style={PILL_STYLE}
+                  className={pillToggle(true) + " disabled:opacity-50"}
+                >
+                  {timelineSummary.loading ? "Updating…" : timelineSummary.summary ? "Update Executive view" : "Generate"}
+                </button>
+              </OptionsMenuRow>
+            )}
           </OptionsMenu>
         </div>
         <div ref={visibleCaptureRef}>
@@ -465,6 +487,8 @@ export function RoadmapWorkspace({
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
+            timelineSummary={timelineSummary.summary}
+            timelineSummaryLoading={timelineSummary.loading}
             legend={
               <ChartLegend
                 theme={theme}
