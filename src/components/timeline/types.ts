@@ -142,6 +142,17 @@ export interface RoadmapData {
   schemaVersion: string;
   programName: string;
   generatedAt: string;
+  /**
+   * Last document-changing edit, ISO timestamp (wayframe#40/#49) — distinct
+   * from `generatedAt`, which is stamped once at AI-extraction time and
+   * never rewritten. Bumped by useCorrectionBox's reducer on every action
+   * that already pushes onto the undo `history` stack (AI corrections,
+   * manual edits, drags, imports); passive writes that skip the undo stack
+   * (`hydrated`, `snapshotRollups`) don't bump it either. Optional because
+   * documents persisted before this field existed won't have it until their
+   * next edit.
+   */
+  lastUpdatedAt?: string;
   owner: string;
   reportsTo?: string;
   nextReviewDate?: string;

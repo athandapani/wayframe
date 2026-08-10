@@ -17,6 +17,7 @@ export const demoRoadmap: RoadmapData = {
   schemaVersion: "1.0",
   programName: "Atlas Mobile Robot Platform — Launch Program",
   generatedAt: "2026-09-01T00:00:00.000Z",
+  lastUpdatedAt: "2026-09-01T00:00:00.000Z",
   owner: "Dana Whitfield — VP, Robotics Programs",
   reportsTo: "Priya Natarajan — COO",
   nextReviewDate: "2026-09-15",

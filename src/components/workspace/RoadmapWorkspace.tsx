@@ -18,6 +18,7 @@ import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
+import { useLastUpdatedVisibility } from "@/components/timeline/use-last-updated-visibility";
 import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
 import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
 import type { LabelDensity } from "@/components/timeline/title-layout";
@@ -145,6 +146,26 @@ function pillToggle(active: boolean) {
   return "rounded-full border px-2.5 py-1 text-xs " + (active ? "" : "opacity-55");
 }
 
+// Absolute, not relative (wayframe#40/#49) — a relative "2h ago" label goes
+// stale the moment it's painted without a ticking re-render, which nothing
+// here does.
+function formatLastUpdated(iso: string): string {
+  const d = new Date(iso);
+  const datePart = `${d.getMonth() + 1}/${d.getDate()}`;
+  const timePart = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `Updated ${datePart} ${timePart}`;
+}
+
+/** Top-right, left of the Options-menu hamburger (top-4 right-4) and clear of BlufCallout (top-16 right-4). */
+function LastUpdatedBadge({ lastUpdatedAt }: { lastUpdatedAt?: string }) {
+  if (!lastUpdatedAt) return null;
+  return (
+    <div className="fixed top-4 right-16 z-50 text-xs font-semibold" style={{ color: "#e11d48" }}>
+      {formatLastUpdated(lastUpdatedAt)}
+    </div>
+  );
+}
+
 /** Chrome surfaces read the theme through the CSS vars published on the workspace root. */
 const PILL_STYLE: React.CSSProperties = { background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" };
 
@@ -162,6 +183,7 @@ export function RoadmapWorkspace({
   const timelineSummary = useTimelineSummary(box.data);
   const ghost = useGhostMode();
   const criticalPath = useCriticalPathVisibility();
+  const lastUpdated = useLastUpdatedVisibility();
   const { themeId, theme, setTheme } = useTheme();
   const criticalPathLine = useCriticalPathStyle();
   const labels = useLabelDensity();
@@ -317,6 +339,7 @@ export function RoadmapWorkspace({
             )}
           </div>
         )}
+        {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
         <div className="fixed top-4 right-4 z-50">
           <OptionsMenu>
             <OptionsMenuRow label="Help">
@@ -456,6 +479,16 @@ export function RoadmapWorkspace({
             <OptionsMenuRow label="Correction UI">
               <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
                 {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
+              </button>
+            </OptionsMenuRow>
+            <OptionsMenuRow label="Last updated">
+              <button
+                onClick={() => lastUpdated.setVisible(!lastUpdated.visible)}
+                aria-pressed={lastUpdated.visible}
+                aria-label={`Last updated: ${lastUpdated.visible ? "Shown" : "Hidden"}`}
+                style={PILL_STYLE} className={pillToggle(lastUpdated.visible)}
+              >
+                {lastUpdated.visible ? "Shown" : "Hidden"}
               </button>
             </OptionsMenuRow>
             <OptionsMenuRow label="So what">

@@ -133,6 +133,33 @@ describe("correction box reducer", () => {
   });
 });
 
+describe("lastUpdatedAt stamping (wayframe#40/#49)", () => {
+  it("apply stamps lastUpdatedAt with the current time — distinct from generatedAt, which never changes", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], ambiguous: null },
+    };
+    const before = Date.now();
+    const next = reduce(state, { type: "apply", adds: [] });
+    expect(next.data.lastUpdatedAt).toBeDefined();
+    const stamped = new Date(next.data.lastUpdatedAt!).getTime();
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(Date.now());
+    expect(next.data.generatedAt).toBe(state.data.generatedAt);
+  });
+
+  it("hydrated does not stamp lastUpdatedAt — a refresh reload isn't an undoable edit", () => {
+    const persisted = { ...baseData(), programName: "Persisted" };
+    const next = reduce(initialState(), { type: "hydrated", data: persisted });
+    expect(next.data.lastUpdatedAt).toBeUndefined();
+  });
+
+  it("snapshotRollups does not stamp lastUpdatedAt — a passive once-a-day write isn't an edit", () => {
+    const next = reduce(initialState(), { type: "snapshotRollups", today: new Date("2026-06-10") });
+    expect(next.data.lastUpdatedAt).toBeUndefined();
+  });
+});
+
 describe("snapshotRollups reducer action (wayframe#33)", () => {
   // baseData's m1 is not-started with date 2026-01-01, so as of 2026-06-10
   // it's overdue -> rag "red" per ragForLane's date-aware refinement.

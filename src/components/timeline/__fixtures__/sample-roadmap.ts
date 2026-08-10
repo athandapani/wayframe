@@ -8,6 +8,7 @@ export const sampleRoadmap: RoadmapData = {
   schemaVersion: "1.0",
   programName: "Sample Program",
   generatedAt: "2026-08-01T00:00:00.000Z",
+  lastUpdatedAt: "2026-08-01T00:00:00.000Z",
   owner: "Test Owner",
   bluf: {
     statement: "Sample bottom-line statement for tests.",

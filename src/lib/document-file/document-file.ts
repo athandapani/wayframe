@@ -60,6 +60,7 @@ const RoadmapDataSchema = z.object({
   schemaVersion: z.string(),
   programName: z.string(),
   generatedAt: z.string(),
+  lastUpdatedAt: z.string().optional(),
   owner: z.string().optional(),
   reportsTo: z.string().optional(),
   nextReviewDate: z.string().optional(),

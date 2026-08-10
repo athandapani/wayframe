@@ -74,6 +74,16 @@ export type CorrectionBoxAction =
   | { type: "snapshotRollups"; today: Date };
 
 /**
+ * Stamps `lastUpdatedAt` (wayframe#40/#49) on a document-changing edit —
+ * every case below that pushes onto the undo `history` stack calls this on
+ * its way out. `hydrated` and `snapshotRollups` skip it, same as they skip
+ * the history push: neither is a user edit.
+ */
+function stampUpdated(data: RoadmapData): RoadmapData {
+  return { ...data, lastUpdatedAt: new Date().toISOString() };
+}
+
+/**
  * All state transitions in one place, mirroring issue #9's hand-driven
  * prototype (src/lib/corrections/../prototype-patch-logic.ts's `reduce`) —
  * a single reducer avoids the fragile "setState inside another setState's
@@ -94,7 +104,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const added = applyAddMilestoneOps(action.adds);
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones: [...edited, ...added] }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: [...edited, ...added] })),
         history: [...state.history, state.data],
         pending: null,
         error: null,
@@ -143,7 +153,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const cascaded = applyCascade(state.data.milestones, action.ops);
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -156,10 +166,12 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // critical path still needs recomputing here (wayframe#34/#35).
       return {
         ...state,
-        data: withComputedCriticalPath({
-          ...state.data,
-          topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
-        }),
+        data: stampUpdated(
+          withComputedCriticalPath({
+            ...state.data,
+            topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
+          }),
+        ),
         history: [...state.history, state.data],
         error: null,
       };
@@ -172,7 +184,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // itself in the prototype). Doesn't touch critical path.
       return {
         ...state,
-        data: { ...state.data, bluf: { ...state.data.bluf, ...action.patch } },
+        data: stampUpdated({ ...state.data, bluf: { ...state.data.bluf, ...action.patch } }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -183,7 +195,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // still shares this undo stack, so importing over an in-progress
       // roadmap is a mistake the user can recover from with the same Undo
       // button, not a destructive dead end.
-      return { ...state, data: withComputedCriticalPath(action.data), history: [...state.history, state.data], pending: null, error: null };
+      return { ...state, data: stampUpdated(withComputedCriticalPath(action.data)), history: [...state.history, state.data], pending: null, error: null };
     }
     case "hydrated": {
       // Rehydrating a persisted document (wayframe#22) on mount is not a user
@@ -198,10 +210,10 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // it's a normal undoable edit, unlike the theme itself.
       return {
         ...state,
-        data: {
+        data: stampUpdated({
           ...state.data,
           swimlanes: state.data.swimlanes.map((l) => (l.id === action.laneId ? { ...l, color: action.color } : l)),
-        },
+        }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -222,7 +234,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -236,7 +248,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         .map((m) => (m.dependsOn.some((d) => d.id === action.id) ? { ...m, dependsOn: m.dependsOn.filter((d) => d.id !== action.id) } : m));
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -249,7 +261,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const cascaded = applyCascade(state.data.milestones, ops);
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -267,7 +279,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       });
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -285,7 +297,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
       return {
         ...state,
-        data: { ...state.data, swimlanes: [...state.data.swimlanes, swimlane] },
+        data: stampUpdated({ ...state.data, swimlanes: [...state.data.swimlanes, swimlane] }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -293,10 +305,10 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "renameSwimlane": {
       return {
         ...state,
-        data: {
+        data: stampUpdated({
           ...state.data,
           swimlanes: state.data.swimlanes.map((l) => (l.id === action.id ? { ...l, name: action.name } : l)),
-        },
+        }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -317,7 +329,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         .map((l, i) => ({ ...l, order: i }));
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, swimlanes, milestones }),
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, swimlanes, milestones })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -330,7 +342,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
       return {
         ...state,
-        data: { ...state.data, swimlanes: ordered.map((l, k) => ({ ...l, order: k })) },
+        data: stampUpdated({ ...state.data, swimlanes: ordered.map((l, k) => ({ ...l, order: k })) }),
         history: [...state.history, state.data],
         error: null,
       };

@@ -38,14 +38,14 @@ describe("RoadmapTimeline", () => {
     expect(screen.getAllByText("First milestone")).toHaveLength(1);
   });
 
-  it("renders the today reference line when today falls within the domain", () => {
+  it("renders the today reference line, with its date, when today falls within the domain", () => {
     render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
-    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.getByText("Today · 1/20")).toBeInTheDocument();
   });
 
   it("omits the today reference line when today falls outside the domain", () => {
     render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2030-01-01T00:00:00Z")} />);
-    expect(screen.queryByText("Today")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Today ·/)).not.toBeInTheDocument();
   });
 });
 

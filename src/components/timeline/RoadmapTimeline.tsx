@@ -216,6 +216,15 @@ function criticalStroke(style: CriticalPathStyle): { width: number; dash?: strin
 // topBandY+22, which landed the line's top — and the label right above it —
 // on the axis band's own tier-row text, illegible red-on-gray colliding
 // with e.g. the Quarter row's label).
+//
+// The Today label used to sit directly below the triangle (topY+12), which
+// pushed it into the tier-1 axis row — a themed, sometimes-dark background
+// it could collide with both visually (contrast) and spatially (the row's
+// own date text). Fixed for wayframe#40/#49: the label now sits at the same
+// height as every other reference line's label (topY-4, inside the neutral
+// margin band), offset further right to clear the triangle instead of
+// stacking under it, and rides a solid chip so it stays legible regardless
+// of what's behind it.
 function ReferenceLine({
   x: cx,
   topY,
@@ -233,6 +242,8 @@ function ReferenceLine({
   dash?: string;
   topMarker?: boolean;
 }) {
+  const chipX = cx + 8;
+  const chipW = Math.max(40, label.length * 6.2 + 10);
   return (
     // Reference lines are painted after the markers, so without this they
     // swallow clicks on any milestone sitting on the same date — the GA
@@ -241,9 +252,18 @@ function ReferenceLine({
     <g pointerEvents="none">
       <line x1={cx} x2={cx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
       {topMarker && <path d={`M${cx - 5},${topY - 9} L${cx + 5},${topY - 9} L${cx},${topY} Z`} fill={color} />}
-      <text x={cx + 4} y={topMarker ? topY + 12 : topY - 4} fontSize={9} fontWeight={700} fill={color}>
-        {label}
-      </text>
+      {topMarker ? (
+        <>
+          <rect x={chipX} y={topY - 13} width={chipW} height={13} rx={4} fill={color} />
+          <text x={chipX + chipW / 2} y={topY - 4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#ffffff">
+            {label}
+          </text>
+        </>
+      ) : (
+        <text x={cx + 4} y={topY - 4} fontSize={9} fontWeight={700} fill={color}>
+          {label}
+        </text>
+      )}
     </g>
   );
 }
@@ -901,7 +921,15 @@ export function RoadmapTimeline({
             top triangle (wayframe#38 item 5 / #39), distinct from every other
             reference line's plain dashed-line-plus-text treatment. */}
         {todayTs >= domainMin && todayTs <= domainMax && (
-          <ReferenceLine x={xTs(todayTs)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label="Today" color="#e11d48" dash="3 3" topMarker />
+          <ReferenceLine
+            x={xTs(todayTs)}
+            topY={MARGIN.top}
+            bottomY={height - MARGIN.bottom}
+            label={`Today · ${today.getUTCMonth() + 1}/${today.getUTCDate()}`}
+            color="#e11d48"
+            dash="3 3"
+            topMarker
+          />
         )}
       </svg>
     </div>
