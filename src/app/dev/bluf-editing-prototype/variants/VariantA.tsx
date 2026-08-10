@@ -1,28 +1,79 @@
 "use client";
 
 // PROTOTYPE — Variant A: type the syntax.
-// Plain <textarea>/<input> fields, raw text at rest — bold/italic are typed
-// literally as **bold** / *italic* and only render as such outside edit
-// mode. Font size is a whole-box scale (Small/Medium/Large), not
-// per-character — this variant has no rich-text model at all, so there's
-// nothing to select-and-resize.
-import { useState } from "react";
+// Plain <textarea>/<input> fields, raw text at rest. Round 1 of this
+// prototype only covered bold/italic; extended per live feedback to the
+// full rich-text set requested — bold, italic, underline, strikethrough,
+// inline code, links, and color/highlight. Font size is still a whole-box
+// scale (Small/Medium/Large), not per-character.
+import { useEffect, useRef, useState } from "react";
 import type { Theme } from "@/components/timeline/theme";
 import { useBoxSize, ResizeHandle } from "../shared";
 
 const FONT_SIZE_PX = { sm: 11, md: 13, lg: 16 } as const;
 type Size = keyof typeof FONT_SIZE_PX;
 
+const COLOR_MAP: Record<string, string> = { red: "#dc2626", amber: "#d97706", green: "#16a34a", blue: "#2563eb" };
+
+// Longest/most-specific tokens first — JS split() with an alternation tries
+// alternatives in order at each position, so a shorter token listed first
+// would swallow part of a longer one (e.g. "*" matching inside "**").
+// Link and color have no real markdown precedent — [text](url) is borrowed
+// from real markdown, {color:red}text{/color} is invented for this
+// prototype specifically to see how it feels (spoiler: see README).
+const TOKEN_RE = /(`[^`]+`|\[[^\]]+\]\([^)]+\)|\{color:\w+\}[^{]+\{\/color\}|==[^=]+==|~~[^~]+~~|__[^_]+__|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+
 function renderInline(text: string): React.ReactNode[] {
-  // **bold** and *italic*, non-overlapping, first match wins per token —
-  // a real markdown parser would nest these; a prototype doesn't need to.
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const parts = text.split(TOKEN_RE);
   return parts.map((p, i) => {
+    if (p.startsWith("`") && p.endsWith("`")) {
+      return (
+        <code key={i} className="rounded bg-black/10 px-1 py-0.5 text-[0.9em] dark:bg-white/10">
+          {p.slice(1, -1)}
+        </code>
+      );
+    }
+    const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(p);
+    if (link) {
+      return (
+        <a key={i} href={link[2]} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "inherit", textDecorationStyle: "dotted" }}>
+          {link[1]}
+        </a>
+      );
+    }
+    const color = /^\{color:(\w+)\}([^{]+)\{\/color\}$/.exec(p);
+    if (color) {
+      return (
+        <span key={i} style={{ color: COLOR_MAP[color[1]] ?? color[1] }}>
+          {color[2]}
+        </span>
+      );
+    }
+    if (p.startsWith("==") && p.endsWith("==")) {
+      return (
+        <mark key={i} className="rounded px-0.5">
+          {p.slice(2, -2)}
+        </mark>
+      );
+    }
+    if (p.startsWith("~~") && p.endsWith("~~")) return <s key={i}>{p.slice(2, -2)}</s>;
+    if (p.startsWith("__") && p.endsWith("__")) return <u key={i}>{p.slice(2, -2)}</u>;
     if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
     if (p.startsWith("*") && p.endsWith("*")) return <em key={i}>{p.slice(1, -1)}</em>;
     return p;
   });
 }
+
+const SYNTAX_LEGEND: [string, string][] = [
+  ["**bold**", "bold"],
+  ["*italic*", "italic"],
+  ["__underline__", "underline"],
+  ["~~strike~~", "strikethrough"],
+  ["`code`", "code"],
+  ["[text](url)", "link"],
+  ["==mark==", "highlight"],
+  ["{color:red}text{/color}", "color"],
+];
 
 export function VariantA({ initialStatement, initialBullets, theme }: { initialStatement: string; initialBullets: string[]; theme: Theme }) {
   const [editing, setEditing] = useState(false);
@@ -30,6 +81,21 @@ export function VariantA({ initialStatement, initialBullets, theme }: { initialS
   const [bullets, setBullets] = useState(initialBullets);
   const [fontSize, setFontSize] = useState<Size>("md");
   const { size, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } = useBoxSize();
+
+  // Caught live: a plain <button onClick> for "+ Add bullet" keeps focus on
+  // the button afterward (default browser behavior), not the new input —
+  // if the very next keystrokes include a space (near-certain when typing a
+  // sentence), each one re-activates the focused button instead of typing,
+  // silently adding empty bullets instead of text. Auto-focusing the new
+  // input closes that gap.
+  const newBulletInputRef = useRef<HTMLInputElement | null>(null);
+  const focusNewBullet = useRef(false);
+  useEffect(() => {
+    if (focusNewBullet.current) {
+      newBulletInputRef.current?.focus();
+      focusNewBullet.current = false;
+    }
+  }, [bullets.length]);
 
   const surface = { background: theme.panelBg, borderColor: theme.panelBorder, color: theme.panelInk };
 
@@ -71,12 +137,20 @@ export function VariantA({ initialStatement, initialBullets, theme }: { initialS
             rows={2}
             className="w-full rounded border bg-transparent p-1.5 text-[0.95em]"
             style={{ borderColor: theme.panelBorder }}
-            placeholder="Bottom-line statement — **bold** and *italic* supported"
+            placeholder="Bottom-line statement"
           />
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5 rounded border border-dashed p-1.5 text-[10px] opacity-70" style={{ borderColor: theme.panelBorder }}>
+            {SYNTAX_LEGEND.map(([syntax, label]) => (
+              <span key={syntax}>
+                <code className="rounded bg-black/10 px-1 dark:bg-white/10">{syntax}</code> {label}
+              </span>
+            ))}
+          </div>
           <div className="space-y-1">
             {bullets.map((b, i) => (
               <div key={i} className="flex items-center gap-1.5">
                 <input
+                  ref={i === bullets.length - 1 ? newBulletInputRef : undefined}
                   value={b}
                   onChange={(e) => setBullets(bullets.map((x, j) => (j === i ? e.target.value : x)))}
                   className="w-full rounded border bg-transparent p-1 text-[0.9em]"
@@ -87,7 +161,13 @@ export function VariantA({ initialStatement, initialBullets, theme }: { initialS
                 </button>
               </div>
             ))}
-            <button onClick={() => setBullets([...bullets, ""])} className="text-[11px] opacity-70 hover:opacity-100">
+            <button
+              onClick={() => {
+                focusNewBullet.current = true;
+                setBullets([...bullets, ""]);
+              }}
+              className="text-[11px] opacity-70 hover:opacity-100"
+            >
               + Add bullet
             </button>
           </div>
