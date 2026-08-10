@@ -42,12 +42,34 @@ export interface SkippedCandidate {
   reason: string;
 }
 
+/**
+ * A tied match, resolved just enough to act on the moment a human picks
+ * one — the newValue is precomputed per candidate (not shared) because a
+ * date-shift's result depends on that candidate's own current date, unlike
+ * status/title/owner/comment where every tied candidate gets the same
+ * value. Added for the clarifying-question UI prototype (item 4's sibling
+ * question) — the original TUI only needed to know a tie happened, not
+ * resolve it interactively.
+ */
+export interface AmbiguousCandidate {
+  milestone: MilestoneRef;
+  newValue: string;
+}
+
+export interface AmbiguousChoice {
+  field: EditField;
+  reason: string;
+  candidates: AmbiguousCandidate[];
+}
+
 export interface ResolutionResult {
   edits: EditOp[];
   adds: AddOp[];
   skipped: SkippedCandidate[];
   /** Requests that couldn't even be parsed into a directive, or an add with no placeable lane. */
   unresolved: string[];
+  /** Set only in refuse-ambiguous mode when a subject phrase ties across multiple milestones. */
+  ambiguous?: AmbiguousChoice;
 }
 
 const STOPWORDS = new Set([
@@ -77,6 +99,8 @@ interface TargetResolution {
   chosen: MilestoneRef[];
   skipped: SkippedCandidate[];
   confidence: Confidence;
+  /** Non-empty only in the refuse-ambiguous tie case — the candidates a clarifying question would offer. */
+  tied: MilestoneRef[];
 }
 
 /**
@@ -91,42 +115,51 @@ function resolveTargets(subject: string, milestones: MilestoneRef[], mode: Ambig
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  if (scored.length === 0) return { chosen: [], skipped: [], confidence: "high" };
+  if (scored.length === 0) return { chosen: [], skipped: [], confidence: "high", tied: [] };
 
   const top = scored[0].score;
-  const tied = scored.filter((x) => x.score === top);
-  const rest = scored.slice(tied.length);
+  const tiedScored = scored.filter((x) => x.score === top);
+  const rest = scored.slice(tiedScored.length);
 
-  if (tied.length === 1) {
+  if (tiedScored.length === 1) {
     return {
-      chosen: [tied[0].m],
+      chosen: [tiedScored[0].m],
       skipped: rest.map((x) => ({
         targetId: x.m.id,
         targetTitle: x.m.title,
         reason: `lower word overlap (${x.score}) than the matched milestone`,
       })),
       confidence: "high",
+      tied: [],
     };
   }
 
   if (mode === "refuse-ambiguous") {
     return {
       chosen: [],
-      skipped: tied.map((x) => ({
+      skipped: tiedScored.map((x) => ({
         targetId: x.m.id,
         targetTitle: x.m.title,
-        reason: `ambiguous — ${tied.length} milestones tie on ${top} shared word(s); refusing rather than guessing`,
+        reason: `ambiguous — ${tiedScored.length} milestones tie on ${top} shared word(s); refusing rather than guessing`,
       })),
       confidence: "high",
+      tied: tiedScored.map((x) => x.m),
     };
   }
 
   // flag-low-confidence: emit an op per tied candidate, marked low confidence
-  return { chosen: tied.map((x) => x.m), skipped: [], confidence: "low" };
+  return { chosen: tiedScored.map((x) => x.m), skipped: [], confidence: "low", tied: [] };
 }
 
-function makeEdits(subject: string, field: EditField, newValue: string, milestones: MilestoneRef[], mode: AmbiguityMode, reasonWord: string): { edits: EditOp[]; skipped: SkippedCandidate[] } {
-  const { chosen, skipped, confidence } = resolveTargets(subject, milestones, mode);
+function makeEdits(
+  subject: string,
+  field: EditField,
+  newValue: string,
+  milestones: MilestoneRef[],
+  mode: AmbiguityMode,
+  reasonWord: string,
+): { edits: EditOp[]; skipped: SkippedCandidate[]; ambiguous?: AmbiguousChoice } {
+  const { chosen, skipped, confidence, tied } = resolveTargets(subject, milestones, mode);
   const edits = chosen.map((m) => ({
     kind: "edit" as const,
     targetId: m.id,
@@ -136,7 +169,11 @@ function makeEdits(subject: string, field: EditField, newValue: string, mileston
     reason: confidence === "high" ? `matched "${subject.trim()}" ${reasonWord}` : `low-confidence match on "${subject.trim()}" — ${chosen.length} milestones tied`,
     confidence,
   }));
-  return { edits, skipped };
+  const ambiguous: AmbiguousChoice | undefined =
+    tied.length > 0
+      ? { field, reason: `"${subject.trim()}" matches ${tied.length} milestones equally`, candidates: tied.map((m) => ({ milestone: m, newValue })) }
+      : undefined;
+  return { edits, skipped, ambiguous };
 }
 
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
@@ -228,32 +265,36 @@ export function resolveCorrection(text: string, milestones: MilestoneRef[], lane
   }
 
   if ((m = RENAME_RE.exec(text))) {
-    const { edits, skipped } = makeEdits(m[1], "title", m[2].trim(), milestones, mode, `→ rename to "${m[2].trim()}"`);
+    const { edits, skipped, ambiguous } = makeEdits(m[1], "title", m[2].trim(), milestones, mode, `→ rename to "${m[2].trim()}"`);
     result.edits.push(...edits);
     result.skipped.push(...skipped);
-    if (edits.length === 0 && skipped.length === 0) result.unresolved.push(`"${m[1].trim()}" didn't match any milestone title`);
+    result.ambiguous = ambiguous;
+    if (edits.length === 0 && skipped.length === 0 && !ambiguous) result.unresolved.push(`"${m[1].trim()}" didn't match any milestone title`);
     return result;
   }
 
   if ((m = OWNER_RE.exec(text))) {
-    const { edits, skipped } = makeEdits(m[1], "owner", m[2].trim(), milestones, mode, `→ owner set to "${m[2].trim()}"`);
+    const { edits, skipped, ambiguous } = makeEdits(m[1], "owner", m[2].trim(), milestones, mode, `→ owner set to "${m[2].trim()}"`);
     result.edits.push(...edits);
     result.skipped.push(...skipped);
+    result.ambiguous = ambiguous;
     return result;
   }
 
   if ((m = COMMENT_RE.exec(text))) {
-    const { edits, skipped } = makeEdits(m[1], "comment", m[2].trim(), milestones, mode, `→ comment set`);
+    const { edits, skipped, ambiguous } = makeEdits(m[1], "comment", m[2].trim(), milestones, mode, `→ comment set`);
     result.edits.push(...edits);
     result.skipped.push(...skipped);
+    result.ambiguous = ambiguous;
     return result;
   }
 
   if ((m = MARK_STATUS_RE.exec(text)) || (m = SET_STATUS_RE.exec(text))) {
     const status = normalizeStatus(m[2]);
-    const { edits, skipped } = makeEdits(m[1], "status", status, milestones, mode, `→ status set to ${status}`);
+    const { edits, skipped, ambiguous } = makeEdits(m[1], "status", status, milestones, mode, `→ status set to ${status}`);
     result.edits.push(...edits);
     result.skipped.push(...skipped);
+    result.ambiguous = ambiguous;
     return result;
   }
 
@@ -261,7 +302,7 @@ export function resolveCorrection(text: string, milestones: MilestoneRef[], lane
     const subject = m[1];
     const amount = WORD_NUMBERS[m[2].toLowerCase()] ?? Number(m[2]);
     const unit = m[3];
-    const { chosen, skipped, confidence } = resolveTargets(subject, milestones, mode);
+    const { chosen, skipped, confidence, tied } = resolveTargets(subject, milestones, mode);
     for (const ms of chosen) {
       const newDate = shiftDateISO(ms.date, unit, amount);
       result.edits.push({
@@ -275,6 +316,13 @@ export function resolveCorrection(text: string, milestones: MilestoneRef[], lane
       });
     }
     result.skipped.push(...skipped);
+    if (tied.length > 0) {
+      result.ambiguous = {
+        field: "date",
+        reason: `"${subject.trim()}" matches ${tied.length} milestones equally`,
+        candidates: tied.map((ms) => ({ milestone: ms, newValue: shiftDateISO(ms.date, unit, amount) })),
+      };
+    }
     return result;
   }
 
@@ -296,7 +344,8 @@ export type PrototypeAction =
   | { type: "submit"; text: string }
   | { type: "toggleMode" }
   | { type: "applyPending" }
-  | { type: "discardPending" };
+  | { type: "discardPending" }
+  | { type: "resolveAmbiguous"; targetId: string };
 
 function applyResult(milestones: MilestoneRef[], result: ResolutionResult): MilestoneRef[] {
   let next = milestones.map((m) => {
@@ -337,5 +386,28 @@ export function reduce(state: PrototypeState, action: PrototypeAction): Prototyp
     }
     case "discardPending":
       return { ...state, pending: null, log: [...state.log, "  discarded"] };
+    case "resolveAmbiguous": {
+      // The clarifying-question moment: a human picks which tied candidate
+      // was meant. This never re-runs the matcher — the candidate list and
+      // each one's precomputed newValue came from the original request, so
+      // picking one just turns it into a normal edit op.
+      if (!state.pending?.ambiguous) return state;
+      const picked = state.pending.ambiguous.candidates.find((c) => c.milestone.id === action.targetId);
+      if (!picked) return state;
+      const edit: EditOp = {
+        kind: "edit",
+        targetId: picked.milestone.id,
+        targetTitle: picked.milestone.title,
+        field: state.pending.ambiguous.field,
+        newValue: picked.newValue,
+        reason: `you picked this one from ${state.pending.ambiguous.candidates.length} matches`,
+        confidence: "high",
+      };
+      return {
+        ...state,
+        pending: { ...state.pending, edits: [...state.pending.edits, edit], ambiguous: undefined },
+        log: [...state.log, `  clarified → ${picked.milestone.title}`],
+      };
+    }
   }
 }
