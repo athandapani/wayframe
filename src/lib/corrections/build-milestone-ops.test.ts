@@ -38,4 +38,12 @@ describe("buildMilestoneEditOps", () => {
     const ops = buildMilestoneEditOps(m, draft);
     expect(ops).toEqual([{ targetId: "m1", field: "owner", newValue: "", reason: "manual edit" }]);
   });
+
+  it("emits a showReferenceLine op when the checkbox is toggled (wayframe#48)", () => {
+    const m = milestone({ id: "m1", date: "2026-01-01" });
+    const draft = { ...milestoneToEditableFields(m), showReferenceLine: true };
+
+    const ops = buildMilestoneEditOps(m, draft);
+    expect(ops).toEqual([{ targetId: "m1", field: "showReferenceLine", newValue: true, reason: "manual edit" }]);
+  });
 });

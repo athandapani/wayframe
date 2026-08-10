@@ -65,6 +65,14 @@ describe("applyOps", () => {
     expect(result[0]).toMatchObject({ title: "New Title", percentComplete: 40, isCriticalPathOverride: true, shortLabel: "NT" });
   });
 
+  it("applies a showReferenceLine op (wayframe#48)", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01", showReferenceLine: false })];
+    const ops: PatchOp[] = [{ targetId: "m1", field: "showReferenceLine", newValue: true, reason: "manual edit" }];
+
+    const result = applyOps(milestones, ops);
+    expect(result[0].showReferenceLine).toBe(true);
+  });
+
   it("clears an optional field (owner/comment/shortLabel) when the op's newValue is an empty string", () => {
     const milestones = [milestone({ id: "m1", date: "2026-01-01", owner: "A. Boyer", comment: "note", shortLabel: "AB" })];
     const ops: PatchOp[] = [

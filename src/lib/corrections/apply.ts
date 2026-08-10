@@ -56,5 +56,7 @@ function applyOp(m: Milestone, op: PatchOp): Milestone {
       return { ...m, isCriticalPathOverride: op.newValue };
     case "shortLabel":
       return { ...m, shortLabel: op.newValue || undefined };
+    case "showReferenceLine":
+      return { ...m, showReferenceLine: op.newValue };
   }
 }

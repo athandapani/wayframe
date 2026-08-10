@@ -18,6 +18,8 @@ export interface EditableMilestoneFields {
    */
   isCriticalPath: boolean;
   shortLabel: string;
+  /** Opt-in full-height reference line (wayframe#15), toggleable by hand as of wayframe#48. */
+  showReferenceLine: boolean;
 }
 
 export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields {
@@ -30,6 +32,7 @@ export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields
     comment: m.comment ?? "",
     isCriticalPath: m.isCriticalPathOverride ?? m.isCriticalPath,
     shortLabel: m.shortLabel ?? "",
+    showReferenceLine: m.showReferenceLine ?? false,
   };
 }
 
@@ -53,6 +56,7 @@ export function buildMilestoneEditOps(original: Milestone, draft: EditableMilest
   if (draft.comment !== before.comment) ops.push({ targetId: original.id, field: "comment", newValue: draft.comment, reason });
   if (draft.isCriticalPath !== before.isCriticalPath) ops.push({ targetId: original.id, field: "isCriticalPathOverride", newValue: draft.isCriticalPath, reason });
   if (draft.shortLabel !== before.shortLabel) ops.push({ targetId: original.id, field: "shortLabel", newValue: draft.shortLabel, reason });
+  if (draft.showReferenceLine !== before.showReferenceLine) ops.push({ targetId: original.id, field: "showReferenceLine", newValue: draft.showReferenceLine, reason });
 
   return ops;
 }

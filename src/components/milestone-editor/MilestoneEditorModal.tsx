@@ -202,6 +202,14 @@ function ModalForm({
             <input type="checkbox" checked={draft.isCriticalPath} onChange={(e) => setDraft({ ...draft, isCriticalPath: e.target.checked })} />
             <span className="text-xs font-medium text-zinc-500">On critical path (override)</span>
           </label>
+          <label className="col-span-2 flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.showReferenceLine}
+              onChange={(e) => setDraft({ ...draft, showReferenceLine: e.target.checked })}
+            />
+            <span className="text-xs font-medium text-zinc-500">Show reference line on the chart</span>
+          </label>
 
           <div className="col-span-2 space-y-3 rounded border border-dashed border-zinc-200 p-3 dark:border-zinc-700">
             <EdgeEditor

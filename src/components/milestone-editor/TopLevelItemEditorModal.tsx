@@ -24,16 +24,17 @@ interface Draft {
   date: string;
   startDate: string;
   endDate: string;
+  showReferenceLine: boolean;
 }
 
 function toDraft(t: EditableTopLevelItem): Draft {
-  if (t.type === "phase") return { title: t.title, status: t.status, date: "", startDate: t.startDate, endDate: t.endDate };
-  return { title: t.title, status: t.status, date: t.date, startDate: "", endDate: "" };
+  if (t.type === "phase") return { title: t.title, status: t.status, date: "", startDate: t.startDate, endDate: t.endDate, showReferenceLine: false };
+  return { title: t.title, status: t.status, date: t.date, startDate: "", endDate: "", showReferenceLine: t.showReferenceLine ?? false };
 }
 
 function toPatch(t: EditableTopLevelItem, draft: Draft): TopLevelItemPatch {
   if (t.type === "phase") return { title: draft.title, status: draft.status, startDate: draft.startDate, endDate: draft.endDate };
-  return { title: draft.title, status: draft.status, date: draft.date };
+  return { title: draft.title, status: draft.status, date: draft.date, showReferenceLine: draft.showReferenceLine };
 }
 
 function ModalForm({ item, onSave, onClose }: { item: EditableTopLevelItem; onSave: (id: string, patch: TopLevelItemPatch) => void; onClose: () => void }) {
@@ -81,15 +82,25 @@ function ModalForm({ item, onSave, onClose }: { item: EditableTopLevelItem; onSa
               </label>
             </>
           ) : (
-            <label className="col-span-2 block">
-              <span className="mb-1 block text-xs font-medium text-zinc-500">Date</span>
-              <input
-                type="date"
-                className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                value={draft.date}
-                onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-              />
-            </label>
+            <>
+              <label className="col-span-2 block">
+                <span className="mb-1 block text-xs font-medium text-zinc-500">Date</span>
+                <input
+                  type="date"
+                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+                  value={draft.date}
+                  onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+                />
+              </label>
+              <label className="col-span-2 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draft.showReferenceLine}
+                  onChange={(e) => setDraft({ ...draft, showReferenceLine: e.target.checked })}
+                />
+                <span className="text-xs font-medium text-zinc-500">Show reference line on the chart</span>
+              </label>
+            </>
           )}
           <label className="col-span-2 block">
             <span className="mb-1 block text-xs font-medium text-zinc-500">Status</span>

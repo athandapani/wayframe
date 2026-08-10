@@ -70,6 +70,12 @@ export const PatchOpSchema = z.discriminatedUnion("field", [
     newValue: z.string(), // "" clears the field (falls back to the auto-derived label)
     reason: z.string().min(1),
   }),
+  z.object({
+    targetId: z.string().min(1),
+    field: z.literal("showReferenceLine"),
+    newValue: z.boolean(),
+    reason: z.string().min(1),
+  }),
 ]);
 
 export const SkippedSchema = z.object({

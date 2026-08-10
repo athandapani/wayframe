@@ -27,9 +27,9 @@ export function loadPersistedDocument(): RoadmapData | null {
   }
 }
 
-/** Fields the lighter phase/top-level-milestone editor can touch (wayframe#19) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
+/** Fields the lighter phase/top-level-milestone editor can touch (wayframe#19, widened to showReferenceLine in wayframe#48) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
 export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate">> &
-  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date">>;
+  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date" | "showReferenceLine">>;
 
 export interface PendingPatch {
   inputText: string;
