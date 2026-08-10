@@ -1,5 +1,5 @@
-import type { Milestone } from "@/components/timeline/types";
-import type { PatchOp, Skipped } from "./schema";
+import type { Milestone, Swimlane } from "@/components/timeline/types";
+import type { AddMilestoneOp, AmbiguousChoice, PatchOp, Skipped } from "./schema";
 
 /**
  * Resolves a proposed patch's ops/skipped ids against the live milestone
@@ -51,4 +51,57 @@ export function buildSkippedPreview(milestones: readonly Milestone[], skipped: r
     targetTitle: byId.get(s.targetId)?.title ?? s.targetId,
     reason: s.reason,
   }));
+}
+
+export interface PreviewAddRow {
+  title: string;
+  laneName: string;
+  date: string | null;
+  reason: string;
+}
+
+export function buildAddPreview(swimlanes: readonly Swimlane[], adds: readonly AddMilestoneOp[]): PreviewAddRow[] {
+  const laneById = new Map(swimlanes.map((l) => [l.id, l]));
+  return adds.map((a) => ({
+    title: a.title,
+    laneName: laneById.get(a.laneId)?.name ?? a.laneId,
+    date: a.date,
+    reason: a.reason,
+  }));
+}
+
+export interface PreviewAmbiguousCandidateRow {
+  targetId: string;
+  targetTitle: string;
+  laneName: string;
+  newValue: string;
+}
+
+export interface PreviewAmbiguous {
+  field: AmbiguousChoice["field"];
+  reason: string;
+  candidates: PreviewAmbiguousCandidateRow[];
+}
+
+/** Resolves an ambiguous tie's candidate ids into display-ready rows for the clarifying-question UI (wayframe#38 item 1 / #39). */
+export function buildAmbiguousPreview(
+  milestones: readonly Milestone[],
+  swimlanes: readonly Swimlane[],
+  ambiguous: AmbiguousChoice,
+): PreviewAmbiguous {
+  const byId = new Map(milestones.map((m) => [m.id, m]));
+  const laneById = new Map(swimlanes.map((l) => [l.id, l]));
+  return {
+    field: ambiguous.field,
+    reason: ambiguous.reason,
+    candidates: ambiguous.candidates.map((c) => {
+      const m = byId.get(c.targetId);
+      return {
+        targetId: c.targetId,
+        targetTitle: m?.title ?? c.targetId,
+        laneName: (m && laneById.get(m.laneId)?.name) ?? "",
+        newValue: c.newValue,
+      };
+    }),
+  };
 }

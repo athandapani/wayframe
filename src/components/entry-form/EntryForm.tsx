@@ -82,7 +82,15 @@ export function EntryForm({ onExtracted }: { onExtracted: (data: RoadmapData) =>
   return (
     <div className="mx-auto max-w-3xl p-8 pt-16">
       <h1 className="mb-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Build your roadmap</h1>
-      <p className="mb-6 text-sm text-zinc-500">Type your notes, upload a photo, or both — at least one is required.</p>
+      <p className="mb-1 text-sm text-zinc-500">Type your notes, upload a photo, or both — at least one is required.</p>
+      {/* The only "see it working" link a first-time visitor has anywhere
+          in the product (wayframe#38 item 6 / #39) — before now, someone
+          had to already know /dev/demo-roadmap's URL. */}
+      <p className="mb-6 text-sm">
+        <a href="/dev/demo-roadmap" className="text-zinc-500 underline decoration-dotted hover:text-zinc-800 dark:hover:text-zinc-200">
+          See a full example →
+        </a>
+      </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">

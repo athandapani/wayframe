@@ -94,6 +94,7 @@ function ModalForm({
   milestone,
   onSave,
   onClose,
+  onDelete,
   onToggleDependency,
   onTrace,
 }: {
@@ -101,6 +102,7 @@ function ModalForm({
   milestone: Milestone;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
+  onDelete: (id: string) => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   onTrace: (direction: TraceDirection) => void;
 }) {
@@ -246,13 +248,28 @@ function ModalForm({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-zinc-200 p-4 dark:border-zinc-700">
-          <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
-            Cancel
+        <div className="flex items-center justify-between border-t border-zinc-200 p-4 dark:border-zinc-700">
+          {/* No confirm dialog — deleting is instant and undoable through the
+              same shared undo stack as every other edit (wayframe#38 item 3 /
+              #39), so a confirm step would just be friction on a mistake
+              that's one Undo away from fixed. */}
+          <button
+            onClick={() => {
+              onDelete(milestone.id);
+              onClose();
+            }}
+            className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+          >
+            Delete
           </button>
-          <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
-            Save
-          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
+              Cancel
+            </button>
+            <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
+              Save
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -264,6 +281,7 @@ export function MilestoneEditorModal({
   milestone,
   onSave,
   onClose,
+  onDelete,
   onToggleDependency,
   onTrace,
 }: {
@@ -271,11 +289,21 @@ export function MilestoneEditorModal({
   milestone: Milestone | null;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
+  onDelete: (id: string) => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   onTrace: (direction: TraceDirection) => void;
 }) {
   if (!milestone) return null;
   return (
-    <ModalForm key={milestone.id} data={data} milestone={milestone} onSave={onSave} onClose={onClose} onToggleDependency={onToggleDependency} onTrace={onTrace} />
+    <ModalForm
+      key={milestone.id}
+      data={data}
+      milestone={milestone}
+      onSave={onSave}
+      onClose={onClose}
+      onDelete={onDelete}
+      onToggleDependency={onToggleDependency}
+      onTrace={onTrace}
+    />
   );
 }

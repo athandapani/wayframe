@@ -1,5 +1,5 @@
 import type { Milestone } from "@/components/timeline/types";
-import type { PatchOp } from "./schema";
+import type { AddMilestoneOp, PatchOp } from "./schema";
 
 /**
  * Commits a set of ops (direct + cascaded) onto a milestone list. A date op
@@ -13,6 +13,29 @@ export function applyOps(milestones: readonly Milestone[], ops: readonly PatchOp
   return milestones.map((m) => {
     return ops.filter((o) => o.targetId === m.id).reduce((acc, op) => applyOp(acc, op), m);
   });
+}
+
+/**
+ * Turns proposed add ops into real Milestone records. `date` is required
+ * (unlike AddMilestoneOp's optional one) — the caller resolves a fallback
+ * date (today, mirroring the manual "+" button, see use-correction-box.ts's
+ * addMilestone action) for any add the model couldn't parse a date out of,
+ * *before* calling this, since which ones needed a fallback is exactly what
+ * decides whether the editor should auto-open for them afterward.
+ */
+export function applyAddMilestoneOps(
+  adds: readonly { op: AddMilestoneOp; id: string; date: string }[],
+): Milestone[] {
+  return adds.map(({ op, id, date }) => ({
+    id,
+    laneId: op.laneId,
+    title: op.title,
+    date,
+    status: "not-started",
+    dependsOn: [],
+    linksToTopLevelMilestone: null,
+    isCriticalPath: false,
+  }));
 }
 
 function applyOp(m: Milestone, op: PatchOp): Milestone {

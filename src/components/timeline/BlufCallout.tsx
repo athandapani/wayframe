@@ -9,16 +9,38 @@
 // Position is a viewer preference on its own localStorage key — it's about
 // how one person wants to read the chart, not about the roadmap, so it
 // doesn't belong in the document or in the undo stack.
+//
+// Rich-text editing (wayframe#38 item 4 / #39) — promoted from Variant B of
+// prototype/bluf-editing-and-formatting: no separate edit mode, the
+// statement and each bullet are always live-editable (RichTextEditableLine)
+// when `onEdit` is provided. Box size, unlike position, IS a document
+// property (bluf.size) — a program owner sizing the box for "there's a lot
+// to say this week" is a real editorial choice everyone opening the file
+// should see, not a per-viewer preference. Omitting `onEdit` renders the
+// callout read-only (sanitized static HTML) — used by the RoadmapTimeline
+// dev preview and the off-screen export capture, neither of which has a
+// document to write back into.
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Theme } from "./theme";
+import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
+import { RichTextEditableLine } from "./RichTextEditableLine";
 
 const STORAGE_KEY = "wayframe:bluf-position";
+const DEFAULT_WIDTH = 384;
+const MIN_WIDTH = 220;
+const MIN_HEIGHT = 90;
 
 interface Position {
   x: number;
   y: number;
+}
+
+interface BlufValue {
+  statement: string;
+  bullets: string[];
+  size?: { width: number; height: number | null };
 }
 
 /** Offsets from the container's top-right corner, matching the default layout. */
@@ -28,13 +50,28 @@ function isPosition(v: unknown): v is Position {
   return typeof v === "object" && v !== null && typeof (v as Position).x === "number" && typeof (v as Position).y === "number";
 }
 
+function ResizeHandle({ onPointerDown }: { onPointerDown: (e: React.PointerEvent) => void }) {
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      title="Drag to resize"
+      className="absolute right-0.5 bottom-0.5 h-3 w-3 cursor-nwse-resize opacity-40 hover:opacity-90"
+    >
+      <svg viewBox="0 0 10 10" className="h-full w-full">
+        <path d="M9 1 L1 9 M9 5 L5 9 M9 9 L9 9" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    </div>
+  );
+}
+
 export function BlufCallout({
   bluf,
   open,
   onOpenChange,
   theme,
+  onEdit,
 }: {
-  bluf: { statement: string; bullets: string[] };
+  bluf: BlufValue;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /**
@@ -43,6 +80,8 @@ export function BlufCallout({
    * left this panel light — a dark chart floating on light chrome.
    */
   theme: Theme;
+  /** Omit to render read-only (dev preview / off-screen export capture, neither has a document to write into). */
+  onEdit?: (patch: Partial<BlufValue>) => void;
 }) {
   // useReducer rather than useState: reading persisted position has to
   // happen after mount (localStorage doesn't exist during SSR), and a bare
@@ -51,6 +90,10 @@ export function BlufCallout({
   const [pos, setPos] = useReducer((_: Position, next: Position) => next, DEFAULT_POSITION);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; origin: Position } | null>(null);
+  const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [justAddedIndex, setJustAddedIndex] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -89,6 +132,51 @@ export function BlufCallout({
     persist(pos);
   }
 
+  function onResizePointerDown(e: React.PointerEvent) {
+    if (!onEdit) return;
+    e.stopPropagation();
+    const rect = boxRef.current?.getBoundingClientRect();
+    resizeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: bluf.size?.width ?? rect?.width ?? DEFAULT_WIDTH,
+      startH: rect?.height ?? MIN_HEIGHT,
+    };
+    setResizing(true);
+  }
+
+  function onResizePointerMove(e: React.PointerEvent) {
+    const d = resizeRef.current;
+    if (!d) return;
+    onEdit?.({
+      size: {
+        width: Math.max(MIN_WIDTH, d.startW + (e.clientX - d.startX)),
+        height: Math.max(MIN_HEIGHT, d.startH + (e.clientY - d.startY)),
+      },
+    });
+  }
+
+  function onResizePointerUp() {
+    resizeRef.current = null;
+    setResizing(false);
+  }
+
+  function addBullet() {
+    if (!onEdit) return;
+    const bullets = [...bluf.bullets, ""];
+    setJustAddedIndex(bullets.length - 1);
+    onEdit({ bullets });
+  }
+
+  function deleteBullet(i: number) {
+    if (!onEdit) return;
+    onEdit({ bullets: bluf.bullets.filter((_, j) => j !== i) });
+  }
+
+  function setBulletHtml(i: number, html: string) {
+    onEdit?.({ bullets: bluf.bullets.map((b, j) => (j === i ? html : b)) });
+  }
+
   // In normal flow beneath the chart by default, not floating over it. It
   // used to overlay the plot area, where it always covered *something* —
   // which milestones depended on the document — so a screenshot of the whole
@@ -114,11 +202,24 @@ export function BlufCallout({
     );
   }
 
+  const boxStyle: React.CSSProperties = {
+    ...anchor,
+    ...surface,
+    borderWidth: 1,
+    width: bluf.size?.width,
+    height: bluf.size?.height ?? undefined,
+  };
+
   return (
     // max-w-md keeps it clear of the centred correction bar, which is fixed
     // to the viewport — page padding can't separate them when the content
-    // already fits on screen.
-    <div style={{ ...anchor, ...surface, borderWidth: 1 }} className="mt-3 w-full max-w-md rounded-lg border p-3 text-xs shadow-lg">
+    // already fits on screen. Only applied when the document hasn't set an
+    // explicit width yet (a resized box overrides it deliberately).
+    <div
+      ref={boxRef}
+      style={boxStyle}
+      className={"relative mt-3 w-full rounded-lg border p-3 text-xs shadow-lg " + (bluf.size?.width ? "" : "max-w-md")}
+    >
       <div
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -154,12 +255,52 @@ export function BlufCallout({
           </button>
         </div>
       </div>
-      <p className="mb-2 font-medium">{bluf.statement}</p>
+
+      {onEdit ? (
+        <div className="mb-2 font-medium">
+          <RichTextEditableLine html={bluf.statement} onChange={(html) => onEdit({ statement: html })} sizePx={13} ariaLabel="So-what statement" />
+        </div>
+      ) : (
+        <p className="mb-2 font-medium" dangerouslySetInnerHTML={{ __html: sanitizeBlufHtml(bluf.statement) }} />
+      )}
+
       <ul className="list-disc space-y-1 pl-4">
-        {bluf.bullets.map((b) => (
-          <li key={b}>{b}</li>
-        ))}
+        {bluf.bullets.map((b, i) =>
+          onEdit ? (
+            <li key={i} className="flex items-start gap-1.5">
+              <div className="min-w-0 flex-1">
+                <RichTextEditableLine
+                  html={b}
+                  onChange={(html) => setBulletHtml(i, html)}
+                  sizePx={12}
+                  autoFocus={justAddedIndex === i}
+                  ariaLabel={`So-what bullet ${i + 1}`}
+                />
+              </div>
+              <button onClick={() => deleteBullet(i)} aria-label="Delete bullet" className="mt-0.5 shrink-0 opacity-40 hover:opacity-90">
+                ✕
+              </button>
+            </li>
+          ) : (
+            <li key={i} dangerouslySetInnerHTML={{ __html: sanitizeBlufHtml(b) }} />
+          ),
+        )}
       </ul>
+      {onEdit && (
+        <button onClick={addBullet} className="mt-1.5 text-[11px] opacity-70 hover:opacity-100">
+          + Add bullet
+        </button>
+      )}
+
+      {onEdit && <ResizeHandle onPointerDown={onResizePointerDown} />}
+      {onEdit && resizing && (
+        // Invisible full-viewport capture layer, not pointer capture on the
+        // handle itself: the handle is 12px and pinned to the box's own
+        // corner, so as the box shrinks the pointer outruns it almost
+        // immediately once the drag starts. A viewport-wide layer keeps
+        // tracking moves regardless of where the box's edge currently is.
+        <div className="fixed inset-0 z-50 cursor-nwse-resize" onPointerMove={onResizePointerMove} onPointerUp={onResizePointerUp} />
+      )}
     </div>
   );
 }

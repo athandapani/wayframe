@@ -38,10 +38,10 @@ describe("correction box reducer", () => {
   it("apply commits pending ops, pushes history, and clears pending", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [] },
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], ambiguous: null },
     };
 
-    const next = reduce(state, { type: "apply" });
+    const next = reduce(state, { type: "apply", adds: [] });
     expect(next.data.milestones[0].status).toBe("complete");
     expect(next.pending).toBeNull();
     expect(next.history).toHaveLength(1);
@@ -69,14 +69,14 @@ describe("correction box reducer", () => {
   it("supports multi-step undo across two applied patches", () => {
     let state = initialState();
     // Apply patch 1
-    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [] } };
-    state = reduce(state, { type: "apply" });
+    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [] });
     const afterFirstApply = state.data;
     expect(state.data.milestones[0].status).toBe("at-risk");
 
     // Apply patch 2
-    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [] } };
-    state = reduce(state, { type: "apply" });
+    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [] });
     expect(state.data.milestones[0].status).toBe("complete");
     expect(state.history).toHaveLength(2);
 
@@ -95,7 +95,7 @@ describe("correction box reducer", () => {
   it("discard clears pending without touching data or history", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "x", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [] },
+      pending: { inputText: "x", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], ambiguous: null },
     };
     const next = reduce(state, { type: "discard" });
     expect(next.pending).toBeNull();
@@ -106,7 +106,7 @@ describe("correction box reducer", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
       loading: true,
-      pending: { inputText: "x", ops: [], skipped: [] },
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], ambiguous: null },
     };
     const next = reduce(state, { type: "requestFailed", error: "boom" });
     expect(next.loading).toBe(false);
@@ -117,7 +117,7 @@ describe("correction box reducer", () => {
   it("hydrated replaces data without pushing history — a refresh reload isn't an undoable edit", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "x", ops: [], skipped: [] },
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], ambiguous: null },
       error: "stale error",
     };
     const persisted = { ...baseData(), programName: "Persisted" };

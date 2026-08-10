@@ -12,6 +12,7 @@
 // readable reason is the same posture /api/extract already takes.
 import { z } from "zod";
 import type { RoadmapData } from "@/components/timeline/types";
+import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
 
 const StatusSchema = z.enum(["not-started", "on-track", "at-risk", "delayed", "complete"]);
 const RagSchema = z.enum(["green", "amber", "red"]);
@@ -62,7 +63,11 @@ const RoadmapDataSchema = z.object({
   owner: z.string().optional(),
   reportsTo: z.string().optional(),
   nextReviewDate: z.string().optional(),
-  bluf: z.object({ statement: z.string(), bullets: z.array(z.string()) }),
+  bluf: z.object({
+    statement: z.string(),
+    bullets: z.array(z.string()),
+    size: z.object({ width: z.number(), height: z.number().nullable() }).optional(),
+  }),
   actionItems: z.array(z.unknown()).optional(),
   swimlanes: z.array(SwimlaneSchema),
   topLevelItems: z.array(TopLevelItemSchema),
@@ -109,7 +114,16 @@ export function parseDocumentFile(text: string): LoadResult {
   if (problems.length > 0) {
     return { ok: false, message: "That roadmap has broken references.", issues: problems.slice(0, 6) };
   }
-  return { ok: true, document: doc };
+  // An opened file is fully untrusted input, and bluf.statement/bullets are
+  // rendered via dangerouslySetInnerHTML (wayframe#38 item 4 / #39) —
+  // sanitizing at the same boundary the zod shape/referential checks
+  // already gate on, not just at render time, so a malicious file can't
+  // even round-trip its markup through a Save unsanitized.
+  const sanitized: RoadmapData = {
+    ...doc,
+    bluf: { ...doc.bluf, statement: sanitizeBlufHtml(doc.bluf.statement), bullets: doc.bluf.bullets.map(sanitizeBlufHtml) },
+  };
+  return { ok: true, document: sanitized };
 }
 
 export function documentFileName(programName: string): string {

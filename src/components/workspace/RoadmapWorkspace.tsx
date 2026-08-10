@@ -76,6 +76,7 @@ function RoadmapView({
   theme,
   blufOpen,
   onBlufOpenChange,
+  onBlufEdit,
   onMilestoneClick,
   onTopLevelItemClick,
   onAddMilestone,
@@ -95,6 +96,8 @@ function RoadmapView({
   theme: Theme;
   blufOpen: boolean;
   onBlufOpenChange: (open: boolean) => void;
+  /** Omit for the off-screen export capture — that copy has no document to write back into. */
+  onBlufEdit?: (patch: Partial<RoadmapData["bluf"]>) => void;
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
   onAddMilestone?: (laneId: string) => void;
@@ -127,7 +130,7 @@ function RoadmapView({
           labelDensity={labelDensity}
         />
         {legend}
-        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} />
+        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} onEdit={onBlufEdit} />
       </div>
     );
   }
@@ -202,6 +205,23 @@ export function RoadmapWorkspace({
   function handleAddMilestone(laneId: string) {
     const iso = today.toISOString().slice(0, 10);
     setSelectedMilestoneId(box.addMilestone(laneId, iso));
+  }
+
+  // An AI-proposed add with no resolved date (wayframe#38 item 1 / #39)
+  // falls back to the same "create empty, open for editing" behavior as the
+  // manual "+" button above — this fires after Apply, once the new
+  // milestone actually exists in box.data.
+  function handleMilestonesNeedEditor(ids: string[]) {
+    if (ids.length > 0) setSelectedMilestoneId(ids[ids.length - 1]);
+  }
+
+  // Mirrors handleAddMilestone's "close what pointed at it" cleanup in
+  // reverse (wayframe#38 item 3 / #39): a trace rooted on the deleted
+  // milestone would otherwise keep highlighting a ghost id.
+  function handleDeleteMilestone(id: string) {
+    box.removeMilestone(id);
+    setSelectedMilestoneId(null);
+    if (trace?.rootId === id) setTrace(null);
   }
 
   async function handleExport() {
@@ -471,6 +491,7 @@ export function RoadmapWorkspace({
             theme={theme}
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
+            onBlufEdit={box.editBluf}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onAddMilestone={handleAddMilestone}
             onMilestoneDateChange={box.setMilestoneDate}
@@ -496,12 +517,13 @@ export function RoadmapWorkspace({
           </div>
         )}
       </div>
-      <CorrectionBoxSwitcher box={box} mode={correctionMode} />
+      <CorrectionBoxSwitcher box={box} mode={correctionMode} onMilestonesNeedEditor={handleMilestonesNeedEditor} />
       <MilestoneEditorModal
         data={box.data}
         milestone={selectedMilestone}
         onSave={box.editMilestone}
         onClose={() => setSelectedMilestoneId(null)}
+        onDelete={handleDeleteMilestone}
         onToggleDependency={box.toggleDependency}
         onTrace={(direction) => {
           if (selectedMilestoneId) setTrace({ rootId: selectedMilestoneId, direction });

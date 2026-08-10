@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { buildCorrectionMessages, systemPrompt, type CorrectionInput } from "./prompt";
 import { CORRECTION_TOOL } from "./tool-schema";
-import { CorrectionResponseSchema, findUnknownTargets, type CorrectionResponse } from "./schema";
+import { RawCorrectionResponseSchema, coercePatchOp, findUnknownTargets, type CorrectionResponse, type PatchOp } from "./schema";
 
 export type CorrectionError =
   | { kind: "no_input"; message: string }
@@ -33,8 +33,9 @@ function extractToolInput(response: Anthropic.Message): unknown | null {
 function validate(
   raw: unknown,
   knownIds: ReadonlySet<string>,
+  knownLaneIds: ReadonlySet<string>,
 ): { ok: true; response: CorrectionResponse } | { ok: false; error: CorrectionError } {
-  const parsed = CorrectionResponseSchema.safeParse(raw);
+  const parsed = RawCorrectionResponseSchema.safeParse(raw);
   if (!parsed.success) {
     return {
       ok: false,
@@ -48,19 +49,42 @@ function validate(
     };
   }
 
-  const unknown = findUnknownTargets(parsed.data, knownIds);
+  // Coercing raw string newValues (tool-schema.ts's uniform string contract)
+  // into their real typed PatchOp shape — see coercePatchOp's doc.
+  const ops: PatchOp[] = [];
+  const coercionIssues: string[] = [];
+  for (const rawOp of parsed.data.ops) {
+    const result = coercePatchOp(rawOp);
+    if (result.ok) ops.push(result.op);
+    else coercionIssues.push(result.issue);
+  }
+  if (coercionIssues.length > 0) {
+    return {
+      ok: false,
+      error: { kind: "schema_validation_failed", message: "Correction response had invalid op values.", issues: coercionIssues },
+    };
+  }
+
+  const response: CorrectionResponse = {
+    ops,
+    addMilestones: parsed.data.addMilestones,
+    skipped: parsed.data.skipped,
+    ambiguous: parsed.data.ambiguous,
+  };
+
+  const unknown = findUnknownTargets(response, knownIds, knownLaneIds);
   if (unknown.length > 0) {
     return {
       ok: false,
       error: {
         kind: "unknown_target",
-        message: "Correction referenced a milestone id that wasn't in the given list.",
+        message: "Correction referenced a milestone or lane id that wasn't in the given list.",
         issues: unknown,
       },
     };
   }
 
-  return { ok: true, response: parsed.data };
+  return { ok: true, response };
 }
 
 function repairMessages(
@@ -108,6 +132,7 @@ export async function proposeCorrection(
   }
 
   const knownIds = new Set(input.milestones.map((m) => m.id));
+  const knownLaneIds = new Set(input.lanes.map((l) => l.id));
   const messages = buildCorrectionMessages(input);
 
   let response: Anthropic.Message;
@@ -125,7 +150,7 @@ export async function proposeCorrection(
     return { ok: false, error: { kind: "no_tool_call", message: "Model did not call the correction tool." } };
   }
 
-  let result = validate(raw, knownIds);
+  let result = validate(raw, knownIds, knownLaneIds);
 
   if (!result.ok) {
     let retryResponse: Anthropic.Message;
@@ -145,7 +170,7 @@ export async function proposeCorrection(
     if (raw === null) {
       return { ok: false, error: { kind: "no_tool_call", message: "Model did not call the correction tool on retry." } };
     }
-    result = validate(raw, knownIds);
+    result = validate(raw, knownIds, knownLaneIds);
     if (!result.ok) {
       // One repair attempt only — fail closed rather than loop.
       return result;

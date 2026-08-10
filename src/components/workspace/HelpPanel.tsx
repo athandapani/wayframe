@@ -17,6 +17,8 @@ interface Feature {
   detail: string;
   /** Where the control lives, when it isn't obvious. */
   where?: string;
+  /** Makes the feature name a link — used for the demo roadmap's own "see a full example" entry point. */
+  href?: string;
 }
 
 const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
@@ -28,6 +30,7 @@ const GROUPS: { title: string; blurb: string; features: Feature[] }[] = [
       { name: "Photograph a whiteboard", detail: "A napkin sketch or whiteboard photo is read the same way as text.", where: "Entry page" },
       { name: "Import a CSV", detail: "Parsed in the browser, previewed row by row before anything is extracted.", where: "Options ▸ Import" },
       { name: "Pull from Smartsheet", detail: "One-way live pull from a sheet. Nothing is written back.", where: "Options ▸ Import" },
+      { name: "See a full example", detail: "A complete demo roadmap you can click around before bringing your own data.", where: "Entry page", href: "/dev/demo-roadmap" },
     ],
   },
   {
@@ -99,7 +102,13 @@ export function HelpPanel({ theme, onClose }: { theme: Theme; onClose: () => voi
               <ul className="space-y-1.5">
                 {group.features.map((f) => (
                   <li key={f.name} className="flex flex-wrap items-baseline gap-x-2 text-sm">
-                    <span className="font-medium">{f.name}</span>
+                    {f.href ? (
+                      <a href={f.href} className="font-medium underline decoration-dotted" style={{ color: theme.accent }}>
+                        {f.name}
+                      </a>
+                    ) : (
+                      <span className="font-medium">{f.name}</span>
+                    )}
                     {f.where && (
                       <span className="rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap opacity-70" style={{ background: "var(--wf-border)" }}>
                         {f.where}

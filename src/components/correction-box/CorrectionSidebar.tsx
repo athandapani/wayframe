@@ -4,8 +4,12 @@
 // alternate mode per issue #9's resolution. Adds a running log of past
 // corrections; the log is pure UI bookkeeping local to this component, not
 // part of the core patch/undo state in use-correction-box.ts.
+//
+// Ambiguous ties (wayframe#38 item 1 / #39) get the same conversational
+// treatment CorrectionBox.tsx uses, scaled to the sidebar's width — the
+// clarify-prototype's verdict applies regardless of which variant is active.
 import { useState } from "react";
-import { buildOpPreview, buildSkippedPreview } from "@/lib/corrections/preview";
+import { buildAddPreview, buildAmbiguousPreview, buildOpPreview, buildSkippedPreview } from "@/lib/corrections/preview";
 import type { UseCorrectionBoxResult } from "./use-correction-box";
 
 interface LogEntry {
@@ -14,11 +18,20 @@ interface LogEntry {
   opCount: number;
 }
 
-export function CorrectionSidebar({ box }: { box: UseCorrectionBoxResult }) {
+export function CorrectionSidebar({ box, onMilestonesNeedEditor }: { box: UseCorrectionBoxResult; onMilestonesNeedEditor?: (ids: string[]) => void }) {
   const [text, setText] = useState("");
   const [log, setLog] = useState<LogEntry[]>([]);
   const opRows = box.pending ? buildOpPreview(box.data.milestones, box.pending.ops) : [];
   const skippedRows = box.pending ? buildSkippedPreview(box.data.milestones, box.pending.skipped) : [];
+  const addRows = box.pending ? buildAddPreview(box.data.swimlanes, box.pending.adds) : [];
+  const ambiguous = box.pending?.ambiguous ? buildAmbiguousPreview(box.data.milestones, box.data.swimlanes, box.pending.ambiguous) : null;
+  const hasCleanResolution = opRows.length > 0 || addRows.length > 0 || skippedRows.length > 0;
+
+  function handleApply() {
+    const ids = box.apply();
+    setLog((l) => [...l, { text: box.pending!.inputText, status: "applied", opCount: box.pending!.ops.length + box.pending!.adds.length }]);
+    onMilestonesNeedEditor?.(ids);
+  }
 
   return (
     <aside className="flex w-96 shrink-0 flex-col border-l border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
@@ -47,13 +60,43 @@ export function CorrectionSidebar({ box }: { box: UseCorrectionBoxResult }) {
           </div>
         ))}
 
-        {box.pending && (
+        {ambiguous && (
+          <div className="rounded-md border border-zinc-300 p-2 text-xs dark:border-zinc-600">
+            <p className="mb-1.5 flex items-center gap-1.5 font-medium">
+              <span aria-hidden="true" style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold">AI</span>
+              I found {ambiguous.candidates.length} milestones that could match &quot;{box.pending!.inputText}&quot;. Which one?
+            </p>
+            <div className="mb-1.5 flex flex-col gap-1">
+              {ambiguous.candidates.map((c) => (
+                <button
+                  key={c.targetId}
+                  onClick={() => box.resolveAmbiguous(c.targetId)}
+                  className="rounded border border-zinc-300 px-1.5 py-1 text-left dark:border-zinc-600"
+                >
+                  <span className="font-medium">{c.targetTitle}</span>
+                  <span className="text-zinc-400"> — {c.laneName}, set to {c.newValue}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={box.discard} className="text-[11px] text-zinc-400 hover:text-zinc-600">
+              None of these — let me rephrase
+            </button>
+          </div>
+        )}
+
+        {!ambiguous && box.pending && hasCleanResolution && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-700 dark:bg-amber-950">
             <p className="mb-1 font-medium">&quot;{box.pending.inputText}&quot;</p>
             <ul className="mb-2 space-y-0.5">
               {opRows.map((op) => (
                 <li key={op.targetId}>
                   {op.targetTitle}: {op.field} {op.previousValue} → <span className="font-semibold">{op.newValue}</span>
+                </li>
+              ))}
+              {addRows.map((a, i) => (
+                <li key={`add-${i}`}>
+                  <span className="font-semibold">+ {a.title}</span> in {a.laneName}
+                  {a.date ? ` on ${a.date}` : " (date TBD)"}
                 </li>
               ))}
               {skippedRows.map((s) => (
@@ -63,13 +106,7 @@ export function CorrectionSidebar({ box }: { box: UseCorrectionBoxResult }) {
               ))}
             </ul>
             <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setLog((l) => [...l, { text: box.pending!.inputText, status: "applied", opCount: box.pending!.ops.length }]);
-                  box.apply();
-                }}
-                className="rounded bg-emerald-600 px-2 py-1 text-white"
-              >
+              <button onClick={handleApply} className="rounded bg-emerald-600 px-2 py-1 text-white">
                 Apply
               </button>
               <button
@@ -83,6 +120,12 @@ export function CorrectionSidebar({ box }: { box: UseCorrectionBoxResult }) {
               </button>
             </div>
           </div>
+        )}
+
+        {!ambiguous && box.pending && !hasCleanResolution && (
+          <p className="rounded-md border border-zinc-200 p-2 text-xs text-zinc-500 dark:border-zinc-700">
+            I couldn&apos;t make sense of that as a request — try naming a milestone (or lane, for a new one) and what should change.
+          </p>
         )}
 
         {box.error && <p className="text-xs text-red-600 dark:text-red-400">{box.error}</p>}

@@ -11,6 +11,19 @@ import type { UseCorrectionBoxResult } from "./use-correction-box";
 
 export type CorrectionBoxMode = "bar" | "sidebar";
 
-export function CorrectionBoxSwitcher({ box, mode }: { box: UseCorrectionBoxResult; mode: CorrectionBoxMode }) {
-  return mode === "sidebar" ? <CorrectionSidebar box={box} /> : <CorrectionBox box={box} />;
+export function CorrectionBoxSwitcher({
+  box,
+  mode,
+  onMilestonesNeedEditor,
+}: {
+  box: UseCorrectionBoxResult;
+  mode: CorrectionBoxMode;
+  /** Ids of milestones the AI added without a resolved date — open the editor for them, mirroring the manual "+" button. */
+  onMilestonesNeedEditor?: (ids: string[]) => void;
+}) {
+  return mode === "sidebar" ? (
+    <CorrectionSidebar box={box} onMilestonesNeedEditor={onMilestonesNeedEditor} />
+  ) : (
+    <CorrectionBox box={box} onMilestonesNeedEditor={onMilestonesNeedEditor} />
+  );
 }

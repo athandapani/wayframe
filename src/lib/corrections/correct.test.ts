@@ -18,6 +18,7 @@ const input: CorrectionInput = {
     { id: "m1", title: "Pilot Site 3 Go-Live", laneName: "Field Pilot Deployments", date: "2026-11-01", status: "not-started" },
     { id: "m2", title: "Pilot Fleet Uptime", laneName: "Field Pilot Deployments", date: "2027-01-05", status: "not-started" },
   ],
+  lanes: [{ id: "lane-pilot", name: "Field Pilot Deployments" }],
   correctionText: "mark pilot site 3 go-live complete",
 };
 

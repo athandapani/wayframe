@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useReducer, useState } from "react";
 import type { Milestone, RoadmapData, RollupSnapshot, Swimlane, TopLevelItem } from "@/components/timeline/types";
-import type { PatchOp, Skipped } from "@/lib/corrections/schema";
+import { coercePatchOp, type AddMilestoneOp, type AmbiguousChoice, type PatchOp, type Skipped } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
-import { applyOps } from "@/lib/corrections/apply";
+import { applyAddMilestoneOps, applyOps } from "@/lib/corrections/apply";
 import { laneRollups } from "@/components/executive-view/rag";
 import { withComputedCriticalPath } from "@/lib/critical-path/compute";
 import { nanoid } from "nanoid";
@@ -35,6 +35,10 @@ export interface PendingPatch {
   inputText: string;
   ops: PatchOp[];
   skipped: Skipped[];
+  /** Resolved add-milestone proposals (wayframe#38 item 1 / #39) — real lane, optional date. */
+  adds: AddMilestoneOp[];
+  /** A tied match needing a clarifying answer before it can become an op — see resolveAmbiguous. */
+  ambiguous: AmbiguousChoice | null;
 }
 
 export interface CorrectionBoxState {
@@ -49,15 +53,18 @@ export type CorrectionBoxAction =
   | { type: "requestStarted" }
   | { type: "requestFailed"; error: string }
   | { type: "proposed"; pending: PendingPatch }
-  | { type: "apply" }
+  | { type: "apply"; adds: { op: AddMilestoneOp; id: string; date: string }[] }
   | { type: "discard" }
   | { type: "undo" }
+  | { type: "resolveAmbiguous"; targetId: string }
   | { type: "editMilestone"; ops: PatchOp[] }
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
+  | { type: "editBluf"; patch: Partial<RoadmapData["bluf"]> }
   | { type: "loadDocument"; data: RoadmapData }
   | { type: "hydrated"; data: RoadmapData }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
   | { type: "addMilestone"; laneId: string; date: string; newId: string }
+  | { type: "removeMilestone"; id: string }
   | { type: "setMilestoneDate"; id: string; date: string }
   | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean }
   | { type: "addSwimlane"; swimlaneType: "lane" | "separator"; newId: string }
@@ -83,9 +90,11 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return { ...state, loading: false, pending: action.pending, error: null };
     case "apply": {
       if (!state.pending) return state;
+      const edited = applyOps(state.data.milestones, state.pending.ops);
+      const added = applyAddMilestoneOps(action.adds);
       return {
         ...state,
-        data: withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, state.pending.ops) }),
+        data: withComputedCriticalPath({ ...state.data, milestones: [...edited, ...added] }),
         history: [...state.history, state.data],
         pending: null,
         error: null,
@@ -93,6 +102,30 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     }
     case "discard":
       return { ...state, pending: null, error: null };
+    case "resolveAmbiguous": {
+      // The clarifying-question moment (wayframe#38 item 1 / #39): a person
+      // picks which tied candidate was meant. This never re-resolves the
+      // request — the candidate list and each one's precomputed newValue
+      // came from the original tool call, so picking one just turns it into
+      // a normal op, appended alongside whatever else the request already
+      // resolved cleanly.
+      if (!state.pending?.ambiguous) return state;
+      const { ambiguous } = state.pending;
+      const picked = ambiguous.candidates.find((c) => c.targetId === action.targetId);
+      if (!picked) return state;
+      const coerced = coercePatchOp({
+        targetId: picked.targetId,
+        field: ambiguous.field,
+        newValue: picked.newValue,
+        reason: `Picked from ${ambiguous.candidates.length} matches for "${ambiguous.reason}"`,
+      });
+      if (!coerced.ok) return state;
+      return {
+        ...state,
+        pending: { ...state.pending, ops: [...state.pending.ops, coerced.op], ambiguous: null },
+        error: null,
+      };
+    }
     case "undo": {
       if (state.history.length === 0) {
         return { ...state, error: "Nothing to undo" };
@@ -127,6 +160,19 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
           ...state.data,
           topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
         }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "editBluf": {
+      // So-what rich-text editing (wayframe#38 item 4 / #39) — instant-save,
+      // same shared undo stack as editMilestone/editTopLevelItem: no AI
+      // interpretation to double-check, so there's no reason for a separate
+      // undo mechanism (decided alongside the rich-text authoring surface
+      // itself in the prototype). Doesn't touch critical path.
+      return {
+        ...state,
+        data: { ...state.data, bluf: { ...state.data.bluf, ...action.patch } },
         history: [...state.history, state.data],
         error: null,
       };
@@ -177,6 +223,20 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "removeMilestone": {
+      // Mirrors removeSwimlane's dependsOn cleanup: a milestone that other
+      // milestones depend on can't just vanish and leave those edges
+      // pointing at an id that no longer exists (wayframe#38 item 3 / #39).
+      const milestones = state.data.milestones
+        .filter((m) => m.id !== action.id)
+        .map((m) => (m.dependsOn.some((d) => d.id === action.id) ? { ...m, dependsOn: m.dependsOn.filter((d) => d.id !== action.id) } : m));
+      return {
+        ...state,
+        data: withComputedCriticalPath({ ...state.data, milestones }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -302,14 +362,19 @@ export interface UseCorrectionBoxResult {
   loading: boolean;
   historyLength: number;
   submit: (text: string) => Promise<void>;
-  apply: () => void;
+  /** Applies the pending patch's ops and adds. Returns the ids of any added milestones that had no resolved date, so the caller can open the editor for them (mirrors addMilestone's manual "create empty, open for editing" behavior). */
+  apply: () => string[];
   discard: () => void;
   undo: () => void;
+  /** Turns one of the pending patch's ambiguous candidates into a real op — the clarifying-question answer. */
+  resolveAmbiguous: (targetId: string) => void;
   editMilestone: (ops: PatchOp[]) => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
+  editBluf: (patch: Partial<RoadmapData["bluf"]>) => void;
   setLaneColor: (laneId: string, color: string | undefined) => void;
   /** Creates an empty milestone in the lane and returns its id so the caller can open it. */
   addMilestone: (laneId: string, date: string) => string;
+  removeMilestone: (id: string) => void;
   setMilestoneDate: (id: string, date: string) => void;
   toggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   addSwimlane: (swimlaneType: "lane" | "separator") => void;
@@ -410,6 +475,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
               date: m.date,
               status: m.status,
             })),
+            lanes: state.data.swimlanes.filter((l) => l.type === "lane").map((l) => ({ id: l.id, name: l.name })),
           }),
         });
         const body = await res.json().catch(() => null);
@@ -421,14 +487,16 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
 
         const directOps: PatchOp[] = body.patch.ops;
         const skipped: Skipped[] = body.patch.skipped;
+        const adds: AddMilestoneOp[] = body.patch.addMilestones ?? [];
+        const ambiguous: AmbiguousChoice | null = body.patch.ambiguous ?? null;
 
-        if (directOps.length === 0 && skipped.length === 0) {
+        if (directOps.length === 0 && skipped.length === 0 && adds.length === 0 && !ambiguous) {
           dispatch({ type: "requestFailed", error: `No milestones matched "${text}"` });
           return;
         }
 
         const ops = applyCascade(state.data.milestones, directOps);
-        dispatch({ type: "proposed", pending: { inputText: text, ops, skipped } });
+        dispatch({ type: "proposed", pending: { inputText: text, ops, skipped, adds, ambiguous } });
       } catch (err) {
         dispatch({ type: "requestFailed", error: err instanceof Error ? err.message : "Correction request failed." });
       }
@@ -436,17 +504,31 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     [state.data],
   );
 
-  const apply = useCallback(() => dispatch({ type: "apply" }), []);
+  const apply = useCallback((): string[] => {
+    if (!state.pending) return [];
+    const needsEditorIds: string[] = [];
+    const adds = state.pending.adds.map((op) => {
+      const id = nanoid();
+      const date = op.date ?? today.toISOString().slice(0, 10);
+      if (!op.date) needsEditorIds.push(id);
+      return { op, id, date };
+    });
+    dispatch({ type: "apply", adds });
+    return needsEditorIds;
+  }, [state.pending, today]);
   const discard = useCallback(() => dispatch({ type: "discard" }), []);
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
+  const resolveAmbiguous = useCallback((targetId: string) => dispatch({ type: "resolveAmbiguous", targetId }), []);
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
+  const editBluf = useCallback((patch: Partial<RoadmapData["bluf"]>) => dispatch({ type: "editBluf", patch }), []);
   const setLaneColor = useCallback((laneId: string, color: string | undefined) => dispatch({ type: "setLaneColor", laneId, color }), []);
   const addMilestone = useCallback((laneId: string, date: string) => {
     const newId = nanoid();
     dispatch({ type: "addMilestone", laneId, date, newId });
     return newId;
   }, []);
+  const removeMilestone = useCallback((id: string) => dispatch({ type: "removeMilestone", id }), []);
   const setMilestoneDate = useCallback((id: string, date: string) => dispatch({ type: "setMilestoneDate", id, date }), []);
   const toggleDependency = useCallback(
     (dependentId: string, dependencyId: string, add: boolean) => dispatch({ type: "toggleDependency", dependentId, dependencyId, add }),
@@ -468,10 +550,13 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     apply,
     discard,
     undo,
+    resolveAmbiguous,
     editMilestone,
     editTopLevelItem,
+    editBluf,
     setLaneColor,
     addMilestone,
+    removeMilestone,
     setMilestoneDate,
     toggleDependency,
     addSwimlane,

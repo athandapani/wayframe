@@ -3,18 +3,74 @@
 // Variant A (floating command bar) — the default, per issue #9's
 // resolution: a single always-visible text input, proposal card floats
 // above it. Preview-before-commit, always; never auto-applies.
+//
+// The ambiguous-tie state (wayframe#38 item 1 / #39) gets a distinct
+// conversational-bubble treatment instead of the plain card — the
+// clarify-prototype's verdict was that the bubble earns its keep
+// specifically where the AI needs something *from* the human, not on every
+// successful match. A clean resolution (ops/adds with no ambiguity) keeps
+// today's efficient "Proposed correction" card.
 import { useState } from "react";
-import { buildOpPreview, buildSkippedPreview } from "@/lib/corrections/preview";
+import { buildAddPreview, buildAmbiguousPreview, buildOpPreview, buildSkippedPreview } from "@/lib/corrections/preview";
 import type { UseCorrectionBoxResult } from "./use-correction-box";
 
-export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
+function AiAvatar() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+    >
+      AI
+    </span>
+  );
+}
+
+export function CorrectionBox({ box, onMilestonesNeedEditor }: { box: UseCorrectionBoxResult; onMilestonesNeedEditor?: (ids: string[]) => void }) {
   const [text, setText] = useState("");
   const opRows = box.pending ? buildOpPreview(box.data.milestones, box.pending.ops) : [];
   const skippedRows = box.pending ? buildSkippedPreview(box.data.milestones, box.pending.skipped) : [];
+  const addRows = box.pending ? buildAddPreview(box.data.swimlanes, box.pending.adds) : [];
+  const ambiguous = box.pending?.ambiguous ? buildAmbiguousPreview(box.data.milestones, box.data.swimlanes, box.pending.ambiguous) : null;
+  const hasCleanResolution = opRows.length > 0 || addRows.length > 0 || skippedRows.length > 0;
+
+  function handleApply() {
+    onMilestonesNeedEditor?.(box.apply());
+  }
 
   return (
     <>
-      {box.pending && (
+      {ambiguous && (
+        <div className="fixed bottom-24 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-start gap-2">
+          <AiAvatar />
+          <div
+            style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+            className="flex-1 rounded-2xl rounded-tl-sm border p-3 shadow-2xl"
+          >
+            <p className="mb-2 text-sm">
+              I found <strong>{ambiguous.candidates.length} milestones</strong> that could match &ldquo;{box.pending!.inputText}&rdquo;. Which one did you mean?
+            </p>
+            <div className="flex flex-col gap-1">
+              {ambiguous.candidates.map((c) => (
+                <button
+                  key={c.targetId}
+                  onClick={() => box.resolveAmbiguous(c.targetId)}
+                  style={{ borderColor: "var(--wf-border)" }}
+                  className="rounded-lg border px-2.5 py-1.5 text-left text-xs hover:border-current"
+                >
+                  <span className="font-medium">{c.targetTitle}</span>
+                  <span className="opacity-50"> — {c.laneName}, set {ambiguous.field} to {c.newValue}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={box.discard} className="mt-2 text-[11px] opacity-50 hover:opacity-80">
+              None of these — let me rephrase
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!ambiguous && box.pending && hasCleanResolution && (
         <div style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
           className="fixed bottom-24 left-1/2 z-40 w-[560px] -translate-x-1/2 rounded-xl border p-4 shadow-2xl">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Proposed correction</p>
@@ -26,6 +82,14 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
                 <span className="text-zinc-400"> ({op.reason})</span>
               </li>
             ))}
+            {addRows.map((a, i) => (
+              <li key={`add-${i}`}>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">+ New milestone</span>{" "}
+                <span className="font-medium">{a.title}</span> in {a.laneName}
+                {a.date ? ` on ${a.date}` : " — date not given, will open for editing"}
+                <span className="text-zinc-400"> ({a.reason})</span>
+              </li>
+            ))}
             {skippedRows.map((s) => (
               <li key={s.targetId} className="text-zinc-400">
                 skipped: {s.targetTitle} ({s.reason})
@@ -33,12 +97,24 @@ export function CorrectionBox({ box }: { box: UseCorrectionBoxResult }) {
             ))}
           </ul>
           <div className="flex gap-2">
-            <button onClick={box.apply} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
+            <button onClick={handleApply} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
               Apply
             </button>
             <button onClick={box.discard} className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600">
               Discard
             </button>
+          </div>
+        </div>
+      )}
+
+      {!ambiguous && box.pending && !hasCleanResolution && (
+        <div className="fixed bottom-24 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-start gap-2">
+          <AiAvatar />
+          <div
+            style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+            className="flex-1 rounded-2xl rounded-tl-sm border p-3 text-sm shadow-2xl"
+          >
+            I couldn&apos;t make sense of that as a request — try naming a milestone (or lane, for a new one) and what should change.
           </div>
         </div>
       )}

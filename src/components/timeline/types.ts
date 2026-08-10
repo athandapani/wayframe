@@ -145,7 +145,27 @@ export interface RoadmapData {
   owner: string;
   reportsTo?: string;
   nextReviewDate?: string;
-  bluf: { statement: string; bullets: string[] };
+  bluf: {
+    /**
+     * Sanitized rich-text HTML (wayframe#38 item 4 / #39), not plain text —
+     * a real schema change from the Variant B decision. Rendered via
+     * dangerouslySetInnerHTML wherever it's shown; every path that writes
+     * one of these fields (the rich-text editor, an opened `.wayframe.json`
+     * file) is expected to have gone through sanitizeBlufHtml
+     * (lib/rich-text/sanitize.ts) first — plain, tag-free text is valid
+     * input here too and round-trips unchanged.
+     */
+    statement: string;
+    bullets: string[];
+    /**
+     * Document property, not a viewer preference — unlike BlufCallout's
+     * position, which one person likes to read the chart says nothing about
+     * the roadmap, but "this callout needs to be bigger, there's a lot to
+     * say this week" is a real editorial choice everyone opening the file
+     * should see. `height: null` means auto-height (grows to fit content).
+     */
+    size?: { width: number; height: number | null };
+  };
   actionItems: ActionItem[];
   swimlanes: Swimlane[];
   topLevelItems: TopLevelItem[];

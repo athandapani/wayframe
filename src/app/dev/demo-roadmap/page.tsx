@@ -1,12 +1,11 @@
-// Dev-only visual QA page for the official demo dataset (wayframe issue
-// #10) — not part of the product nav. Gated so it can't ship to production
-// even if this route survives a merge. Also previews the Executive/Program
-// view toggle (wayframe issue #8).
-import { notFound } from "next/navigation";
+// Started as a dev-only visual QA page for the official demo dataset
+// (wayframe issue #10). Un-gated (wayframe#38 item 6 / #39): it's the only
+// "see it working" link a first-time visitor has anywhere in the product —
+// the real `/` entry page has no other way to show the tool in action
+// before someone brings their own data — so it now doubles as the public
+// "see a full example" route, linked from the entry page and HelpPanel.
 import { DemoRoadmapView } from "./DemoRoadmapView";
 
 export default function DemoRoadmapDevPreview() {
-  if (process.env.NODE_ENV === "production") notFound();
-
   return <DemoRoadmapView />;
 }

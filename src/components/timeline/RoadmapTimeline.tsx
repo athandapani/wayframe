@@ -208,7 +208,31 @@ function criticalStroke(style: CriticalPathStyle): { width: number; dash?: strin
 
 // full-height opt-in marker line (wayframe#15) — same shape as the always-on
 // Today line, parameterized so both share one implementation.
-function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x: number; topY: number; bottomY: number; label: string; color: string; dash?: string }) {
+//
+// `topMarker` (wayframe#38 item 5 / #39) draws a downward-pointing triangle
+// at the line's top, reserved for the Today line — every other reference
+// line keeps the plain dashed-line-plus-text treatment. `topY` now reaches
+// all the way to the chart's top margin on every call site (was topBandY /
+// topBandY+22, which landed the line's top — and the label right above it —
+// on the axis band's own tier-row text, illegible red-on-gray colliding
+// with e.g. the Quarter row's label).
+function ReferenceLine({
+  x: cx,
+  topY,
+  bottomY,
+  label,
+  color,
+  dash = "2 2",
+  topMarker = false,
+}: {
+  x: number;
+  topY: number;
+  bottomY: number;
+  label: string;
+  color: string;
+  dash?: string;
+  topMarker?: boolean;
+}) {
   return (
     // Reference lines are painted after the markers, so without this they
     // swallow clicks on any milestone sitting on the same date — the GA
@@ -216,7 +240,8 @@ function ReferenceLine({ x: cx, topY, bottomY, label, color, dash = "2 2" }: { x
     // opened at all.
     <g pointerEvents="none">
       <line x1={cx} x2={cx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
-      <text x={cx + 4} y={topY - 4} fontSize={9} fontWeight={700} fill={color}>
+      {topMarker && <path d={`M${cx - 5},${topY - 9} L${cx + 5},${topY - 9} L${cx},${topY} Z`} fill={color} />}
+      <text x={cx + 4} y={topMarker ? topY + 12 : topY - 4} fontSize={9} fontWeight={700} fill={color}>
         {label}
       </text>
     </g>
@@ -316,6 +341,12 @@ function MilestoneMarker({
       onClick={onClick ? (e) => onClick(m, e) : undefined}
       onPointerDown={onDragStart ? (e) => onDragStart(m, e) : undefined}
     >
+      {/* Native browser tooltip hinting the marker opens an editor —
+          double-clicking a milestone to rename it worked but wasn't
+          discoverable at all (wayframe#38 item 2 / #39). Separate from the
+          custom hover tooltip below, which shows the title, not the
+          affordance. */}
+      {onClick && <title>Click to edit</title>}
       {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {/* Tier-1 labels sit far enough above the marker to need a leader
           line back to it, or they read as belonging to the lane above. */}
@@ -816,7 +847,7 @@ export function RoadmapTimeline({
                     {label}
                   </text>
                 )}
-                <title>{`${m.title} — ${formatDateShort(m.date)} to ${formatDateShort(m.endDate!)}`}</title>
+                <title>{`${m.title} — ${formatDateShort(m.date)} to ${formatDateShort(m.endDate!)}${onMilestoneClick ? " — Click to edit" : ""}`}</title>
               </g>
             );
           })}
@@ -851,24 +882,26 @@ export function RoadmapTimeline({
         {data.topLevelItems
           .filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation")
           .map((t) => (
-            <ReferenceLine key={`ann-${t.id}`} x={x(t.date)} topY={topBandY + 22} bottomY={height - MARGIN.bottom} label={t.title} color="#a855f7" dash="4 3" />
+            <ReferenceLine key={`ann-${t.id}`} x={x(t.date)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label={t.title} color="#a855f7" dash="4 3" />
           ))}
 
         {/* opt-in reference lines (wayframe#15) — any milestone, lane-level or top-level, flagged showReferenceLine */}
         {data.milestones
           .filter((m) => m.showReferenceLine)
           .map((m) => (
-            <ReferenceLine key={`ref-${m.id}`} x={x(m.date)} topY={topBandY} bottomY={height - MARGIN.bottom} label={m.title} color={theme.statusColor[m.status]} />
+            <ReferenceLine key={`ref-${m.id}`} x={x(m.date)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label={m.title} color={theme.statusColor[m.status]} />
           ))}
         {data.topLevelItems
           .filter((t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true)
           .map((t) => (
-            <ReferenceLine key={`ref-${t.id}`} x={x(t.date)} topY={topBandY} bottomY={height - MARGIN.bottom} label={t.title} color={theme.statusColor[t.status]} />
+            <ReferenceLine key={`ref-${t.id}`} x={x(t.date)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label={t.title} color={theme.statusColor[t.status]} />
           ))}
 
-        {/* today reference line */}
+        {/* today reference line — the only one that gets the downward-pointing
+            top triangle (wayframe#38 item 5 / #39), distinct from every other
+            reference line's plain dashed-line-plus-text treatment. */}
         {todayTs >= domainMin && todayTs <= domainMax && (
-          <ReferenceLine x={xTs(todayTs)} topY={topBandY} bottomY={height - MARGIN.bottom} label="Today" color="#e11d48" dash="3 3" />
+          <ReferenceLine x={xTs(todayTs)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label="Today" color="#e11d48" dash="3 3" topMarker />
         )}
       </svg>
     </div>

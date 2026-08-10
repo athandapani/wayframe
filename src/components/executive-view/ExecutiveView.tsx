@@ -11,6 +11,7 @@ import { formatDateShort } from "../timeline/date-utils";
 import { laneRollups, topRisks, type Rag } from "./rag";
 import { ExecutiveTimeline } from "./ExecutiveTimeline";
 import type { ExecutiveTimelineSummary } from "./timeline-summary";
+import { blufHtmlToPlainText } from "@/lib/rich-text/sanitize";
 
 const RAG_BG: Record<Rag, string> = {
   green: "rgba(34,197,94,0.12)",
@@ -36,7 +37,13 @@ export function ExecutiveView({
   return (
     <div className="mx-auto max-w-5xl p-8">
       <h1 className="mb-1 text-lg font-semibold">{data.programName}</h1>
-      <p className="mb-6 text-sm text-zinc-500">{data.bluf.statement}</p>
+      {/* Plain-text subtext, not a rich-text surface (wayframe#38 item 4 /
+          #39): bluf.statement can now carry inline HTML from the So-what
+          editor, and this line has always been plain prose beneath the
+          program name — rendering the markup here would either show raw
+          tags (plain text) or need its own dangerouslySetInnerHTML
+          (unnecessary second XSS-relevant surface for a subtext line). */}
+      <p className="mb-6 text-sm text-zinc-500">{blufHtmlToPlainText(data.bluf.statement)}</p>
 
       {timelineSummary && <ExecutiveTimeline summary={timelineSummary} />}
 
