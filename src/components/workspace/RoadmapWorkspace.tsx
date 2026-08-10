@@ -20,6 +20,7 @@ import { useGhostMode } from "@/components/timeline/use-ghost-mode";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
 import { useLastUpdatedVisibility } from "@/components/timeline/use-last-updated-visibility";
 import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
+import { useTopBandStyle, TOP_BAND_STYLES, type TopBandStyle } from "@/components/timeline/use-top-band-style";
 import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
 import type { LabelDensity } from "@/components/timeline/title-layout";
 import { useTheme } from "@/components/timeline/use-theme";
@@ -81,6 +82,8 @@ function RoadmapView({
   onMilestoneClick,
   onTopLevelItemClick,
   onAddMilestone,
+  onAddTopLevelItem,
+  topBandStyle,
   onMilestoneDateChange,
   tracedIds,
   chartWidth,
@@ -102,6 +105,8 @@ function RoadmapView({
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
   onAddMilestone?: (laneId: string) => void;
+  onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
+  topBandStyle?: TopBandStyle;
   onMilestoneDateChange?: (id: string, date: string) => void;
   tracedIds?: Set<string>;
   /** Pinned width for the off-screen export capture; omitted on screen so the chart fits its container. */
@@ -126,6 +131,8 @@ function RoadmapView({
           onMilestoneClick={onMilestoneClick}
           onTopLevelItemClick={onTopLevelItemClick}
           onAddMilestone={onAddMilestone}
+          onAddTopLevelItem={onAddTopLevelItem}
+          topBandStyle={topBandStyle}
           onMilestoneDateChange={onMilestoneDateChange}
           tracedIds={tracedIds}
           labelDensity={labelDensity}
@@ -186,6 +193,7 @@ export function RoadmapWorkspace({
   const lastUpdated = useLastUpdatedVisibility();
   const { themeId, theme, setTheme } = useTheme();
   const criticalPathLine = useCriticalPathStyle();
+  const topBand = useTopBandStyle();
   const labels = useLabelDensity();
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
@@ -227,6 +235,13 @@ export function RoadmapWorkspace({
   function handleAddMilestone(laneId: string) {
     const iso = today.toISOString().slice(0, 10);
     setSelectedMilestoneId(box.addMilestone(laneId, iso));
+  }
+
+  // Mirrors handleAddMilestone above, for the PROGRAM band's own "+"
+  // (wayframe#41) — same "create empty, open for editing" pattern.
+  function handleAddTopLevelItem(kind: "milestone" | "phase") {
+    const iso = today.toISOString().slice(0, 10);
+    setSelectedTopLevelItemId(box.addTopLevelItem(kind, iso));
   }
 
   // An AI-proposed add with no resolved date (wayframe#38 item 1 / #39)
@@ -421,6 +436,21 @@ export function RoadmapWorkspace({
                 ))}
               </select>
             </OptionsMenuRow>
+            <OptionsMenuRow label="Program band">
+              <select
+                value={topBand.style}
+                onChange={(e) => topBand.setStyle(e.target.value as TopBandStyle)}
+                aria-label="Program band style"
+                style={PILL_STYLE}
+                className="rounded-full border px-2 py-1 text-xs"
+              >
+                {TOP_BAND_STYLES.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Ghosts">
               <button
                 onClick={() => ghost.setEnabled(!ghost.enabled)}
@@ -527,6 +557,8 @@ export function RoadmapWorkspace({
             onBlufEdit={box.editBluf}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onAddMilestone={handleAddMilestone}
+            onAddTopLevelItem={handleAddTopLevelItem}
+            topBandStyle={topBand.style}
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
@@ -546,7 +578,20 @@ export function RoadmapWorkspace({
         </div>
         {exporting && (
           <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView mode={otherMode} chartWidth={1600} labelDensity={labels.density} data={box.data} today={today} ghostMode={ghost.mode} showCriticalPath={criticalPath.visible} criticalPathStyle={criticalPathLine.style} theme={theme} blufOpen={blufOpen} onBlufOpenChange={setBlufOpen} />
+            <RoadmapView
+              mode={otherMode}
+              chartWidth={1600}
+              labelDensity={labels.density}
+              data={box.data}
+              today={today}
+              ghostMode={ghost.mode}
+              showCriticalPath={criticalPath.visible}
+              criticalPathStyle={criticalPathLine.style}
+              topBandStyle={topBand.style}
+              theme={theme}
+              blufOpen={blufOpen}
+              onBlufOpenChange={setBlufOpen}
+            />
           </div>
         )}
       </div>

@@ -64,6 +64,7 @@ export type CorrectionBoxAction =
   | { type: "hydrated"; data: RoadmapData }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
   | { type: "addMilestone"; laneId: string; date: string; newId: string }
+  | { type: "addTopLevelItem"; kind: "milestone" | "phase"; date: string; newId: string }
   | { type: "removeMilestone"; id: string }
   | { type: "setMilestoneDate"; id: string; date: string }
   | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean }
@@ -239,6 +240,21 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "addTopLevelItem": {
+      // The PROGRAM band's own "create empty, open for editing" affordance
+      // (wayframe#41) — mirrors addMilestone above; the AI-facing addMilestones
+      // op can't reach the top band (it requires laneId), so this is manual-only.
+      const item: TopLevelItem =
+        action.kind === "milestone"
+          ? { id: action.newId, type: "milestone", title: "New milestone", date: action.date, status: "not-started" }
+          : { id: action.newId, type: "phase", title: "New phase", status: "not-started", startDate: action.date, endDate: action.date };
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, topLevelItems: [...state.data.topLevelItems, item] })),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "removeMilestone": {
       // Mirrors removeSwimlane's dependsOn cleanup: a milestone that other
       // milestones depend on can't just vanish and leave those edges
@@ -386,6 +402,8 @@ export interface UseCorrectionBoxResult {
   setLaneColor: (laneId: string, color: string | undefined) => void;
   /** Creates an empty milestone in the lane and returns its id so the caller can open it. */
   addMilestone: (laneId: string, date: string) => string;
+  /** Creates an empty top-level milestone or phase in the PROGRAM band and returns its id so the caller can open it. */
+  addTopLevelItem: (kind: "milestone" | "phase", date: string) => string;
   removeMilestone: (id: string) => void;
   setMilestoneDate: (id: string, date: string) => void;
   toggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
@@ -540,6 +558,11 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     dispatch({ type: "addMilestone", laneId, date, newId });
     return newId;
   }, []);
+  const addTopLevelItem = useCallback((kind: "milestone" | "phase", date: string) => {
+    const newId = nanoid();
+    dispatch({ type: "addTopLevelItem", kind, date, newId });
+    return newId;
+  }, []);
   const removeMilestone = useCallback((id: string) => dispatch({ type: "removeMilestone", id }), []);
   const setMilestoneDate = useCallback((id: string, date: string) => dispatch({ type: "setMilestoneDate", id, date }), []);
   const toggleDependency = useCallback(
@@ -568,6 +591,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     editBluf,
     setLaneColor,
     addMilestone,
+    addTopLevelItem,
     removeMilestone,
     setMilestoneDate,
     toggleDependency,

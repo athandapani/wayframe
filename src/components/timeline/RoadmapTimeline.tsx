@@ -22,6 +22,7 @@ import { parseDate, formatDateShort, formatDateCompact } from "./date-utils";
 import { laneColorAt } from "./lane-colors";
 import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
+import type { TopBandStyle } from "./use-top-band-style";
 import { DATE_TIER_DY, layoutDateLabels } from "./label-layout";
 import { layoutTitleLabels, shouldLabel, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
@@ -183,6 +184,102 @@ function AddMilestoneButton({
       <line x1={x - 4} x2={x + 4} y1={y} y2={y} stroke={theme.ink} strokeWidth={1.5} strokeLinecap="round" />
       <line x1={x} x2={x} y1={y - 4} y2={y + 4} stroke={theme.ink} strokeWidth={1.5} strokeLinecap="round" />
       <title>Add a milestone</title>
+    </g>
+  );
+}
+
+// PROGRAM-band highlight treatment + its manual add-milestone/phase
+// affordance (wayframe#41) — three variants, all kept as a real viewer style
+// switcher (see use-top-band-style.ts) rather than one picked default; each
+// pairs its own band chrome with its own add-affordance shape. "tint"'s
+// picker popover anchors its *right* edge to the button rather than
+// centering under it — centered clipped off the right edge of the chart at
+// realistic widths, since the button itself sits close to that edge.
+
+/** "tint" style — single "+" that pops a Milestone/Phase picker. */
+function TopBandAddPicker({ x, y, theme, onPick }: { x: number; y: number; theme: Theme; onPick: (kind: "milestone" | "phase") => void }) {
+  const [open, setOpen] = useState(false);
+  const r = 9;
+  const popW = 124;
+  const popX = x - popW;
+  const popCenter = popX + popW / 2;
+  return (
+    <g>
+      <g
+        className="cursor-pointer"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label="Add to the PROGRAM band"
+      >
+        <circle cx={x} cy={y} r={r} fill={theme.accent} />
+        <line x1={x - 4} x2={x + 4} y1={y} y2={y} stroke="#fff" strokeWidth={1.75} strokeLinecap="round" />
+        <line x1={x} x2={x} y1={y - 4} y2={y + 4} stroke="#fff" strokeWidth={1.75} strokeLinecap="round" />
+        <title>Add to PROGRAM band</title>
+      </g>
+      {open && (
+        <g>
+          <rect x={popX} y={y + r + 4} width={popW} height={54} rx={6} fill={theme.panelBg} stroke={theme.panelBorder} />
+          <text
+            x={popCenter}
+            y={y + r + 22}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={600}
+            fill={theme.panelInk}
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick("milestone");
+            }}
+          >
+            + Milestone
+          </text>
+          <text
+            x={popCenter}
+            y={y + r + 42}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={600}
+            fill={theme.panelInk}
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick("phase");
+            }}
+          >
+            + Phase
+          </text>
+        </g>
+      )}
+    </g>
+  );
+}
+
+/** "border" style — two explicit labeled buttons under the header column, no picker. */
+function TopBandLabeledButton({ x, y, theme, label, onAdd }: { x: number; y: number; theme: Theme; label: string; onAdd: () => void }) {
+  const w = label.length * 5.6 + 16;
+  return (
+    <g
+      className="cursor-pointer opacity-70 transition-opacity hover:opacity-100"
+      onClick={(e) => {
+        e.stopPropagation();
+        onAdd();
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+    >
+      <rect x={x} y={y - 9} width={w} height={18} rx={9} fill="none" stroke={theme.ink} strokeWidth={1} />
+      <text x={x + w / 2} y={y + 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={theme.ink}>
+        {label}
+      </text>
+      <title>{label}</title>
     </g>
   );
 }
@@ -446,6 +543,10 @@ export interface RoadmapTimelineProps {
   tracedIds?: Set<string>;
   /** Which markers carry a label — a viewer preference for dense programmes. */
   labelDensity?: LabelDensity;
+  /** PROGRAM-band highlight treatment (wayframe#41) — a viewer preference, see use-top-band-style.ts. */
+  topBandStyle?: TopBandStyle;
+  /** Renders the PROGRAM band's manual "+" (in whichever shape topBandStyle calls for) when provided. */
+  onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
 }
 
 export function RoadmapTimeline({
@@ -463,6 +564,8 @@ export function RoadmapTimeline({
   onMilestoneDateChange,
   tracedIds,
   labelDensity = "all",
+  topBandStyle = "chip",
+  onAddTopLevelItem,
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -615,18 +718,36 @@ export function RoadmapTimeline({
           <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} />
         ))}
 
+        {/* PROGRAM-band highlight treatment (wayframe#41) — "tint"/"border" paint the band itself; "chip" leaves it unpainted. */}
+        {topBandStyle === "tint" && <rect x={0} y={topBandY} width={width} height={TOP_BAND_HEIGHT} fill={theme.accent} fillOpacity={0.08} />}
+        {topBandStyle === "border" && (
+          <>
+            <rect x={0} y={topBandY} width={width} height={3} fill={theme.accent} />
+            <rect x={0} y={topBandY + TOP_BAND_HEIGHT - 1} width={width} height={1} fill={theme.accent} fillOpacity={0.4} />
+          </>
+        )}
+        {/* "chip" — a small "PROGRAM" chip ahead of the programme name, no band fill. */}
+        {topBandStyle === "chip" && (
+          <>
+            <rect x={16} y={topBandY + 3} width={62} height={13} rx={6.5} fill={theme.accent} />
+            <text x={47} y={topBandY + 12} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#fff" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Program
+            </text>
+          </>
+        )}
+
         {/* Top-level band header. This used to read a generic "PROGRAM" —
             the roadmap's actual name appeared nowhere on the chart, so an
             exported slide or a screenshot didn't say what programme it was
             for. Wrapped to the header column since real programme names
             don't fit on one line. */}
         {wrapText(data.programName, 26, 3).map((line, i) => (
-          <text key={i} x={16} y={topBandY + 14 + i * 15} fontSize={13} fontWeight={700} fill={theme.ink}>
+          <text key={i} x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + i * 15} fontSize={13} fontWeight={700} fill={theme.ink}>
             {line}
           </text>
         ))}
         {data.owner && (
-          <text x={16} y={topBandY + 14 + wrapText(data.programName, 26, 3).length * 15 + 4} fontSize={10} fill={theme.inkMuted}>
+          <text x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + wrapText(data.programName, 26, 3).length * 15 + 4} fontSize={10} fill={theme.inkMuted}>
             {data.owner}
           </text>
         )}
@@ -673,6 +794,23 @@ export function RoadmapTimeline({
           // with the other full-height lines.
           return null;
         })}
+
+        {/* Manual add-to-PROGRAM-band affordance (wayframe#41) — shape follows topBandStyle. */}
+        {onAddTopLevelItem && topBandStyle === "tint" && (
+          <TopBandAddPicker x={width - 24} y={topBandY + 16} theme={theme} onPick={onAddTopLevelItem} />
+        )}
+        {onAddTopLevelItem && topBandStyle === "border" && (
+          <>
+            <TopBandLabeledButton x={16} y={topBandY + TOP_BAND_HEIGHT - 22} theme={theme} label="+ Milestone" onAdd={() => onAddTopLevelItem("milestone")} />
+            <TopBandLabeledButton x={104} y={topBandY + TOP_BAND_HEIGHT - 22} theme={theme} label="+ Phase" onAdd={() => onAddTopLevelItem("phase")} />
+          </>
+        )}
+        {/* "chip" deliberately reuses the per-lane button verbatim, same corner position as a lane row's —
+            milestone-only, no picker; a phase-only-buildable-from-elsewhere tradeoff accepted in favor of the
+            top band's minimal footprint (switch to "border" or "tint" in the options menu to add a phase). */}
+        {onAddTopLevelItem && topBandStyle === "chip" && (
+          <AddMilestoneButton laneId="__top__" x={MARGIN.left - RAIL_W - 20} y={topBandY + 16} theme={theme} onAdd={() => onAddTopLevelItem("milestone")} />
+        )}
 
         {/* swimlane rows: separators (group headers) + lanes with a solid darker header block */}
         {rows.map((row) => {
