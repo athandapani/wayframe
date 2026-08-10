@@ -23,8 +23,8 @@ import { laneColorAt } from "./lane-colors";
 import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
-import { DATE_TIER_DY, layoutDateLabels } from "./label-layout";
-import { layoutTitleLabels, shouldLabel, type LabelDensity, type TitlePlacement } from "./title-layout";
+import { DATE_TIER_DY, DATE_CHAR_W, layoutDateLabels } from "./label-layout";
+import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
@@ -66,12 +66,15 @@ interface RowInfo {
   laneIndex: number; // -1 for separators; cycles only across "lane" rows, for tint color assignment
 }
 
-function computeRows(swimlanes: Swimlane[]): RowInfo[] {
+// PROTOTYPE (wayframe#42) — laneHeight/separatorHeight default to the module
+// constants; the dev route's "full" scale variant passes boxScale-multiplied
+// values to make row height track font size.
+function computeRows(swimlanes: Swimlane[], laneHeight = LANE_HEIGHT, separatorHeight = SEPARATOR_HEIGHT): RowInfo[] {
   let y = 0;
   let laneIndex = 0;
   const out: RowInfo[] = [];
   for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
-    const height = sl.type === "separator" ? SEPARATOR_HEIGHT : LANE_HEIGHT;
+    const height = sl.type === "separator" ? separatorHeight : laneHeight;
     out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
     if (sl.type === "lane") laneIndex += 1;
     y += height;
@@ -93,14 +96,31 @@ function computeDomain(data: RoadmapData): { domainMin: number; domainMax: numbe
   return { domainMin: minDate - PAD_DAYS, domainMax: maxDate + PAD_DAYS };
 }
 
-function AxisRow({ y, segments, theme, opacity, xOf }: { y: number; segments: Segment[]; theme: Theme; opacity: number; xOf: (ts: number) => number }) {
+function AxisRow({
+  y,
+  segments,
+  theme,
+  opacity,
+  xOf,
+  rowHeight = AXIS_ROW_HEIGHT,
+  fontScale = 1,
+}: {
+  y: number;
+  segments: Segment[];
+  theme: Theme;
+  opacity: number;
+  xOf: (ts: number) => number;
+  /** PROTOTYPE (wayframe#42) — boxScale-multiplied by the caller in "full" mode. */
+  rowHeight?: number;
+  fontScale?: number;
+}) {
   return (
     <>
       {segments.map((s) => (
         <g key={s.label + s.start}>
-          <rect x={xOf(s.start)} y={y} width={xOf(s.end) - xOf(s.start)} height={AXIS_ROW_HEIGHT} fill={theme.axisBg} fillOpacity={opacity} />
-          <line x1={xOf(s.start)} x2={xOf(s.start)} y1={y} y2={y + AXIS_ROW_HEIGHT} stroke={theme.axisText} strokeOpacity={0.25} />
-          <text x={(xOf(s.start) + xOf(s.end)) / 2} y={y + AXIS_ROW_HEIGHT - 7} textAnchor="middle" fontSize={11} fontWeight={700} fill={theme.axisText}>
+          <rect x={xOf(s.start)} y={y} width={xOf(s.end) - xOf(s.start)} height={rowHeight} fill={theme.axisBg} fillOpacity={opacity} />
+          <line x1={xOf(s.start)} x2={xOf(s.start)} y1={y} y2={y + rowHeight} stroke={theme.axisText} strokeOpacity={0.25} />
+          <text x={(xOf(s.start) + xOf(s.end)) / 2} y={y + rowHeight - 7} textAnchor="middle" fontSize={11 * fontScale} fontWeight={700} fill={theme.axisText}>
             {s.label}
           </text>
         </g>
@@ -197,7 +217,19 @@ function AddMilestoneButton({
 // realistic widths, since the button itself sits close to that edge.
 
 /** "tint" style — single "+" that pops a Milestone/Phase picker. */
-function TopBandAddPicker({ x, y, theme, onPick }: { x: number; y: number; theme: Theme; onPick: (kind: "milestone" | "phase") => void }) {
+function TopBandAddPicker({
+  x,
+  y,
+  theme,
+  onPick,
+  fontScale = 1,
+}: {
+  x: number;
+  y: number;
+  theme: Theme;
+  onPick: (kind: "milestone" | "phase") => void;
+  fontScale?: number;
+}) {
   const [open, setOpen] = useState(false);
   const r = 9;
   const popW = 124;
@@ -227,7 +259,7 @@ function TopBandAddPicker({ x, y, theme, onPick }: { x: number; y: number; theme
             x={popCenter}
             y={y + r + 22}
             textAnchor="middle"
-            fontSize={11}
+            fontSize={11 * fontScale}
             fontWeight={600}
             fill={theme.panelInk}
             className="cursor-pointer"
@@ -243,7 +275,7 @@ function TopBandAddPicker({ x, y, theme, onPick }: { x: number; y: number; theme
             x={popCenter}
             y={y + r + 42}
             textAnchor="middle"
-            fontSize={11}
+            fontSize={11 * fontScale}
             fontWeight={600}
             fill={theme.panelInk}
             className="cursor-pointer"
@@ -262,8 +294,25 @@ function TopBandAddPicker({ x, y, theme, onPick }: { x: number; y: number; theme
 }
 
 /** "border" style — two explicit labeled buttons under the header column, no picker. */
-function TopBandLabeledButton({ x, y, theme, label, onAdd }: { x: number; y: number; theme: Theme; label: string; onAdd: () => void }) {
-  const w = label.length * 5.6 + 16;
+function TopBandLabeledButton({
+  x,
+  y,
+  theme,
+  label,
+  onAdd,
+  fontScale = 1,
+  metricsScale = 1,
+}: {
+  x: number;
+  y: number;
+  theme: Theme;
+  label: string;
+  onAdd: () => void;
+  fontScale?: number;
+  /** PROTOTYPE (wayframe#42) — the button's own width is a text-width estimate; without this it clips its label at larger fontScale. */
+  metricsScale?: number;
+}) {
+  const w = label.length * 5.6 * metricsScale + 16;
   return (
     <g
       className="cursor-pointer opacity-70 transition-opacity hover:opacity-100"
@@ -276,7 +325,7 @@ function TopBandLabeledButton({ x, y, theme, label, onAdd }: { x: number; y: num
       aria-label={label}
     >
       <rect x={x} y={y - 9} width={w} height={18} rx={9} fill="none" stroke={theme.ink} strokeWidth={1} />
-      <text x={x + w / 2} y={y + 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={theme.ink}>
+      <text x={x + w / 2} y={y + 4} textAnchor="middle" fontSize={10 * fontScale} fontWeight={600} fill={theme.ink}>
         {label}
       </text>
       <title>{label}</title>
@@ -330,6 +379,8 @@ function ReferenceLine({
   color,
   dash = "2 2",
   topMarker = false,
+  fontScale = 1,
+  metricsScale = 1,
 }: {
   x: number;
   topY: number;
@@ -338,9 +389,12 @@ function ReferenceLine({
   color: string;
   dash?: string;
   topMarker?: boolean;
+  fontScale?: number;
+  /** PROTOTYPE (wayframe#42) — the Today chip's width is a text-width estimate. */
+  metricsScale?: number;
 }) {
   const chipX = cx + 8;
-  const chipW = Math.max(40, label.length * 6.2 + 10);
+  const chipW = Math.max(40, label.length * 6.2 * metricsScale + 10);
   return (
     // Reference lines are painted after the markers, so without this they
     // swallow clicks on any milestone sitting on the same date — the GA
@@ -352,12 +406,12 @@ function ReferenceLine({
       {topMarker ? (
         <>
           <rect x={chipX} y={topY - 13} width={chipW} height={13} rx={4} fill={color} />
-          <text x={chipX + chipW / 2} y={topY - 4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#ffffff">
+          <text x={chipX + chipW / 2} y={topY - 4} textAnchor="middle" fontSize={9 * fontScale} fontWeight={700} fill="#ffffff">
             {label}
           </text>
         </>
       ) : (
-        <text x={cx + 4} y={topY - 4} fontSize={9} fontWeight={700} fill={color}>
+        <text x={cx + 4} y={topY - 4} fontSize={9 * fontScale} fontWeight={700} fill={color}>
           {label}
         </text>
       )}
@@ -385,17 +439,29 @@ function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: n
   );
 }
 
-function GhostBadge({ m, cx, cy }: { m: Milestone; cx: number; cy: number }) {
+function GhostBadge({
+  m,
+  cx,
+  cy,
+  fontScale = 1,
+  metricsScale = 1,
+}: {
+  m: Milestone;
+  cx: number;
+  cy: number;
+  fontScale?: number;
+  metricsScale?: number;
+}) {
   const slipDays = daysBetween(m.originalDate!, m.date);
   const late = slipDays > 0;
   const label = `${late ? "+" : ""}${slipDays}d`;
-  const badgeW = Math.max(22, label.length * 6 + 8);
+  const badgeW = Math.max(22, label.length * 6 * metricsScale + 8);
   const bx = cx + 12;
   const by = cy - 18;
   return (
     <g data-testid={`ghost-badge-${m.id}`}>
       <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={late ? "#f59e0b" : "#0ea5e9"} />
-      <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8} fontWeight={700} fill="#ffffff">
+      <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8 * fontScale} fontWeight={700} fill="#ffffff">
         {label}
       </text>
     </g>
@@ -417,6 +483,8 @@ function MilestoneMarker({
   onDragStart,
   dragDx,
   dragging,
+  fontScale = 1,
+  metricsScale = 1,
 }: {
   m: Milestone;
   cx: number;
@@ -436,13 +504,16 @@ function MilestoneMarker({
   /** Live x offset while this marker is being dragged. */
   dragDx?: number;
   dragging?: boolean;
+  fontScale?: number;
+  /** PROTOTYPE (wayframe#42) — the hover tooltip's width is a text-width estimate. */
+  metricsScale?: number;
 }) {
   const r = 8;
   const dateDy = DATE_TIER_DY[date.tier];
   // Label block grows upward from its baseline, so the last line sits
   // closest to the marker and the first line ends up on top.
   const labelBaseDy = LABEL_BASE_DY - (primary ? primary.tier * LABEL_TIER_LIFT : 0);
-  const tooltipW = Math.max(40, m.title.length * 6 + 16);
+  const tooltipW = Math.max(40, m.title.length * 6 * metricsScale + 16);
   const hasGhost = ghostCx !== null;
   const critical = showCriticalPath && m.isCriticalPath;
 
@@ -483,27 +554,27 @@ function MilestoneMarker({
           x={cx}
           y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H}
           textAnchor="middle"
-          fontSize={10}
+          fontSize={10 * fontScale}
           fontWeight={600}
           fill="currentColor"
         >
           {line}
         </text>
       ))}
-      <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9} fill="currentColor" opacity={0.6}>
+      <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * fontScale} fill="currentColor" opacity={0.6}>
         {date.text}
       </text>
-      {hasGhost && ghostMode === "badge" && <GhostBadge m={m} cx={cx} cy={cy} />}
+      {hasGhost && ghostMode === "badge" && <GhostBadge m={m} cx={cx} cy={cy} fontScale={fontScale} metricsScale={metricsScale} />}
       {/* hover reveal: full title. CSS-only (no JS state) — a real <title>
           element gets hoisted by React 19 as document metadata even inside
           <svg>, which desyncs SSR/client, so this is the workaround. */}
       <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
         <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasGhost ? 34 : 20} rx={4} fill="#18181b" />
-        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11} fill="#ffffff">
+        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * fontScale} fill="#ffffff">
           {m.title}
         </text>
         {hasGhost && (
-          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9} fill="#ffffff" opacity={0.7}>
+          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9 * fontScale} fill="#ffffff" opacity={0.7}>
             <tspan textDecoration="line-through">{formatDateShort(m.originalDate!)}</tspan> → {formatDateShort(m.date)}
           </text>
         )}
@@ -547,6 +618,20 @@ export interface RoadmapTimelineProps {
   topBandStyle?: TopBandStyle;
   /** Renders the PROGRAM band's manual "+" (in whichever shape topBandStyle calls for) when provided. */
   onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
+  // --- PROTOTYPE (wayframe#42) — font/scale exploration, not a shipped API. ---
+  /** Multiplies every rendered text `fontSize`. Defaults to 1 (no-op). */
+  fontScale?: number;
+  /** Overrides `theme.font` at the SVG root when set. */
+  fontFamily?: string;
+  /**
+   * Multiplies text-width-estimate constants that feed label-collision math
+   * and computed chip/badge/tooltip/button widths — independent of
+   * `fontScale` so "text grows, the math that keeps it from overlapping
+   * doesn't" can be demonstrated on its own. Defaults to 1.
+   */
+  metricsScale?: number;
+  /** Multiplies row/pill/axis/top-band box heights. Defaults to 1. */
+  boxScale?: number;
 }
 
 export function RoadmapTimeline({
@@ -566,8 +651,12 @@ export function RoadmapTimeline({
   labelDensity = "all",
   topBandStyle = "chip",
   onAddTopLevelItem,
+  fontScale = 1,
+  fontFamily,
+  metricsScale = 1,
+  boxScale = 1,
 }: RoadmapTimelineProps) {
-  const rows = computeRows(data.swimlanes);
+  const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
@@ -625,9 +714,11 @@ export function RoadmapTimeline({
     return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
   }
 
-  const axisHeight = AXIS_ROW_HEIGHT * tierRowCount(axisTiers);
+  const axisRowHeight = AXIS_ROW_HEIGHT * boxScale;
+  const axisHeight = axisRowHeight * tierRowCount(axisTiers);
+  const topBandHeight = TOP_BAND_HEIGHT * boxScale;
   const topBandY = MARGIN.top + axisHeight;
-  const lanesTop = topBandY + TOP_BAND_HEIGHT;
+  const lanesTop = topBandY + topBandHeight;
   const height = lanesTop + bodyHeight + MARGIN.bottom;
 
   function laneY(laneId: string): number {
@@ -662,8 +753,11 @@ export function RoadmapTimeline({
         }),
       })),
       ...lanePills.map((m) => ({ id: m.id, x: x(m.date), endX: x(m.endDate!), title: m.title, labelled: false })),
-    ]);
-    const dates = layoutDateLabels(laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })));
+    ], 2, CHAR_W * metricsScale);
+    const dates = layoutDateLabels(
+      laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })),
+      DATE_CHAR_W * metricsScale,
+    );
     for (const [k, v] of primary) primaryPlacement.set(k, v);
     for (const [k, v] of dates) datePlacement.set(k, v);
   }
@@ -709,28 +803,28 @@ export function RoadmapTimeline({
       <svg
         width={width}
         height={height}
-        style={{ fontFamily: theme.font, color: theme.ink, background: theme.ground }}
+        style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
         onPointerMove={drag ? moveDrag : undefined}
         onPointerUp={drag ? endDrag : undefined}
         onPointerCancel={drag ? endDrag : undefined}
       >
         {axisRows.map((row, i) => (
-          <AxisRow key={i} y={MARGIN.top + i * AXIS_ROW_HEIGHT} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} />
+          <AxisRow key={i} y={MARGIN.top + i * axisRowHeight} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} rowHeight={axisRowHeight} fontScale={fontScale} />
         ))}
 
         {/* PROGRAM-band highlight treatment (wayframe#41) — "tint"/"border" paint the band itself; "chip" leaves it unpainted. */}
-        {topBandStyle === "tint" && <rect x={0} y={topBandY} width={width} height={TOP_BAND_HEIGHT} fill={theme.accent} fillOpacity={0.08} />}
+        {topBandStyle === "tint" && <rect x={0} y={topBandY} width={width} height={topBandHeight} fill={theme.accent} fillOpacity={0.08} />}
         {topBandStyle === "border" && (
           <>
             <rect x={0} y={topBandY} width={width} height={3} fill={theme.accent} />
-            <rect x={0} y={topBandY + TOP_BAND_HEIGHT - 1} width={width} height={1} fill={theme.accent} fillOpacity={0.4} />
+            <rect x={0} y={topBandY + topBandHeight - 1} width={width} height={1} fill={theme.accent} fillOpacity={0.4} />
           </>
         )}
         {/* "chip" — a small "PROGRAM" chip ahead of the programme name, no band fill. */}
         {topBandStyle === "chip" && (
           <>
             <rect x={16} y={topBandY + 3} width={62} height={13} rx={6.5} fill={theme.accent} />
-            <text x={47} y={topBandY + 12} textAnchor="middle" fontSize={8.5} fontWeight={700} fill="#fff" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            <text x={47} y={topBandY + 12} textAnchor="middle" fontSize={8.5 * fontScale} fontWeight={700} fill="#fff" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>
               Program
             </text>
           </>
@@ -742,20 +836,20 @@ export function RoadmapTimeline({
             for. Wrapped to the header column since real programme names
             don't fit on one line. */}
         {wrapText(data.programName, 26, 3).map((line, i) => (
-          <text key={i} x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + i * 15} fontSize={13} fontWeight={700} fill={theme.ink}>
+          <text key={i} x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + i * 15} fontSize={13 * fontScale} fontWeight={700} fill={theme.ink}>
             {line}
           </text>
         ))}
         {data.owner && (
-          <text x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + wrapText(data.programName, 26, 3).length * 15 + 4} fontSize={10} fill={theme.inkMuted}>
+          <text x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + wrapText(data.programName, 26, 3).length * 15 + 4} fontSize={10 * fontScale} fill={theme.inkMuted}>
             {data.owner}
           </text>
         )}
         {data.topLevelItems.map((t: TopLevelItem) => {
-          const y = topBandY + TOP_BAND_HEIGHT / 2;
+          const y = topBandY + topBandHeight / 2;
           if (t.type === "phase") {
             const px = x(t.startDate);
-            const h = PILL_HEIGHT_LG;
+            const h = PILL_HEIGHT_LG * boxScale;
             const w = Math.max(h, x(t.endDate) - px);
             return (
               <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
@@ -769,7 +863,7 @@ export function RoadmapTimeline({
                   fillOpacity={0.35}
                   stroke={theme.statusColor[t.status]}
                 />
-                <text x={px + h / 2} y={y + 4} fontSize={11} fontWeight={600}>
+                <text x={px + h / 2} y={y + 4} fontSize={11 * fontScale} fontWeight={600}>
                   {t.title}
                 </text>
               </g>
@@ -780,7 +874,7 @@ export function RoadmapTimeline({
             return (
               <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
                 <CushionMarker cx={cx} cy={y} r={10} fill={theme.statusColor[t.status]} stroke="#fff" strokeWidth={2} />
-                <text x={cx} y={y - 18} textAnchor="middle" fontSize={11} fontWeight={600}>
+                <text x={cx} y={y - 18} textAnchor="middle" fontSize={11 * fontScale} fontWeight={600}>
                   {t.title}
                 </text>
               </g>
@@ -797,12 +891,12 @@ export function RoadmapTimeline({
 
         {/* Manual add-to-PROGRAM-band affordance (wayframe#41) — shape follows topBandStyle. */}
         {onAddTopLevelItem && topBandStyle === "tint" && (
-          <TopBandAddPicker x={width - 24} y={topBandY + 16} theme={theme} onPick={onAddTopLevelItem} />
+          <TopBandAddPicker x={width - 24} y={topBandY + 16} theme={theme} onPick={onAddTopLevelItem} fontScale={fontScale} />
         )}
         {onAddTopLevelItem && topBandStyle === "border" && (
           <>
-            <TopBandLabeledButton x={16} y={topBandY + TOP_BAND_HEIGHT - 22} theme={theme} label="+ Milestone" onAdd={() => onAddTopLevelItem("milestone")} />
-            <TopBandLabeledButton x={104} y={topBandY + TOP_BAND_HEIGHT - 22} theme={theme} label="+ Phase" onAdd={() => onAddTopLevelItem("phase")} />
+            <TopBandLabeledButton x={16} y={topBandY + topBandHeight - 22} theme={theme} label="+ Milestone" onAdd={() => onAddTopLevelItem("milestone")} fontScale={fontScale} metricsScale={metricsScale} />
+            <TopBandLabeledButton x={104} y={topBandY + topBandHeight - 22} theme={theme} label="+ Phase" onAdd={() => onAddTopLevelItem("phase")} fontScale={fontScale} metricsScale={metricsScale} />
           </>
         )}
         {/* "chip" deliberately reuses the per-lane button verbatim, same corner position as a lane row's —
@@ -822,7 +916,7 @@ export function RoadmapTimeline({
                 <text
                   x={16}
                   y={y0 + row.height / 2}
-                  fontSize={10.5}
+                  fontSize={10.5 * fontScale}
                   fontWeight={700}
                   letterSpacing="0.09em"
                   fill={theme.separatorText}
@@ -857,7 +951,7 @@ export function RoadmapTimeline({
                 fillOpacity={theme.laneWashOpacity}
               />
               <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
-              <text x={16} y={y0 + row.height / 2} fontSize={12.5} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
+              <text x={16} y={y0 + row.height / 2} fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
                 {row.swimlane.name}
               </text>
               {onAddMilestone && <AddMilestoneButton laneId={row.swimlane.id} x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} onAdd={onAddMilestone} />}
@@ -954,8 +1048,9 @@ export function RoadmapTimeline({
         {data.milestones
           .filter((m) => m.endDate)
           .map((m) => {
+            const pillHeightSm = PILL_HEIGHT_SM * boxScale;
             const px = x(m.date);
-            const w = Math.max(PILL_HEIGHT_SM, x(m.endDate!) - px);
+            const w = Math.max(pillHeightSm, x(m.endDate!) - px);
             const cy = laneY(m.laneId);
             const fill = darken(laneTint(m.laneId), 0.4);
             // Pills carry the same critical/trace state as point markers.
@@ -966,7 +1061,7 @@ export function RoadmapTimeline({
             const traceState = tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null;
             // The label is clipped to the pill instead of running past its
             // end — a long title used to overrun the chart's right edge.
-            const labelChars = Math.floor((w - PILL_HEIGHT_SM) / 4.8);
+            const labelChars = Math.floor((w - pillHeightSm) / (4.8 * metricsScale));
             const label = labelChars >= 6 ? wrapText(m.title, labelChars, 1)[0] : null;
             return (
               <g
@@ -975,14 +1070,14 @@ export function RoadmapTimeline({
                 opacity={traceState === "out" ? 0.22 : 1}
                 onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}
               >
-                <rect x={px} y={cy - PILL_HEIGHT_SM / 2} width={w} height={PILL_HEIGHT_SM} rx={PILL_HEIGHT_SM / 2} fill={fill} />
+                <rect x={px} y={cy - pillHeightSm / 2} width={w} height={pillHeightSm} rx={pillHeightSm / 2} fill={fill} />
                 {critical && (
                   <rect
                     x={px - 2}
-                    y={cy - PILL_HEIGHT_SM / 2 - 2}
+                    y={cy - pillHeightSm / 2 - 2}
                     width={w + 4}
-                    height={PILL_HEIGHT_SM + 4}
-                    rx={(PILL_HEIGHT_SM + 4) / 2}
+                    height={pillHeightSm + 4}
+                    rx={(pillHeightSm + 4) / 2}
                     fill="none"
                     stroke={theme.criticalPathColor}
                     strokeWidth={2}
@@ -991,17 +1086,17 @@ export function RoadmapTimeline({
                 {traceState === "in" && (
                   <rect
                     x={px - (critical ? 5 : 2)}
-                    y={cy - PILL_HEIGHT_SM / 2 - (critical ? 5 : 2)}
+                    y={cy - pillHeightSm / 2 - (critical ? 5 : 2)}
                     width={w + (critical ? 10 : 4)}
-                    height={PILL_HEIGHT_SM + (critical ? 10 : 4)}
-                    rx={(PILL_HEIGHT_SM + 10) / 2}
+                    height={pillHeightSm + (critical ? 10 : 4)}
+                    rx={(pillHeightSm + 10) / 2}
                     fill="none"
                     stroke={theme.traceColor}
                     strokeWidth={2}
                   />
                 )}
                 {label && (
-                  <text x={px + PILL_HEIGHT_SM / 2} y={cy + 3} fontSize={9} fill="#ffffff">
+                  <text x={px + pillHeightSm / 2} y={cy + 3} fontSize={9 * fontScale} fill="#ffffff">
                     {label}
                   </text>
                 )}
@@ -1030,6 +1125,8 @@ export function RoadmapTimeline({
               onDragStart={onMilestoneDateChange ? beginDrag : undefined}
               dragDx={drag?.id === m.id ? drag.dx : undefined}
               dragging={drag?.id === m.id}
+              fontScale={fontScale}
+              metricsScale={metricsScale}
             />
           ))}
 
@@ -1040,19 +1137,47 @@ export function RoadmapTimeline({
         {data.topLevelItems
           .filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation")
           .map((t) => (
-            <ReferenceLine key={`ann-${t.id}`} x={x(t.date)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label={t.title} color="#a855f7" dash="4 3" />
+            <ReferenceLine
+              key={`ann-${t.id}`}
+              x={x(t.date)}
+              topY={MARGIN.top}
+              bottomY={height - MARGIN.bottom}
+              label={t.title}
+              color="#a855f7"
+              dash="4 3"
+              fontScale={fontScale}
+              metricsScale={metricsScale}
+            />
           ))}
 
         {/* opt-in reference lines (wayframe#15) — any milestone, lane-level or top-level, flagged showReferenceLine */}
         {data.milestones
           .filter((m) => m.showReferenceLine)
           .map((m) => (
-            <ReferenceLine key={`ref-${m.id}`} x={x(m.date)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label={m.title} color={theme.statusColor[m.status]} />
+            <ReferenceLine
+              key={`ref-${m.id}`}
+              x={x(m.date)}
+              topY={MARGIN.top}
+              bottomY={height - MARGIN.bottom}
+              label={m.title}
+              color={theme.statusColor[m.status]}
+              fontScale={fontScale}
+              metricsScale={metricsScale}
+            />
           ))}
         {data.topLevelItems
           .filter((t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true)
           .map((t) => (
-            <ReferenceLine key={`ref-${t.id}`} x={x(t.date)} topY={MARGIN.top} bottomY={height - MARGIN.bottom} label={t.title} color={theme.statusColor[t.status]} />
+            <ReferenceLine
+              key={`ref-${t.id}`}
+              x={x(t.date)}
+              topY={MARGIN.top}
+              bottomY={height - MARGIN.bottom}
+              label={t.title}
+              color={theme.statusColor[t.status]}
+              fontScale={fontScale}
+              metricsScale={metricsScale}
+            />
           ))}
 
         {/* today reference line — the only one that gets the downward-pointing
@@ -1067,6 +1192,8 @@ export function RoadmapTimeline({
             color="#e11d48"
             dash="3 3"
             topMarker
+            fontScale={fontScale}
+            metricsScale={metricsScale}
           />
         )}
       </svg>

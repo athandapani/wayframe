@@ -23,7 +23,7 @@
 import { wrapText } from "./wrap-text";
 
 /** Approximate advance width of the marker label face at its rendered size. */
-const CHAR_W = 5.4;
+export const CHAR_W = 5.4;
 /** Fraction of the available gap a label may occupy before it feels crowded. */
 const CROWDING = 0.92;
 /** Below this a label is noise; a clipped single word beats a split one. */
@@ -56,7 +56,7 @@ export interface TitleLayoutItem {
   endX?: number;
 }
 
-export function layoutTitleLabels(items: TitleLayoutItem[], maxLines = 2): Map<string, TitlePlacement> {
+export function layoutTitleLabels(items: TitleLayoutItem[], maxLines = 2, charWidth = CHAR_W): Map<string, TitlePlacement> {
   const sorted = [...items].sort((a, b) => a.x - b.x);
   const result = new Map<string, TitlePlacement>();
 
@@ -83,7 +83,7 @@ export function layoutTitleLabels(items: TitleLayoutItem[], maxLines = 2): Map<s
     const nearest = Math.min(gapLeft, gapRight, blockLeft, blockRight);
     const available = nearest === Infinity ? LONE_LABEL_PX : nearest * CROWDING;
 
-    const budget = Math.max(MIN_CHARS, Math.min(MAX_CHARS, Math.floor(available / CHAR_W)));
+    const budget = Math.max(MIN_CHARS, Math.min(MAX_CHARS, Math.floor(available / charWidth)));
 
     if (item.shortLabel) {
       result.set(item.id, { lines: [item.shortLabel], tier });
