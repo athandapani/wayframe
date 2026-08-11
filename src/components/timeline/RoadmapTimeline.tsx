@@ -23,6 +23,7 @@ import { laneColorAt } from "./lane-colors";
 import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
+import type { PeriodGridlineStyle } from "./use-period-gridlines";
 import { DATE_TIER_DY, DATE_CHAR_W, layoutDateLabels } from "./label-layout";
 import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
@@ -628,6 +629,8 @@ export interface RoadmapTimelineProps {
   metricsScale?: number;
   /** Multiplies row/pill/axis/top-band box heights. Defaults to 1. */
   boxScale?: number;
+  /** Opt-in period-boundary gridlines (wayframe#44/#53) — a viewer preference, see use-period-gridlines.ts. */
+  periodGridlineStyle?: PeriodGridlineStyle;
 }
 
 export function RoadmapTimeline({
@@ -651,6 +654,7 @@ export function RoadmapTimeline({
   fontFamily,
   metricsScale = 1,
   boxScale = 1,
+  periodGridlineStyle = "year-line",
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -982,6 +986,38 @@ export function RoadmapTimeline({
             </g>
           );
         })}
+
+        {/* Opt-in period-boundary gridlines (wayframe#44/#53) — painted after
+            the lane washes but before connectors/markers, so the grid reads
+            as chart structure rather than competing with content.
+            "segments": faint line at every axis segment (month/quarter/year).
+            "year-line": heavier line at year boundaries only (default).
+            "year-band": alternating background band per year. */}
+        {(periodGridlineStyle === "segments" || periodGridlineStyle === "year-line") &&
+          (periodGridlineStyle === "segments" ? axisRows.flatMap((row) => row.segments) : axisRows[0].segments).map((s, i) => (
+            <line
+              key={`grid-${periodGridlineStyle}-${i}-${s.start}`}
+              x1={xTs(s.start)}
+              x2={xTs(s.start)}
+              y1={lanesTop}
+              y2={lanesTop + bodyHeight}
+              stroke={periodGridlineStyle === "year-line" ? theme.ink : theme.rowDivider}
+              strokeOpacity={periodGridlineStyle === "year-line" ? 0.3 : 1}
+              strokeWidth={periodGridlineStyle === "year-line" ? 1.5 : 1}
+            />
+          ))}
+        {periodGridlineStyle === "year-band" &&
+          axisRows[0].segments.map((s, i) => (
+            <rect
+              key={`grid-year-band-${i}-${s.start}`}
+              x={xTs(s.start)}
+              y={lanesTop}
+              width={xTs(s.end) - xTs(s.start)}
+              height={bodyHeight}
+              fill={theme.ink}
+              fillOpacity={i % 2 === 1 ? 0.05 : 0}
+            />
+          ))}
 
         {/* dependency connectors — orthogonal "elbow" steps */}
         {data.milestones.flatMap((m) =>

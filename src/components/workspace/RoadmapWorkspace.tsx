@@ -23,6 +23,7 @@ import { useCriticalPathVisibility } from "@/components/timeline/use-critical-pa
 import { useLastUpdatedVisibility } from "@/components/timeline/use-last-updated-visibility";
 import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
 import { useTopBandStyle, TOP_BAND_STYLES, type TopBandStyle } from "@/components/timeline/use-top-band-style";
+import { usePeriodGridlines, PERIOD_GRIDLINE_STYLES, type PeriodGridlineStyle } from "@/components/timeline/use-period-gridlines";
 import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
 import type { LabelDensity } from "@/components/timeline/title-layout";
 import { useTheme } from "@/components/timeline/use-theme";
@@ -86,6 +87,7 @@ function RoadmapView({
   onAddMilestone,
   onAddTopLevelItem,
   topBandStyle,
+  periodGridlineStyle,
   onMilestoneDateChange,
   tracedIds,
   chartWidth,
@@ -111,6 +113,7 @@ function RoadmapView({
   onAddMilestone?: (laneId: string) => void;
   onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
   topBandStyle?: TopBandStyle;
+  periodGridlineStyle?: PeriodGridlineStyle;
   onMilestoneDateChange?: (id: string, date: string) => void;
   tracedIds?: Set<string>;
   /** Pinned width for the off-screen export capture; omitted on screen so the chart fits its container. */
@@ -148,6 +151,7 @@ function RoadmapView({
           onAddMilestone={onAddMilestone}
           onAddTopLevelItem={onAddTopLevelItem}
           topBandStyle={topBandStyle}
+          periodGridlineStyle={periodGridlineStyle}
           onMilestoneDateChange={onMilestoneDateChange}
           tracedIds={tracedIds}
           labelDensity={labelDensity}
@@ -212,6 +216,7 @@ export function RoadmapWorkspace({
   const { themeId, theme, setTheme } = useTheme();
   const criticalPathLine = useCriticalPathStyle();
   const topBand = useTopBandStyle();
+  const gridlines = usePeriodGridlines();
   const labels = useLabelDensity();
   const fontScale = useFontScale();
   const fontFamily = useFontFamily();
@@ -499,6 +504,21 @@ export function RoadmapWorkspace({
                 ))}
               </select>
             </OptionsMenuRow>
+            <OptionsMenuRow label="Gridlines">
+              <select
+                value={gridlines.style}
+                onChange={(e) => gridlines.setStyle(e.target.value as PeriodGridlineStyle)}
+                aria-label="Period gridline style"
+                style={PILL_STYLE}
+                className="rounded-full border px-2 py-1 text-xs"
+              >
+                {PERIOD_GRIDLINE_STYLES.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Ghosts">
               <button
                 onClick={() => ghost.setEnabled(!ghost.enabled)}
@@ -607,6 +627,7 @@ export function RoadmapWorkspace({
             onAddMilestone={handleAddMilestone}
             onAddTopLevelItem={handleAddTopLevelItem}
             topBandStyle={topBand.style}
+            periodGridlineStyle={gridlines.style}
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
@@ -638,6 +659,7 @@ export function RoadmapWorkspace({
               showCriticalPath={criticalPath.visible}
               criticalPathStyle={criticalPathLine.style}
               topBandStyle={topBand.style}
+              periodGridlineStyle={gridlines.style}
               theme={theme}
               blufOpen={blufOpen}
               onBlufOpenChange={setBlufOpen}
