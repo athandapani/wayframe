@@ -9,10 +9,12 @@
 // 1. Lane A, early May — four milestones within an 8-day span exercise the
 //    existing tiered milestone-label system (label-layout.ts) — already
 //    handled, included so the stress view shows the "already solved" case
-//    alongside the still-open one for contrast.
+//    alongside the others for contrast.
 // 2. Lane B, early June — a slipped milestone (`originalDate` set) sits two
-//    days from its neighbor, so GhostBadge's fixed cx+12/cy-18 offset lands
-//    on top of the neighbor's tier-0 label (wayframe#47, open).
+//    days from its neighbor, so GhostBadge's default cx+12/cy-18 offset
+//    would land on a title — resolved in wayframe#47 (layoutGhostBadges'
+//    tiered fold-in + generalized drag-to-reposition, see label-layout.ts);
+//    still useful here to confirm the fix live against a real cluster.
 // 3. Mid-June — Today plus a top-level showReferenceLine milestone, a lane
 //    showReferenceLine milestone, and an annotation all land within a
 //    3-day window — resolved in wayframe#51 (tiered layout +

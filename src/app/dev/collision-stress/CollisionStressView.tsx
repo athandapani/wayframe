@@ -6,7 +6,8 @@
 // ghost mode forced on, so every text-collision category is visible on one
 // screen without hunting for it in the real demo data:
 //   - dense tiered milestone-label collisions (label-layout.ts, resolved)
-//   - ghost badge landing on a neighboring label (wayframe#47, open)
+//   - ghost badge landing on a title (resolved in wayframe#47 — tiered
+//     fold-in + generalized drag-to-reposition-with-connector)
 //   - reference-line chips overlapping each other (reference-line-layout.ts,
 //     resolved in wayframe#51 — tiered layout + drag-to-reposition)
 //

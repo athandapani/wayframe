@@ -89,6 +89,44 @@ describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
   });
 });
 
+describe("ghost-badge collision-avoidance (wayframe#47)", () => {
+  function withGhostedMilestone(title: string): RoadmapData {
+    return {
+      ...sampleRoadmap,
+      milestones: [
+        {
+          id: "g1",
+          laneId: "lane-a",
+          title,
+          date: "2026-01-10",
+          originalDate: "2026-01-05",
+          status: "delayed",
+          dependsOn: [],
+          linksToTopLevelMilestone: null,
+          isCriticalPath: false,
+        },
+      ],
+    };
+  }
+
+  it("keeps the original fixed cx+12/cy-18 offset (tier 0, no connector) when nothing collides", () => {
+    render(<RoadmapTimeline data={withGhostedMilestone("OK")} today={new Date("2026-01-01T00:00:00Z")} ghostMode="badge" />);
+    const badge = screen.getByTestId("ghost-badge-g1");
+    // No collision -> no leader line drawn back to the marker.
+    expect(badge.querySelector("line")).toBeNull();
+  });
+
+  it("folds into the tiered layout, escalating with a leader-line connector when it would land on a title", () => {
+    // A long enough title's own tier-0 block reaches past the badge's
+    // default cx+12 offset — the same "lands directly on top of a label"
+    // case the ticket named, just against the marker's own label rather
+    // than a neighbor's.
+    render(<RoadmapTimeline data={withGhostedMilestone("Certification Submission Package Review")} today={new Date("2026-01-01T00:00:00Z")} ghostMode="badge" />);
+    const badge = screen.getByTestId("ghost-badge-g1");
+    expect(badge.querySelector("line")).not.toBeNull();
+  });
+});
+
 describe("font-scale system (wayframe#42/#50)", () => {
   it("defaults every scale to a no-op (1×)", () => {
     render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);

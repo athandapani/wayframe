@@ -24,10 +24,11 @@ import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
-import { DATE_TIER_DY, DATE_CHAR_W, layoutDateLabels } from "./label-layout";
+import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker, type TierPlacement } from "./label-layout";
 import { layoutReferenceLines, type RefLineItem } from "./reference-line-layout";
 import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
+import { useLabelOverrides, type LabelOffset } from "./use-label-overrides";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 /**
@@ -498,7 +499,7 @@ function ReferenceLine({
       <line x1={cx} x2={cx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
       {topMarker && <path d={`M${cx - 5},${topY - 9} L${cx + 5},${topY - 9} L${cx},${topY} Z`} fill={color} />}
       {(dx !== 0 || dy !== 0) && <line x1={cx} y1={topY} x2={chipCenterX} y2={chipY - 6.5} stroke={color} strokeWidth={1} strokeOpacity={0.5} />}
-      <g pointerEvents="auto" className="cursor-grab active:cursor-grabbing" onPointerDown={onDragStart}>
+      <g pointerEvents="auto" className="cursor-grab select-none active:cursor-grabbing" onPointerDown={onDragStart}>
         {topMarker ? (
           <>
             <rect x={chipX} y={chipY - 13} width={chipW} height={13} rx={4} fill={color} />
@@ -528,6 +529,16 @@ function daysBetween(fromDateStr: string, toDateStr: string): number {
   return Math.round((parseDate(toDateStr) - parseDate(fromDateStr)) / 86400000);
 }
 
+/** Shared between the per-lane collision-layout pass and the badge's own render so the two never disagree on size (wayframe#47). */
+function ghostBadgeLabel(m: Milestone): { label: string; late: boolean } {
+  const slipDays = daysBetween(m.originalDate!, m.date);
+  const late = slipDays > 0;
+  return { label: `${late ? "+" : ""}${slipDays}d`, late };
+}
+function ghostBadgeWidth(label: string, metricsScale: number): number {
+  return Math.max(22, label.length * 6 * metricsScale + 8);
+}
+
 function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: number }) {
   return (
     <g data-testid={`ghost-outline-${m.id}`}>
@@ -536,31 +547,50 @@ function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: n
   );
 }
 
+// Ghost badge collision-avoidance (wayframe#47): folded into the same
+// tiered-escalation idiom as date labels (layoutGhostBadges, seeded with
+// each lane's tier-0 title blocks as blockers) — resolves most collisions
+// without the viewer doing anything. The manual drag-to-reposition-with-
+// connector affordance, generalized from the reference-line-only mechanism
+// wayframe#51 shipped, layers on top for the residual case tiering alone
+// doesn't reach (e.g. a badge crowded by two neighbors on both sides).
 function GhostBadge({
   m,
   cx,
   cy,
+  tier = 0,
+  dx = 0,
+  dy = 0,
+  onDragStart,
   fontScale = 1,
   metricsScale = 1,
 }: {
   m: Milestone;
   cx: number;
   cy: number;
+  /** From layoutGhostBadges — 0 is the original fixed cx+12/cy-18 offset, 1/2 escalate further above the marker. */
+  tier?: 0 | 1 | 2;
+  /** Manual drag override/in-flight drag, layered on top of the tier position. */
+  dx?: number;
+  dy?: number;
+  onDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
   fontScale?: number;
   metricsScale?: number;
 }) {
-  const slipDays = daysBetween(m.originalDate!, m.date);
-  const late = slipDays > 0;
-  const label = `${late ? "+" : ""}${slipDays}d`;
-  const badgeW = Math.max(22, label.length * 6 * metricsScale + 8);
-  const bx = cx + 12;
-  const by = cy - 18;
+  const { label, late } = ghostBadgeLabel(m);
+  const badgeW = ghostBadgeWidth(label, metricsScale);
+  const bx = cx + 12 + dx;
+  const by = cy + GHOST_TIER_DY[tier] + dy;
+  const moved = tier > 0 || dx !== 0 || dy !== 0;
   return (
     <g data-testid={`ghost-badge-${m.id}`}>
-      <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={late ? "#f59e0b" : "#0ea5e9"} />
-      <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8 * fontScale} fontWeight={700} fill="#ffffff">
-        {label}
-      </text>
+      {moved && <line x1={cx} y1={cy} x2={bx + badgeW / 2} y2={by + 6.5} stroke="currentColor" strokeOpacity={0.3} />}
+      <g pointerEvents={onDragStart ? "auto" : "none"} className={onDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined} onPointerDown={onDragStart}>
+        <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={late ? "#f59e0b" : "#0ea5e9"} />
+        <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8 * fontScale} fontWeight={700} fill="#ffffff">
+          {label}
+        </text>
+      </g>
     </g>
   );
 }
@@ -575,6 +605,7 @@ function MilestoneMarker({
   onClick,
   ghostMode,
   ghostCx,
+  ghostTier = 0,
   showCriticalPath,
   traceState,
   onDragStart,
@@ -582,6 +613,12 @@ function MilestoneMarker({
   dragging,
   fontScale = 1,
   metricsScale = 1,
+  titleOffset = { dx: 0, dy: 0 },
+  onTitleDragStart,
+  dateOffset = { dx: 0, dy: 0 },
+  onDateDragStart,
+  ghostOffset = { dx: 0, dy: 0 },
+  onGhostDragStart,
 }: {
   m: Milestone;
   cx: number;
@@ -593,6 +630,8 @@ function MilestoneMarker({
   ghostMode: GhostMode;
   /** x position of the original (pre-slip) date, or null if not slipped / ghosts off. */
   ghostCx: number | null;
+  /** From layoutGhostBadges (wayframe#47) — escalates the badge above the marker when it would land on a title. */
+  ghostTier?: 0 | 1 | 2;
   showCriticalPath: boolean;
   /** "in" = part of the active trace, "out" = dimmed, null = no trace running. */
   traceState: "in" | "out" | null;
@@ -603,6 +642,13 @@ function MilestoneMarker({
   dragging?: boolean;
   fontScale?: number;
   metricsScale?: number;
+  /** Manual drag-to-reposition-with-connector (wayframe#47, generalized from #51) — title label, date label, ghost badge each independently draggable. */
+  titleOffset?: LabelOffset;
+  onTitleDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
+  dateOffset?: LabelOffset;
+  onDateDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
+  ghostOffset?: LabelOffset;
+  onGhostDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
 }) {
   const r = 8;
   const dateDy = DATE_TIER_DY[date.tier];
@@ -636,34 +682,65 @@ function MilestoneMarker({
       {onClick && <title>Click to edit</title>}
       {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {/* Tier-1 labels sit far enough above the marker to need a leader
-          line back to it, or they read as belonging to the lane above. */}
-      {primary && primary.tier === 1 && (
-        <line x1={cx} y1={cy - r - 1} x2={cx} y2={cy + labelBaseDy + 3} stroke="currentColor" strokeOpacity={0.25} />
+          line back to it, or they read as belonging to the lane above. A
+          manually-dragged label (wayframe#47) gets the same leader line
+          regardless of tier, so a nudged label still reads as belonging to
+          this marker. */}
+      {primary && (primary.tier === 1 || titleOffset.dx !== 0 || titleOffset.dy !== 0) && (
+        <line x1={cx} y1={cy - r - 1} x2={cx + titleOffset.dx} y2={cy + labelBaseDy + 3 + titleOffset.dy} stroke="currentColor" strokeOpacity={0.25} />
       )}
-      {date.tier === 2 && <line x1={cx} y1={cy + r + 1} x2={cx} y2={cy + dateDy - 4} stroke="currentColor" strokeOpacity={0.3} />}
+      {(date.tier === 2 || dateOffset.dx !== 0 || dateOffset.dy !== 0) && (
+        <line x1={cx} y1={cy + r + 1} x2={cx + dateOffset.dx} y2={cy + dateDy - 4 + dateOffset.dy} stroke="currentColor" strokeOpacity={0.3} />
+      )}
       {/* Critical path is an ink collar, never a red ring — red already
           means "delayed", and the two measured 1.28:1 apart, so the
           highest-severity state used to be the least legible. */}
       {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
       {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={theme.markerHalo} strokeWidth={1.5} />
-      {primary?.lines.map((line, i) => (
-        <text
-          key={i}
-          x={cx}
-          y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H * fontScale}
-          textAnchor="middle"
-          fontSize={10 * fontScale}
-          fontWeight={600}
-          fill="currentColor"
+      {primary && (
+        <g
+          transform={titleOffset.dx || titleOffset.dy ? `translate(${titleOffset.dx} ${titleOffset.dy})` : undefined}
+          className={onTitleDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
+          onPointerDown={onTitleDragStart}
         >
-          {line}
+          {primary.lines.map((line, i) => (
+            <text
+              key={i}
+              x={cx}
+              y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H * fontScale}
+              textAnchor="middle"
+              fontSize={10 * fontScale}
+              fontWeight={600}
+              fill="currentColor"
+            >
+              {line}
+            </text>
+          ))}
+        </g>
+      )}
+      <g
+        transform={dateOffset.dx || dateOffset.dy ? `translate(${dateOffset.dx} ${dateOffset.dy})` : undefined}
+        className={onDateDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
+        onPointerDown={onDateDragStart}
+      >
+        <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * fontScale} fill="currentColor" opacity={0.6}>
+          {date.text}
         </text>
-      ))}
-      <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * fontScale} fill="currentColor" opacity={0.6}>
-        {date.text}
-      </text>
-      {hasGhost && ghostMode === "badge" && <GhostBadge m={m} cx={cx} cy={cy} fontScale={fontScale} metricsScale={metricsScale} />}
+      </g>
+      {hasGhost && ghostMode === "badge" && (
+        <GhostBadge
+          m={m}
+          cx={cx}
+          cy={cy}
+          tier={ghostTier}
+          dx={ghostOffset.dx}
+          dy={ghostOffset.dy}
+          onDragStart={onGhostDragStart}
+          fontScale={fontScale}
+          metricsScale={metricsScale}
+        />
+      )}
       {/* hover reveal: full title. CSS-only (no JS state) — a real <title>
           element gets hoisted by React 19 as document metadata even inside
           <svg>, which desyncs SSR/client, so this is the workaround. */}
@@ -785,13 +862,19 @@ export function RoadmapTimeline({
    */
   const [drag, setDrag] = useState<{ id: string; startX: number; dx: number; moved: boolean } | null>(null);
 
-  // PROTOTYPE (wayframe#51) — drag-to-reposition for reference-line chips,
-  // "tiered" mode only. `refOverrides` is a per-id manual (dx, dy) pin, added
-  // on top of the automatic layout's own placement rather than replacing it,
-  // so a viewer nudging one chip doesn't fight the collision math for every
-  // other one. `refDrag` is the in-flight gesture (mirrors `drag` above).
-  const [refDrag, setRefDrag] = useState<{ id: string; startX: number; startY: number; dx: number; dy: number } | null>(null);
-  const [refOverrides, setRefOverrides] = useState<Record<string, { dx: number; dy: number }>>({});
+  // Drag-to-reposition-with-connector (wayframe#51, generalized to every
+  // label type in wayframe#47). One shared mechanism covers reference-line
+  // chips, ghost badges, and marker title/date labels, keyed by a per-id
+  // string ("today", `ref-<id>`, `ann-<id>`, `ghost-<id>`, `title-<id>`,
+  // `date-<id>`). `labelOverrides` is a per-id manual (dx, dy) pin, added on
+  // top of each element's own automatic placement rather than replacing it,
+  // so nudging one label doesn't fight the collision math for every other
+  // one. `labelDrag` is the in-flight gesture (mirrors `drag` above).
+  // Persisted viewer-local via use-label-overrides.ts — resolves the
+  // persistence question wayframe#47 asked and #51 left open (its
+  // equivalent state never survived a reload).
+  const [labelDrag, setLabelDrag] = useState<{ id: string; startX: number; startY: number; dx: number; dy: number } | null>(null);
+  const { overrides: labelOverrides, addOverride: addLabelOverride } = useLabelOverrides();
 
   // Measured from the container, not from the window: the chart sits inside
   // a padded, max-width wrapper, so window width would overshoot by exactly
@@ -858,13 +941,20 @@ export function RoadmapTimeline({
     ...refAnnotations.map((t) => ({ id: `ann-${t.id}`, x: x(t.date), label: refLabel(t.title, t.date), priority: 3, movable: true })),
   ];
   const { placements: refPlacements, topMarginExtra: refTopMarginExtra } = layoutReferenceLines(allRefLines, 6.2 * metricsScale);
-  const placementFor = (id: string): { dx: number; dy: number } => {
-    const p = refPlacements.get(id);
-    const override = refOverrides[id];
-    const live = refDrag?.id === id ? refDrag : null;
+  /**
+   * Manual override + in-flight drag for any label id, layered on top of
+   * `auto` (that element's own computed placement — reference lines carry
+   * dx/dy from layoutReferenceLines; titles/dates/ghost badges bake their
+   * auto position into a tier lookup at the render call site instead, so
+   * they call this with no `auto` arg).
+   */
+  const placementFor = (id: string, auto?: { dx: number; dy: number }): { dx: number; dy: number } => {
+    const a = auto ?? { dx: 0, dy: 0 };
+    const override = labelOverrides[id];
+    const live = labelDrag?.id === id ? labelDrag : null;
     return {
-      dx: (p?.dx ?? 0) + (override?.dx ?? 0) + (live?.dx ?? 0),
-      dy: (p?.dy ?? 0) + (override?.dy ?? 0) + (live?.dy ?? 0),
+      dx: a.dx + (override?.dx ?? 0) + (live?.dx ?? 0),
+      dy: a.dy + (override?.dy ?? 0) + (live?.dy ?? 0),
     };
   };
   const chartTopMargin = MARGIN.top + refTopMarginExtra;
@@ -887,6 +977,7 @@ export function RoadmapTimeline({
   // in a sparse one.
   const primaryPlacement = new Map<string, TitlePlacement>();
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
+  const ghostPlacement = new Map<string, TierPlacement>();
   for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
     // Duration-pill milestones (endDate set) show their own inline title and
     // don't participate in the point-marker tiered-label layout.
@@ -915,6 +1006,41 @@ export function RoadmapTimeline({
     );
     for (const [k, v] of primary) primaryPlacement.set(k, v);
     for (const [k, v] of dates) datePlacement.set(k, v);
+
+    // Ghost-badge collision-avoidance (wayframe#47): fold badges into the
+    // same tiered-escalation idiom as dates, seeded with this lane's
+    // already-placed tier-0 title blocks as blockers, so a badge competes
+    // for the same collision-free slots titles claimed instead of landing
+    // on one. Skipped entirely when ghosts aren't rendering as badges —
+    // no placement to compute.
+    if (ghostMode === "badge") {
+      const ghosted = laneMilestones.filter((m) => m.originalDate && m.originalDate !== m.date);
+      if (ghosted.length > 0) {
+        const badgeItems: GhostBadgeItem[] = ghosted.map((m) => {
+          const { label } = ghostBadgeLabel(m);
+          const w = ghostBadgeWidth(label, metricsScale);
+          return { id: m.id, x: x(m.date) + 12 + w / 2, text: label };
+        });
+        // Both title tiers are blockers, not just tier 0: tier-1 titles sit
+        // higher (title-layout.ts's LABEL_TIER_LIFT) but a lane tight enough
+        // to need ghost-tier escalation in the first place often has a
+        // neighbor's tier-1 title landing right where the badge escalates
+        // to (caught live against this fixture's own Lab Slot Confirmed
+        // case). The check is horizontal-only, so this can escalate a badge
+        // a tier further than strictly necessary when a tier-1 blocker
+        // doesn't truly reach its row — an accepted looseness, same as the
+        // rest of this file's approximate text-width-estimate math.
+        const blockers: GhostBlocker[] = laneMilestones
+          .filter((m) => (primary.get(m.id)?.lines.length ?? 0) > 0)
+          .map((m) => {
+            const lines = primary.get(m.id)!.lines;
+            const widestLine = Math.max(...lines.map((l) => l.length));
+            return { x: x(m.date), w: widestLine * CHAR_W * metricsScale };
+          });
+        const ghosts = layoutGhostBadges(badgeItems, blockers, 6 * metricsScale);
+        for (const [k, v] of ghosts) ghostPlacement.set(k, v);
+      }
+    }
   }
 
   /** Inverse of x(): a pixel position back to an ISO date, snapped to a day. */
@@ -946,25 +1072,29 @@ export function RoadmapTimeline({
     setDrag(null);
   }
 
-  // PROTOTYPE (wayframe#51) — reference-line chip drag. Unlike marker drag
-  // (beginDrag above), this never touches the document: it's a pure
-  // viewer-local visual nudge, so there's no "moved past threshold to count
-  // as a drag vs. a click" distinction and no onXChange callback to fire —
-  // it just commits into refOverrides on pointer-up.
-  function beginRefDrag(id: string, evt: React.PointerEvent<SVGGElement>) {
+  // Label drag-to-reposition (wayframe#51, generalized in wayframe#47).
+  // Unlike marker drag (beginDrag above), this never touches the document:
+  // it's a pure viewer-local visual nudge, so there's no "moved past
+  // threshold to count as a drag vs. a click" distinction and no onXChange
+  // callback to fire — it just commits into labelOverrides on pointer-up.
+  // `stopPropagation` matters here: title/date/ghost drag handles are
+  // nested inside the marker's own draggable <g> (reschedule-drag), and
+  // without it a pointerdown on a label would also arm the marker's own
+  // beginDrag, silently rescheduling the milestone on what was meant to be
+  // a label nudge.
+  function beginLabelDrag(id: string, evt: React.PointerEvent<SVGGElement>) {
     evt.currentTarget.setPointerCapture(evt.pointerId);
     evt.stopPropagation();
-    setRefDrag({ id, startX: evt.clientX, startY: evt.clientY, dx: 0, dy: 0 });
+    setLabelDrag({ id, startX: evt.clientX, startY: evt.clientY, dx: 0, dy: 0 });
   }
-  function moveRefDrag(evt: React.PointerEvent<SVGSVGElement>) {
-    if (!refDrag) return;
-    setRefDrag({ ...refDrag, dx: evt.clientX - refDrag.startX, dy: evt.clientY - refDrag.startY });
+  function moveLabelDrag(evt: React.PointerEvent<SVGSVGElement>) {
+    if (!labelDrag) return;
+    setLabelDrag({ ...labelDrag, dx: evt.clientX - labelDrag.startX, dy: evt.clientY - labelDrag.startY });
   }
-  function endRefDrag() {
-    if (!refDrag) return;
-    const prev = refOverrides[refDrag.id] ?? { dx: 0, dy: 0 };
-    setRefOverrides({ ...refOverrides, [refDrag.id]: { dx: prev.dx + refDrag.dx, dy: prev.dy + refDrag.dy } });
-    setRefDrag(null);
+  function endLabelDrag() {
+    if (!labelDrag) return;
+    addLabelOverride(labelDrag.id, { dx: labelDrag.dx, dy: labelDrag.dy });
+    setLabelDrag(null);
   }
 
   // Manual phase placement (wayframe#45): a click-drag on empty lane space
@@ -1019,29 +1149,29 @@ export function RoadmapTimeline({
         height={height}
         style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
         onPointerMove={
-          drag || createDrag || refDrag
+          drag || createDrag || labelDrag
             ? (e) => {
                 moveDrag(e);
                 moveCreateDrag(e);
-                moveRefDrag(e);
+                moveLabelDrag(e);
               }
             : undefined
         }
         onPointerUp={
-          drag || createDrag || refDrag
+          drag || createDrag || labelDrag
             ? () => {
                 endDrag();
                 endCreateDrag();
-                endRefDrag();
+                endLabelDrag();
               }
             : undefined
         }
         onPointerCancel={
-          drag || createDrag || refDrag
+          drag || createDrag || labelDrag
             ? () => {
                 setDrag(null);
                 setCreateDrag(null);
-                setRefDrag(null);
+                setLabelDrag(null);
               }
             : undefined
         }
@@ -1440,6 +1570,7 @@ export function RoadmapTimeline({
               onClick={onMilestoneClick}
               ghostMode={ghostMode}
               ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
+              ghostTier={ghostPlacement.get(m.id)?.tier ?? 0}
               showCriticalPath={showCriticalPath}
               traceState={tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null}
               onDragStart={onMilestoneDateChange ? beginDrag : undefined}
@@ -1447,6 +1578,12 @@ export function RoadmapTimeline({
               dragging={drag?.id === m.id}
               fontScale={fontScale}
               metricsScale={metricsScale}
+              titleOffset={placementFor(`title-${m.id}`)}
+              onTitleDragStart={(evt) => beginLabelDrag(`title-${m.id}`, evt)}
+              dateOffset={placementFor(`date-${m.id}`)}
+              onDateDragStart={(evt) => beginLabelDrag(`date-${m.id}`, evt)}
+              ghostOffset={placementFor(`ghost-${m.id}`)}
+              onGhostDragStart={(evt) => beginLabelDrag(`ghost-${m.id}`, evt)}
             />
           ))}
 
@@ -1455,7 +1592,7 @@ export function RoadmapTimeline({
             chart instead of being interrupted by a lane wash or a
             separator band. Reference-line placements (dx/dy/hidden) come
             from the shared layout pass computed above, alongside
-            chartTopMargin — see the PROTOTYPE comment there (wayframe#51). */}
+            chartTopMargin — see wayframe#51/#47. */}
         {refAnnotations.map((t) => (
           <ReferenceLine
             key={`ann-${t.id}`}
@@ -1467,8 +1604,8 @@ export function RoadmapTimeline({
             dash="4 3"
             fontScale={fontScale}
             metricsScale={metricsScale}
-            onDragStart={(evt) => beginRefDrag(`ann-${t.id}`, evt)}
-            {...placementFor(`ann-${t.id}`)}
+            onDragStart={(evt) => beginLabelDrag(`ann-${t.id}`, evt)}
+            {...placementFor(`ann-${t.id}`, refPlacements.get(`ann-${t.id}`))}
           />
         ))}
 
@@ -1483,8 +1620,8 @@ export function RoadmapTimeline({
             color={theme.statusColor[m.status]}
             fontScale={fontScale}
             metricsScale={metricsScale}
-            onDragStart={(evt) => beginRefDrag(`ref-${m.id}`, evt)}
-            {...placementFor(`ref-${m.id}`)}
+            onDragStart={(evt) => beginLabelDrag(`ref-${m.id}`, evt)}
+            {...placementFor(`ref-${m.id}`, refPlacements.get(`ref-${m.id}`))}
           />
         ))}
         {refTopRefs.map((t) => (
@@ -1497,8 +1634,8 @@ export function RoadmapTimeline({
             color={theme.statusColor[t.status]}
             fontScale={fontScale}
             metricsScale={metricsScale}
-            onDragStart={(evt) => beginRefDrag(`ref-${t.id}`, evt)}
-            {...placementFor(`ref-${t.id}`)}
+            onDragStart={(evt) => beginLabelDrag(`ref-${t.id}`, evt)}
+            {...placementFor(`ref-${t.id}`, refPlacements.get(`ref-${t.id}`))}
           />
         ))}
 
@@ -1516,8 +1653,8 @@ export function RoadmapTimeline({
             topMarker
             fontScale={fontScale}
             metricsScale={metricsScale}
-            onDragStart={(evt) => beginRefDrag("today", evt)}
-            {...placementFor("today")}
+            onDragStart={(evt) => beginLabelDrag("today", evt)}
+            {...placementFor("today", refPlacements.get("today"))}
           />
         )}
       </svg>
