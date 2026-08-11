@@ -17,7 +17,9 @@ describe("RoadmapTimeline", () => {
     expect(screen.getByText("Lane B")).toBeInTheDocument();
     expect(screen.getByText("Phase One")).toBeInTheDocument();
     expect(screen.getByText("Kickoff")).toBeInTheDocument();
-    expect(screen.getByText("Review")).toBeInTheDocument();
+    // Annotations render as reference lines, whose chip carries a short date
+    // suffix (wayframe#51) — "Review" alone no longer matches.
+    expect(screen.getByText("Review · 2/1")).toBeInTheDocument();
   });
 
   it("labels markers with the real title, not an initialism", () => {

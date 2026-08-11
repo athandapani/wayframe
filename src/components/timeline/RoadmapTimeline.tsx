@@ -25,6 +25,7 @@ import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
 import { DATE_TIER_DY, DATE_CHAR_W, layoutDateLabels } from "./label-layout";
+import { layoutReferenceLines, type RefLineItem } from "./reference-line-layout";
 import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 
@@ -438,20 +439,22 @@ function criticalStroke(style: CriticalPathStyle): { width: number; dash?: strin
 //
 // `topMarker` (wayframe#38 item 5 / #39) draws a downward-pointing triangle
 // at the line's top, reserved for the Today line — every other reference
-// line keeps the plain dashed-line-plus-text treatment. `topY` now reaches
-// all the way to the chart's top margin on every call site (was topBandY /
+// line keeps the plain dashed-line-plus-text treatment. `topY` reaches all
+// the way to the chart's top margin on every call site (was topBandY /
 // topBandY+22, which landed the line's top — and the label right above it —
 // on the axis band's own tier-row text, illegible red-on-gray colliding
 // with e.g. the Quarter row's label).
 //
-// The Today label used to sit directly below the triangle (topY+12), which
-// pushed it into the tier-1 axis row — a themed, sometimes-dark background
-// it could collide with both visually (contrast) and spatially (the row's
-// own date text). Fixed for wayframe#40/#49: the label now sits at the same
-// height as every other reference line's label (topY-4, inside the neutral
-// margin band), offset further right to clear the triangle instead of
-// stacking under it, and rides a solid chip so it stays legible regardless
-// of what's behind it.
+// Placement (dx/dy) comes from the shared collision-avoidance layout pass in
+// reference-line-layout.ts, decided in wayframe#51: Today's chip centers
+// over its triangle with fixed clearance below it (the top margin grows to
+// make room); every other reference line packs into one of two rows between
+// Today and the axis, or gets pushed right with a leader line on overflow.
+// Every chip is drag-to-reposition on top of that — RoadmapTimeline layers a
+// manual per-id override on the computed dx/dy — for the one case the
+// automatic layout doesn't resolve on its own: a reference line whose date
+// sits close enough to Today's that their chips collide horizontally rather
+// than by row.
 function ReferenceLine({
   x: cx,
   topY,
@@ -462,6 +465,9 @@ function ReferenceLine({
   topMarker = false,
   fontScale = 1,
   metricsScale = 1,
+  dx = 0,
+  dy = 0,
+  onDragStart,
 }: {
   x: number;
   topY: number;
@@ -472,29 +478,40 @@ function ReferenceLine({
   topMarker?: boolean;
   fontScale?: number;
   metricsScale?: number;
+  /** Horizontal offset from layoutReferenceLines, plus any manual drag override/in-flight drag. */
+  dx?: number;
+  /** Vertical offset from layoutReferenceLines, plus any manual drag override/in-flight drag. */
+  dy?: number;
+  onDragStart: (evt: React.PointerEvent<SVGGElement>) => void;
 }) {
-  const chipX = cx + 8;
+  const chipX = cx + 8 + dx;
+  const chipY = topY + dy;
   const chipW = Math.max(40, label.length * 6.2 * metricsScale + 10);
+  const chipCenterX = topMarker ? chipX + chipW / 2 : chipX - 4 + chipW / 2;
   return (
     // Reference lines are painted after the markers, so without this they
     // swallow clicks on any milestone sitting on the same date — the GA
     // milestone sits exactly on the GA reference line and couldn't be
-    // opened at all.
+    // opened at all. The chip subgroup below re-enables pointer events on
+    // just itself (for drag), so that stays true everywhere else on the line.
     <g pointerEvents="none">
       <line x1={cx} x2={cx} y1={topY} y2={bottomY} stroke={color} strokeWidth={1.25} strokeDasharray={dash} opacity={0.7} />
       {topMarker && <path d={`M${cx - 5},${topY - 9} L${cx + 5},${topY - 9} L${cx},${topY} Z`} fill={color} />}
-      {topMarker ? (
-        <>
-          <rect x={chipX} y={topY - 13} width={chipW} height={13} rx={4} fill={color} />
-          <text x={chipX + chipW / 2} y={topY - 4} textAnchor="middle" fontSize={9 * fontScale} fontWeight={700} fill="#ffffff">
+      {(dx !== 0 || dy !== 0) && <line x1={cx} y1={topY} x2={chipCenterX} y2={chipY - 6.5} stroke={color} strokeWidth={1} strokeOpacity={0.5} />}
+      <g pointerEvents="auto" className="cursor-grab active:cursor-grabbing" onPointerDown={onDragStart}>
+        {topMarker ? (
+          <>
+            <rect x={chipX} y={chipY - 13} width={chipW} height={13} rx={4} fill={color} />
+            <text x={chipX + chipW / 2} y={chipY - 4} textAnchor="middle" fontSize={9 * fontScale} fontWeight={700} fill="#ffffff">
+              {label}
+            </text>
+          </>
+        ) : (
+          <text x={chipX - 4} y={chipY - 4} fontSize={9 * fontScale} fontWeight={700} fill={color}>
             {label}
           </text>
-        </>
-      ) : (
-        <text x={cx + 4} y={topY - 4} fontSize={9 * fontScale} fontWeight={700} fill={color}>
-          {label}
-        </text>
-      )}
+        )}
+      </g>
     </g>
   );
 }
@@ -768,6 +785,14 @@ export function RoadmapTimeline({
    */
   const [drag, setDrag] = useState<{ id: string; startX: number; dx: number; moved: boolean } | null>(null);
 
+  // PROTOTYPE (wayframe#51) — drag-to-reposition for reference-line chips,
+  // "tiered" mode only. `refOverrides` is a per-id manual (dx, dy) pin, added
+  // on top of the automatic layout's own placement rather than replacing it,
+  // so a viewer nudging one chip doesn't fight the collision math for every
+  // other one. `refDrag` is the in-flight gesture (mirrors `drag` above).
+  const [refDrag, setRefDrag] = useState<{ id: string; startX: number; startY: number; dx: number; dy: number } | null>(null);
+  const [refOverrides, setRefOverrides] = useState<Record<string, { dx: number; dy: number }>>({});
+
   // Measured from the container, not from the window: the chart sits inside
   // a padded, max-width wrapper, so window width would overshoot by exactly
   // the padding and reintroduce the overflow this removes.
@@ -810,10 +835,44 @@ export function RoadmapTimeline({
     return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
   }
 
+  // Every reference line (Today, annotations, showReferenceLine milestones/
+  // top-level-items) collected into one list so a shared layout pass
+  // (reference-line-layout.ts, decided in wayframe#51) can see all of them
+  // at once instead of each ReferenceLine call site sizing/positioning
+  // itself in isolation. Computed here, not inline in the render below,
+  // because the layout's reserved top margin feeds the axis/lane layout.
+  // Every non-Today label carries its own short mm/dd date (`title · 6/14`)
+  // so a repositioned chip still reads standalone.
+  const todayVisible = todayTs >= domainMin && todayTs <= domainMax;
+  const todayLabel = `Today · ${today.getUTCMonth() + 1}/${today.getUTCDate()}`;
+  const refAnnotations = data.topLevelItems.filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation");
+  const refLaneRefs = data.milestones.filter((m) => m.showReferenceLine);
+  const refTopRefs = data.topLevelItems.filter(
+    (t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true,
+  );
+  const refLabel = (title: string, date: string) => `${title} · ${formatDateCompact(date)}`;
+  const allRefLines: RefLineItem[] = [
+    ...(todayVisible ? [{ id: "today", x: xTs(todayTs), label: todayLabel, priority: 0, movable: false }] : []),
+    ...refTopRefs.map((t) => ({ id: `ref-${t.id}`, x: x(t.date), label: refLabel(t.title, t.date), priority: 1, movable: true })),
+    ...refLaneRefs.map((m) => ({ id: `ref-${m.id}`, x: x(m.date), label: refLabel(m.title, m.date), priority: 2, movable: true })),
+    ...refAnnotations.map((t) => ({ id: `ann-${t.id}`, x: x(t.date), label: refLabel(t.title, t.date), priority: 3, movable: true })),
+  ];
+  const { placements: refPlacements, topMarginExtra: refTopMarginExtra } = layoutReferenceLines(allRefLines, 6.2 * metricsScale);
+  const placementFor = (id: string): { dx: number; dy: number } => {
+    const p = refPlacements.get(id);
+    const override = refOverrides[id];
+    const live = refDrag?.id === id ? refDrag : null;
+    return {
+      dx: (p?.dx ?? 0) + (override?.dx ?? 0) + (live?.dx ?? 0),
+      dy: (p?.dy ?? 0) + (override?.dy ?? 0) + (live?.dy ?? 0),
+    };
+  };
+  const chartTopMargin = MARGIN.top + refTopMarginExtra;
+
   const axisRowHeight = AXIS_ROW_HEIGHT * boxScale;
   const axisHeight = axisRowHeight * tierRowCount(axisTiers);
   const topBandHeight = TOP_BAND_HEIGHT * boxScale;
-  const topBandY = MARGIN.top + axisHeight;
+  const topBandY = chartTopMargin + axisHeight;
   const lanesTop = topBandY + topBandHeight;
   const height = lanesTop + bodyHeight + MARGIN.bottom;
 
@@ -887,6 +946,27 @@ export function RoadmapTimeline({
     setDrag(null);
   }
 
+  // PROTOTYPE (wayframe#51) — reference-line chip drag. Unlike marker drag
+  // (beginDrag above), this never touches the document: it's a pure
+  // viewer-local visual nudge, so there's no "moved past threshold to count
+  // as a drag vs. a click" distinction and no onXChange callback to fire —
+  // it just commits into refOverrides on pointer-up.
+  function beginRefDrag(id: string, evt: React.PointerEvent<SVGGElement>) {
+    evt.currentTarget.setPointerCapture(evt.pointerId);
+    evt.stopPropagation();
+    setRefDrag({ id, startX: evt.clientX, startY: evt.clientY, dx: 0, dy: 0 });
+  }
+  function moveRefDrag(evt: React.PointerEvent<SVGSVGElement>) {
+    if (!refDrag) return;
+    setRefDrag({ ...refDrag, dx: evt.clientX - refDrag.startX, dy: evt.clientY - refDrag.startY });
+  }
+  function endRefDrag() {
+    if (!refDrag) return;
+    const prev = refOverrides[refDrag.id] ?? { dx: 0, dy: 0 };
+    setRefOverrides({ ...refOverrides, [refDrag.id]: { dx: prev.dx + refDrag.dx, dy: prev.dy + refDrag.dy } });
+    setRefDrag(null);
+  }
+
   // Manual phase placement (wayframe#45): a click-drag on empty lane space
   // draws a new phase's span while `placementMode` targets that lane with
   // shape "phase" — the milestone case needs no drag state at all, a plain
@@ -939,32 +1019,35 @@ export function RoadmapTimeline({
         height={height}
         style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
         onPointerMove={
-          drag || createDrag
+          drag || createDrag || refDrag
             ? (e) => {
                 moveDrag(e);
                 moveCreateDrag(e);
+                moveRefDrag(e);
               }
             : undefined
         }
         onPointerUp={
-          drag || createDrag
+          drag || createDrag || refDrag
             ? () => {
                 endDrag();
                 endCreateDrag();
+                endRefDrag();
               }
             : undefined
         }
         onPointerCancel={
-          drag || createDrag
+          drag || createDrag || refDrag
             ? () => {
                 setDrag(null);
                 setCreateDrag(null);
+                setRefDrag(null);
               }
             : undefined
         }
       >
         {axisRows.map((row, i) => (
-          <AxisRow key={i} y={MARGIN.top + i * axisRowHeight} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} rowHeight={axisRowHeight} fontScale={fontScale} />
+          <AxisRow key={i} y={chartTopMargin + i * axisRowHeight} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} rowHeight={axisRowHeight} fontScale={fontScale} />
         ))}
 
         {/* PROGRAM-band highlight treatment (wayframe#41) — "tint"/"border" paint the band itself; "chip" leaves it unpainted. */}
@@ -1370,67 +1453,71 @@ export function RoadmapTimeline({
         {/* Vertical marker layer. Everything full-height is drawn here,
             after the lanes, so a date line always reads across the whole
             chart instead of being interrupted by a lane wash or a
-            separator band. */}
-        {data.topLevelItems
-          .filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation")
-          .map((t) => (
-            <ReferenceLine
-              key={`ann-${t.id}`}
-              x={x(t.date)}
-              topY={MARGIN.top}
-              bottomY={height - MARGIN.bottom}
-              label={t.title}
-              color="#a855f7"
-              dash="4 3"
-              fontScale={fontScale}
-              metricsScale={metricsScale}
-            />
-          ))}
+            separator band. Reference-line placements (dx/dy/hidden) come
+            from the shared layout pass computed above, alongside
+            chartTopMargin — see the PROTOTYPE comment there (wayframe#51). */}
+        {refAnnotations.map((t) => (
+          <ReferenceLine
+            key={`ann-${t.id}`}
+            x={x(t.date)}
+            topY={chartTopMargin}
+            bottomY={height - MARGIN.bottom}
+            label={refLabel(t.title, t.date)}
+            color="#a855f7"
+            dash="4 3"
+            fontScale={fontScale}
+            metricsScale={metricsScale}
+            onDragStart={(evt) => beginRefDrag(`ann-${t.id}`, evt)}
+            {...placementFor(`ann-${t.id}`)}
+          />
+        ))}
 
         {/* opt-in reference lines (wayframe#15) — any milestone, lane-level or top-level, flagged showReferenceLine */}
-        {data.milestones
-          .filter((m) => m.showReferenceLine)
-          .map((m) => (
-            <ReferenceLine
-              key={`ref-${m.id}`}
-              x={x(m.date)}
-              topY={MARGIN.top}
-              bottomY={height - MARGIN.bottom}
-              label={m.title}
-              color={theme.statusColor[m.status]}
-              fontScale={fontScale}
-              metricsScale={metricsScale}
-            />
-          ))}
-        {data.topLevelItems
-          .filter((t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true)
-          .map((t) => (
-            <ReferenceLine
-              key={`ref-${t.id}`}
-              x={x(t.date)}
-              topY={MARGIN.top}
-              bottomY={height - MARGIN.bottom}
-              label={t.title}
-              color={theme.statusColor[t.status]}
-              fontScale={fontScale}
-              metricsScale={metricsScale}
-            />
-          ))}
+        {refLaneRefs.map((m) => (
+          <ReferenceLine
+            key={`ref-${m.id}`}
+            x={x(m.date)}
+            topY={chartTopMargin}
+            bottomY={height - MARGIN.bottom}
+            label={refLabel(m.title, m.date)}
+            color={theme.statusColor[m.status]}
+            fontScale={fontScale}
+            metricsScale={metricsScale}
+            onDragStart={(evt) => beginRefDrag(`ref-${m.id}`, evt)}
+            {...placementFor(`ref-${m.id}`)}
+          />
+        ))}
+        {refTopRefs.map((t) => (
+          <ReferenceLine
+            key={`ref-${t.id}`}
+            x={x(t.date)}
+            topY={chartTopMargin}
+            bottomY={height - MARGIN.bottom}
+            label={refLabel(t.title, t.date)}
+            color={theme.statusColor[t.status]}
+            fontScale={fontScale}
+            metricsScale={metricsScale}
+            onDragStart={(evt) => beginRefDrag(`ref-${t.id}`, evt)}
+            {...placementFor(`ref-${t.id}`)}
+          />
+        ))}
 
         {/* today reference line — the only one that gets the downward-pointing
             top triangle (wayframe#38 item 5 / #39), distinct from every other
             reference line's plain dashed-line-plus-text treatment. */}
-        {todayTs >= domainMin && todayTs <= domainMax && (
+        {todayVisible && (
           <ReferenceLine
             x={xTs(todayTs)}
-            topY={MARGIN.top}
+            topY={chartTopMargin}
             bottomY={height - MARGIN.bottom}
-            label={`Today · ${today.getUTCMonth() + 1}/${today.getUTCDate()}`}
+            label={todayLabel}
             color="#e11d48"
             dash="3 3"
             topMarker
             fontScale={fontScale}
             metricsScale={metricsScale}
+            onDragStart={(evt) => beginRefDrag("today", evt)}
+            {...placementFor("today")}
           />
         )}
       </svg>
