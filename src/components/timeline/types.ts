@@ -181,4 +181,13 @@ export interface RoadmapData {
   swimlanes: Swimlane[];
   topLevelItems: TopLevelItem[];
   milestones: Milestone[];
+  /**
+   * Uploaded company logo (wayframe#46/#54), stored as a data URL — document
+   * content, not a viewer preference, so it travels with save/export like
+   * the roadmap itself. Same no-blob-store boundary #9's small-fog decision
+   * drew for milestone attachments. Rendered inside RoadmapTimeline's SVG
+   * chart header, alongside (not replacing) the fixed WayframeLogo mark in
+   * the page chrome.
+   */
+  companyLogo?: { dataUrl: string };
 }

@@ -50,6 +50,10 @@ const LABEL_TIER_LIFT = 27;
 const LANE_GUTTER = 7;
 const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
+/** Company-logo header slot (wayframe#46/#54) — reserved above the programName block only when data.companyLogo is set. */
+const COMPANY_LOGO_HEIGHT = 26;
+const COMPANY_LOGO_MAX_WIDTH = 140;
+const COMPANY_LOGO_GAP = 6;
 const AXIS_ROW_HEIGHT = 22;
 const PILL_HEIGHT_LG = 20;
 const PILL_HEIGHT_SM = 14; // in-lane duration pills (wayframe#15)
@@ -961,7 +965,8 @@ export function RoadmapTimeline({
 
   const axisRowHeight = AXIS_ROW_HEIGHT * boxScale;
   const axisHeight = axisRowHeight * tierRowCount(axisTiers);
-  const topBandHeight = TOP_BAND_HEIGHT * boxScale;
+  const companyLogoExtra = data.companyLogo ? COMPANY_LOGO_HEIGHT + COMPANY_LOGO_GAP : 0;
+  const topBandHeight = TOP_BAND_HEIGHT * boxScale + companyLogoExtra;
   const topBandY = chartTopMargin + axisHeight;
   const lanesTop = topBandY + topBandHeight;
   const height = lanesTop + bodyHeight + MARGIN.bottom;
@@ -1188,16 +1193,33 @@ export function RoadmapTimeline({
             <rect x={0} y={topBandY + topBandHeight - 1} width={width} height={1} fill={theme.accent} fillOpacity={0.4} />
           </>
         )}
+        {/* Company logo (wayframe#46/#54) — top-left header column, same x=16
+            margin as the programme name/owner below it, directly above them.
+            Distinct from the fixed WayframeLogo mark in the page chrome
+            (RoadmapWorkspace's top-left bar); both are visible at once.
+            preserveAspectRatio keeps an arbitrary uploaded image from
+            distorting inside its reserved box. */}
+        {data.companyLogo && (
+          <image
+            href={data.companyLogo.dataUrl}
+            x={16}
+            y={topBandY + 2}
+            width={COMPANY_LOGO_MAX_WIDTH * metricsScale}
+            height={COMPANY_LOGO_HEIGHT * fontScale}
+            preserveAspectRatio="xMinYMid meet"
+          />
+        )}
+
         {/* "chip" — a small "PROGRAM" chip ahead of the programme name, no band fill. Its box
             was fixed-size before the font-scale system (wayframe#42/#50) — now derived from
             "PROGRAM"'s own text length so it doesn't clip at large fontScale like every other
             chip/badge/button in this file. */}
         {topBandStyle === "chip" && (
           <>
-            <rect x={16} y={topBandY + 3} width={"PROGRAM".length * 5.4 * metricsScale + 20} height={13} rx={6.5} fill={theme.accent} />
+            <rect x={16} y={topBandY + 3 + companyLogoExtra} width={"PROGRAM".length * 5.4 * metricsScale + 20} height={13} rx={6.5} fill={theme.accent} />
             <text
               x={16 + ("PROGRAM".length * 5.4 * metricsScale + 20) / 2}
-              y={topBandY + 12}
+              y={topBandY + 12 + companyLogoExtra}
               textAnchor="middle"
               fontSize={8.5 * fontScale}
               fontWeight={700}
@@ -1217,14 +1239,21 @@ export function RoadmapTimeline({
             grows so wider glyphs still wrap inside the same header column
             instead of running into the phase timeline beside it. */}
         {programNameLines.map((line, i) => (
-          <text key={i} x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + i * 15 * fontScale} fontSize={13 * fontScale} fontWeight={700} fill={theme.ink}>
+          <text
+            key={i}
+            x={16}
+            y={topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14) + i * 15 * fontScale}
+            fontSize={13 * fontScale}
+            fontWeight={700}
+            fill={theme.ink}
+          >
             {line}
           </text>
         ))}
         {data.owner && (
           <text
             x={16}
-            y={topBandY + (topBandStyle === "chip" ? 30 : 14) + programNameLines.length * 15 * fontScale + 4 * fontScale}
+            y={topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14) + programNameLines.length * 15 * fontScale + 4 * fontScale}
             fontSize={10 * fontScale}
             fill={theme.inkMuted}
           >

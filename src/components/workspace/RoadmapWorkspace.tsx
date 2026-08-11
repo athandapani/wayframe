@@ -243,6 +243,7 @@ export function RoadmapWorkspace({
   const [helpOpen, setHelpOpen] = useState(false);
   const [lanesOpen, setLanesOpen] = useState(false);
   const openFileRef = useRef<HTMLInputElement>(null);
+  const logoFileRef = useRef<HTMLInputElement>(null);
 
   const visibleCaptureRef = useRef<HTMLDivElement>(null);
   const offscreenCaptureRef = useRef<HTMLDivElement>(null);
@@ -264,6 +265,18 @@ export function RoadmapWorkspace({
     const result = parseDocumentFile(await file.text());
     if (result.ok) box.loadDocument(result.document);
     else setFileError({ message: result.message, issues: result.issues });
+  }
+
+  // Company-logo upload (wayframe#46/#54) — stored as a data URL directly on
+  // the document (see RoadmapData.companyLogo), no blob store. A second
+  // upload overwrites the first via the same setCompanyLogo action, so this
+  // one handler covers both "upload" and "replace".
+  function handleUploadLogo(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") box.setCompanyLogo(reader.result);
+    };
+    reader.readAsDataURL(file);
   }
 
   // The date (and, for a phase, endDate) come from wherever the user placed
@@ -361,7 +374,7 @@ export function RoadmapWorkspace({
           underneath it. */}
       <div className="min-w-0 flex-1 pb-56">
         <div className="fixed top-3 left-4 z-50 flex items-center gap-2" style={{ color: "var(--wf-ink)" }}>
-          <WayframeLogo accent={theme.accent} caption="Notes in, roadmap out" />
+          <WayframeLogo accent={theme.accent} caption="AI drafts it. You shape it. Leaders act on it." />
           <button
             onClick={() => setHelpOpen(true)}
             aria-label="What Wayframe can do"
@@ -483,6 +496,27 @@ export function RoadmapWorkspace({
                 ))}
               </div>
             </div>
+            <OptionsMenuRow label="Company logo">
+              <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
+                {box.data.companyLogo ? "Replace" : "Upload"}
+              </button>
+              {box.data.companyLogo && (
+                <button onClick={box.clearCompanyLogo} style={PILL_STYLE} className={pillToggle(true)}>
+                  Remove
+                </button>
+              )}
+              <input
+                ref={logoFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleUploadLogo(f);
+                  e.target.value = "";
+                }}
+              />
+            </OptionsMenuRow>
             <OptionsMenuRow label="Swimlanes">
               <button onClick={() => setLanesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
                 Add / edit lanes

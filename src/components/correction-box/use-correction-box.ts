@@ -72,6 +72,8 @@ export type CorrectionBoxAction =
   | { type: "renameSwimlane"; id: string; name: string }
   | { type: "removeSwimlane"; id: string }
   | { type: "moveSwimlane"; id: string; delta: -1 | 1 }
+  | { type: "setCompanyLogo"; dataUrl: string }
+  | { type: "clearCompanyLogo" }
   | { type: "snapshotRollups"; today: Date };
 
 /**
@@ -367,6 +369,27 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setCompanyLogo": {
+      // Upload / replace (wayframe#46/#54) — same undo-tracked, lastUpdatedAt-bumping
+      // treatment as every other document-changing action; not add-only, so a second
+      // upload just overwrites the existing dataUrl.
+      return {
+        ...state,
+        data: stampUpdated({ ...state.data, companyLogo: { dataUrl: action.dataUrl } }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "clearCompanyLogo": {
+      const rest = { ...state.data };
+      delete rest.companyLogo;
+      return {
+        ...state,
+        data: stampUpdated(rest),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "snapshotRollups": {
       // Passive once-per-calendar-day-per-lane rollup snapshot for the
       // Executive-view trend arrow (wayframe#33) — same "not a user edit"
@@ -416,6 +439,8 @@ export interface UseCorrectionBoxResult {
   removeSwimlane: (id: string) => void;
   moveSwimlane: (id: string, delta: -1 | 1) => void;
   loadDocument: (data: RoadmapData) => void;
+  setCompanyLogo: (dataUrl: string) => void;
+  clearCompanyLogo: () => void;
 }
 
 /**
@@ -578,6 +603,8 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const removeSwimlane = useCallback((id: string) => dispatch({ type: "removeSwimlane", id }), []);
   const moveSwimlane = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlane", id, delta }), []);
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
+  const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
+  const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
 
   return {
     data: state.data,
@@ -604,5 +631,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     removeSwimlane,
     moveSwimlane,
     loadDocument,
+    setCompanyLogo,
+    clearCompanyLogo,
   };
 }
