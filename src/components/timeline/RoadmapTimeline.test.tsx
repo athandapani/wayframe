@@ -87,6 +87,36 @@ describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
   });
 });
 
+describe("font-scale system (wayframe#42/#50)", () => {
+  it("defaults every scale to a no-op (1×)", () => {
+    render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const chip = document.querySelector(`rect[fill="${defaultTheme.accent}"]`);
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute("width")).toBe(String("PROGRAM".length * 5.4 + 20));
+    const label = screen.getAllByText("First milestone")[0];
+    expect(label.getAttribute("font-size")).toBe("10");
+  });
+
+  it("scales rendered text size and the PROGRAM chip's box together, so the chip label doesn't clip", () => {
+    render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} fontScale={1.5} metricsScale={1.5} />);
+    const chip = document.querySelector(`rect[fill="${defaultTheme.accent}"]`);
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute("width")).toBe(String("PROGRAM".length * 5.4 * 1.5 + 20));
+    const label = screen.getAllByText("First milestone")[0];
+    expect(label.getAttribute("font-size")).toBe("15");
+  });
+
+  it("scales row height (boxScale) independently of text/metrics", () => {
+    const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const baseSvg = base.querySelector("svg")!;
+    const { container: scaled } = render(
+      <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} boxScale={1.5} />,
+    );
+    const scaledSvg = scaled.querySelector("svg")!;
+    expect(Number(scaledSvg.getAttribute("height"))).toBeGreaterThan(Number(baseSvg.getAttribute("height")));
+  });
+});
+
 describe("deriveShortLabel", () => {
   it("takes initials of significant words", () => {
     expect(deriveShortLabel("Chassis design freeze")).toBe("CDF");

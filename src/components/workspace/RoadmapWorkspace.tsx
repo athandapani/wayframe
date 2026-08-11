@@ -17,6 +17,8 @@ import { HelpPanel } from "./HelpPanel";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
+import { useFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "@/components/timeline/use-font-scale";
+import { useFontFamily, FONT_FAMILY_CHOICES } from "@/components/timeline/use-font-family";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
 import { useLastUpdatedVisibility } from "@/components/timeline/use-last-updated-visibility";
 import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
@@ -90,6 +92,8 @@ function RoadmapView({
   labelDensity,
   legend,
   timelineSummary,
+  fontScale,
+  fontFamily,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -116,6 +120,9 @@ function RoadmapView({
   legend?: React.ReactNode;
   /** Executive-view summary (wayframe#37) — undefined until "Generate" is clicked in the options menu. */
   timelineSummary?: ExecutiveTimelineSummary | null;
+  /** Font-scale system (wayframe#42/#50) — drives text size, collision math, and box heights together (metricsScale/boxScale mirror it 1:1, see RoadmapTimeline's own props doc). */
+  fontScale?: number;
+  fontFamily?: string;
 }) {
   if (mode === "program") {
     return (
@@ -136,6 +143,10 @@ function RoadmapView({
           onMilestoneDateChange={onMilestoneDateChange}
           tracedIds={tracedIds}
           labelDensity={labelDensity}
+          fontScale={fontScale}
+          fontFamily={fontFamily}
+          metricsScale={fontScale}
+          boxScale={fontScale}
         />
         {legend}
         <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} onEdit={onBlufEdit} />
@@ -195,6 +206,8 @@ export function RoadmapWorkspace({
   const criticalPathLine = useCriticalPathStyle();
   const topBand = useTopBandStyle();
   const labels = useLabelDensity();
+  const fontScale = useFontScale();
+  const fontFamily = useFontFamily();
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -436,6 +449,34 @@ export function RoadmapWorkspace({
                 ))}
               </select>
             </OptionsMenuRow>
+            <OptionsMenuRow label="Font size">
+              <input
+                type="range"
+                min={FONT_SCALE_MIN}
+                max={FONT_SCALE_MAX}
+                step={FONT_SCALE_STEP}
+                value={fontScale.scale}
+                onChange={(e) => fontScale.setScale(parseFloat(e.target.value))}
+                aria-label="Font size"
+                className="w-24"
+              />
+              <span className="w-9 text-right font-mono opacity-70">{fontScale.scale.toFixed(2)}×</span>
+            </OptionsMenuRow>
+            <OptionsMenuRow label="Font family">
+              <select
+                value={fontFamily.familyId}
+                onChange={(e) => fontFamily.setFamily(e.target.value as (typeof FONT_FAMILY_CHOICES)[number]["id"])}
+                aria-label="Font family"
+                style={PILL_STYLE}
+                className="rounded-full border px-2 py-1 text-xs"
+              >
+                {FONT_FAMILY_CHOICES.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </OptionsMenuRow>
             <OptionsMenuRow label="Program band">
               <select
                 value={topBand.style}
@@ -563,6 +604,8 @@ export function RoadmapWorkspace({
             tracedIds={tracedIds}
             labelDensity={labels.density}
             timelineSummary={timelineSummary.summary}
+            fontScale={fontScale.scale}
+            fontFamily={fontFamily.fontFamily}
             legend={
               <ChartLegend
                 theme={theme}
@@ -591,6 +634,8 @@ export function RoadmapWorkspace({
               theme={theme}
               blufOpen={blufOpen}
               onBlufOpenChange={setBlufOpen}
+              fontScale={fontScale.scale}
+              fontFamily={fontFamily.fontFamily}
             />
           </div>
         )}

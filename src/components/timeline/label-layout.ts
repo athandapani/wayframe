@@ -9,7 +9,7 @@ export const PRIMARY_TIER_DY = [-15, -26, -38] as const; // above marker center
 export const DATE_TIER_DY = [20, 32, 44] as const; // below marker center
 
 const PRIMARY_CHAR_W = 6.5;
-const DATE_CHAR_W = 5;
+export const DATE_CHAR_W = 5;
 const MIN_GAP = 4;
 
 export interface TierPlacement {
@@ -38,7 +38,11 @@ export function layoutPrimaryLabels(items: { id: string; x: number; text: string
   return result;
 }
 
-export function layoutDateLabels(items: { id: string; x: number; full: string; compact: string }[]): Map<string, TierPlacement> {
+/** `charWidth` takes fontScale's `metricsScale` when the viewer scales text up — see layoutTitleLabels (wayframe#42/#50). */
+export function layoutDateLabels(
+  items: { id: string; x: number; full: string; compact: string }[],
+  charWidth = DATE_CHAR_W,
+): Map<string, TierPlacement> {
   const sorted = [...items].sort((a, b) => a.x - b.x);
   const lastRight = [-Infinity, -Infinity];
   const result = new Map<string, TierPlacement>();
@@ -46,7 +50,7 @@ export function layoutDateLabels(items: { id: string; x: number; full: string; c
     let placed = false;
     for (const mode of ["full", "compact"] as const) {
       const text = mode === "full" ? it.full : it.compact;
-      const w = text.length * DATE_CHAR_W + 6;
+      const w = text.length * charWidth + 6;
       for (const t of [0, 1] as const) {
         const left = it.x - w / 2;
         if (left > lastRight[t] + MIN_GAP) {
