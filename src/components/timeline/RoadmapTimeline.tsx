@@ -628,6 +628,14 @@ export interface RoadmapTimelineProps {
   metricsScale?: number;
   /** Multiplies row/pill/axis/top-band box heights. Defaults to 1. */
   boxScale?: number;
+  /**
+   * PROTOTYPE (wayframe#44) — opt-in period-boundary gridlines. "off" (default),
+   * "A" (faint line at every axis segment: month/quarter/year), "B" (heavier
+   * line at year boundaries only), "C" (alternating background band per year).
+   * Throwaway prop for the /dev/roadmap-timeline variant switcher — not meant
+   * to survive past the design decision.
+   */
+  gridlineVariant?: "off" | "A" | "B" | "C";
 }
 
 export function RoadmapTimeline({
@@ -651,6 +659,7 @@ export function RoadmapTimeline({
   fontFamily,
   metricsScale = 1,
   boxScale = 1,
+  gridlineVariant = "off",
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -982,6 +991,38 @@ export function RoadmapTimeline({
             </g>
           );
         })}
+
+        {/* PROTOTYPE (wayframe#44) — opt-in period-boundary gridlines. Painted
+            after the lane washes but before connectors/markers, so the grid
+            reads as chart structure rather than competing with content.
+            Variant A: faint line at every axis segment (month/quarter/year).
+            Variant B: heavier line at year boundaries only.
+            Variant C: alternating background band per year. */}
+        {(gridlineVariant === "A" || gridlineVariant === "B") &&
+          (gridlineVariant === "A" ? axisRows.flatMap((row) => row.segments) : axisRows[0].segments).map((s, i) => (
+            <line
+              key={`grid-${gridlineVariant}-${i}-${s.start}`}
+              x1={xTs(s.start)}
+              x2={xTs(s.start)}
+              y1={lanesTop}
+              y2={lanesTop + bodyHeight}
+              stroke={gridlineVariant === "B" ? theme.ink : theme.rowDivider}
+              strokeOpacity={gridlineVariant === "B" ? 0.3 : 1}
+              strokeWidth={gridlineVariant === "B" ? 1.5 : 1}
+            />
+          ))}
+        {gridlineVariant === "C" &&
+          axisRows[0].segments.map((s, i) => (
+            <rect
+              key={`grid-C-${i}-${s.start}`}
+              x={xTs(s.start)}
+              y={lanesTop}
+              width={xTs(s.end) - xTs(s.start)}
+              height={bodyHeight}
+              fill={theme.ink}
+              fillOpacity={i % 2 === 1 ? 0.05 : 0}
+            />
+          ))}
 
         {/* dependency connectors — orthogonal "elbow" steps */}
         {data.milestones.flatMap((m) =>
