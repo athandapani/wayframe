@@ -1333,22 +1333,24 @@ export function RoadmapTimeline({
         {rows.map((row) => {
           const y0 = lanesTop + row.relY;
           if (row.swimlane.type === "separator") {
+            const separatorNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 2, { breakWords: false });
             return (
               <g key={row.swimlane.id}>
                 <rect x={0} y={y0} width={width} height={row.height} fill={theme.separatorBg} />
                 <text
-                  x={16}
-                  y={y0 + row.height / 2}
                   fontSize={10.5 * fontScale}
                   fontWeight={700}
                   letterSpacing="0.09em"
                   fill={theme.separatorText}
-                  dominantBaseline="middle"
                   // CSS, not .toUpperCase() — keeps the real string in the DOM
                   // so assistive tech doesn't announce it as an initialism.
                   style={{ textTransform: "uppercase" }}
                 >
-                  {row.swimlane.name}
+                  {separatorNameLines.map((line, i) => (
+                    <tspan key={i} x={16} y={y0 + row.height / 2 + (i - (separatorNameLines.length - 1) / 2) * 12 * fontScale} dominantBaseline="middle">
+                      {line}
+                    </tspan>
+                  ))}
                 </text>
               </g>
             );
@@ -1359,6 +1361,7 @@ export function RoadmapTimeline({
           // neutral — puts the heaviest mark on the chart next to the thing
           // that carries the least information.
           const tint = laneColor(row.swimlane, row.laneIndex);
+          const laneNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 3, { breakWords: false });
           return (
             <g key={row.swimlane.id}>
               {/* The wash and rail are inset by LANE_GUTTER so bare ground
@@ -1396,8 +1399,12 @@ export function RoadmapTimeline({
                 />
               )}
               <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
-              <text x={16} y={y0 + row.height / 2} fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
-                {row.swimlane.name}
+              <text fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink}>
+                {laneNameLines.map((line, i) => (
+                  <tspan key={i} x={16} y={y0 + row.height / 2 + (i - (laneNameLines.length - 1) / 2) * 15 * fontScale} dominantBaseline="middle">
+                    {line}
+                  </tspan>
+                ))}
               </text>
               {onAddMilestone && onPickShape && (
                 <AddLanePicker x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} fontScale={fontScale} onPick={(shape) => onPickShape(row.swimlane.id, shape)} />
