@@ -120,7 +120,15 @@ function RoadmapView({
   legend?: React.ReactNode;
   /** Executive-view summary (wayframe#37) — undefined until "Generate" is clicked in the options menu. */
   timelineSummary?: ExecutiveTimelineSummary | null;
-  /** Font-scale system (wayframe#42/#50) — drives text size, collision math, and box heights together (metricsScale/boxScale mirror it 1:1, see RoadmapTimeline's own props doc). */
+  /**
+   * Font-scale system (wayframe#42/#50, revised) — drives text size and the
+   * collision/width-estimate math (metricsScale mirrors it 1:1) so labels
+   * never overlap at any size, but deliberately leaves `boxScale` at its
+   * default: row/pill/axis/top-band heights stay fixed. #42's Variant B
+   * (box heights scaling too) shipped first per that ticket's verdict, but
+   * proved wrong against the real roadmap — text-only scaling with
+   * collision-safe metrics (Variant C) is what's wanted.
+   */
   fontScale?: number;
   fontFamily?: string;
 }) {
@@ -146,7 +154,6 @@ function RoadmapView({
           fontScale={fontScale}
           fontFamily={fontFamily}
           metricsScale={fontScale}
-          boxScale={fontScale}
         />
         {legend}
         <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} onEdit={onBlufEdit} />

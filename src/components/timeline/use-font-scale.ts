@@ -1,11 +1,13 @@
 "use client";
 
-// Font-scale system (wayframe#42/#50) — a single viewer preference driving
-// text size, the label-collision/width-estimate math, and box heights
-// together (Variant B's mechanism from the #42 prototype). Its own
-// localStorage key, same pattern as use-top-band-style.ts, persisted
-// independently of use-font-family.ts (family and scale are orthogonal
-// choices per #42's verdict).
+// Font-scale system (wayframe#42/#50, revised) — a single viewer preference
+// driving text size and the label-collision/width-estimate math together
+// (RoadmapWorkspace wires this value into both `fontScale` and
+// `metricsScale`, leaving `boxScale` at its default so row/pill/axis
+// heights don't scale — Variant C from the #42 prototype, not the Variant B
+// shipped originally). Its own localStorage key, same pattern as
+// use-top-band-style.ts, persisted independently of use-font-family.ts
+// (family and scale are orthogonal choices per #42's verdict).
 import { useEffect, useReducer, useState } from "react";
 
 const STORAGE_KEY = "wayframe:font-scale";

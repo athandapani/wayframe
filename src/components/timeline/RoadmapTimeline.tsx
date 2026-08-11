@@ -504,8 +504,11 @@ function MilestoneMarker({
   const r = 8;
   const dateDy = DATE_TIER_DY[date.tier];
   // Label block grows upward from its baseline, so the last line sits
-  // closest to the marker and the first line ends up on top.
-  const labelBaseDy = LABEL_BASE_DY - (primary ? primary.tier * LABEL_TIER_LIFT : 0);
+  // closest to the marker and the first line ends up on top. The gap and
+  // tier lift scale with fontScale — otherwise a bigger label's lines
+  // close in on the fixed-size gap below them and start overlapping the
+  // marker or, at tier 1, the tier-0 block they're meant to clear.
+  const labelBaseDy = LABEL_BASE_DY * fontScale - (primary ? primary.tier * LABEL_TIER_LIFT * fontScale : 0);
   const tooltipW = Math.max(40, m.title.length * 6 * metricsScale + 16);
   const hasGhost = ghostCx !== null;
   const critical = showCriticalPath && m.isCriticalPath;
@@ -545,7 +548,7 @@ function MilestoneMarker({
         <text
           key={i}
           x={cx}
-          y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H}
+          y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H * fontScale}
           textAnchor="middle"
           fontSize={10 * fontScale}
           fontWeight={600}
@@ -788,6 +791,8 @@ export function RoadmapTimeline({
   if (axisTiers.tier2 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
   if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
 
+  const programNameLines = wrapText(data.programName, Math.max(6, Math.floor(26 / metricsScale)), 3);
+
   return (
     <div ref={containerRef} className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
       {/* `color` (not a Tailwind class) drives every `currentColor` in the
@@ -838,14 +843,21 @@ export function RoadmapTimeline({
             the roadmap's actual name appeared nowhere on the chart, so an
             exported slide or a screenshot didn't say what programme it was
             for. Wrapped to the header column since real programme names
-            don't fit on one line. */}
-        {wrapText(data.programName, 26, 3).map((line, i) => (
-          <text key={i} x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + i * 15} fontSize={13 * fontScale} fontWeight={700} fill={theme.ink}>
+            don't fit on one line. The char budget shrinks as metricsScale
+            grows so wider glyphs still wrap inside the same header column
+            instead of running into the phase timeline beside it. */}
+        {programNameLines.map((line, i) => (
+          <text key={i} x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + i * 15 * fontScale} fontSize={13 * fontScale} fontWeight={700} fill={theme.ink}>
             {line}
           </text>
         ))}
         {data.owner && (
-          <text x={16} y={topBandY + (topBandStyle === "chip" ? 30 : 14) + wrapText(data.programName, 26, 3).length * 15 + 4} fontSize={10 * fontScale} fill={theme.inkMuted}>
+          <text
+            x={16}
+            y={topBandY + (topBandStyle === "chip" ? 30 : 14) + programNameLines.length * 15 * fontScale + 4 * fontScale}
+            fontSize={10 * fontScale}
+            fill={theme.inkMuted}
+          >
             {data.owner}
           </text>
         )}
@@ -855,6 +867,12 @@ export function RoadmapTimeline({
             const px = x(t.startDate);
             const h = PILL_HEIGHT_LG * boxScale;
             const w = Math.max(h, x(t.endDate) - px);
+            // Clipped to the pill's own pixel width, same pattern as the
+            // in-lane duration pills below — otherwise a bigger fontScale
+            // (with boxScale left at 1) runs the label straight into its
+            // neighbour instead of the pill growing to make room.
+            const labelChars = Math.floor((w - h) / (5.4 * metricsScale));
+            const label = labelChars >= 4 ? wrapText(t.title, labelChars, 1)[0] : null;
             return (
               <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
                 <rect
@@ -867,9 +885,11 @@ export function RoadmapTimeline({
                   fillOpacity={0.35}
                   stroke={theme.statusColor[t.status]}
                 />
-                <text x={px + h / 2} y={y + 4} fontSize={11 * fontScale} fontWeight={600}>
-                  {t.title}
-                </text>
+                {label && (
+                  <text x={px + h / 2} y={y + 4} fontSize={11 * fontScale} fontWeight={600}>
+                    {label}
+                  </text>
+                )}
               </g>
             );
           }

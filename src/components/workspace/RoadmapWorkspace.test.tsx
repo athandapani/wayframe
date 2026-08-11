@@ -86,6 +86,31 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   });
 });
 
+describe("RoadmapWorkspace font-scale wiring (wayframe#42/#50, revised)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("scales marker text via the Font size slider without growing the chart's row/pill box heights", async () => {
+    const { container } = render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    const svg = () => container.querySelector('[data-testid="roadmap-timeline"] svg')!;
+    const baseHeight = svg().getAttribute("height");
+    const baseFontSize = screen.getAllByText("Milestone 1")[0].getAttribute("font-size");
+
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Font size" })).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("slider", { name: "Font size" }), { target: { value: "1.6" } });
+
+    // Text grows...
+    await waitFor(() => expect(screen.getAllByText("Milestone 1")[0].getAttribute("font-size")).not.toBe(baseFontSize));
+    // ...but the SVG's overall height — driven by row/pill/axis/top-band
+    // box heights — does not. Variant B (originally shipped) scaled both
+    // together; the revised decision leaves boxScale at its default so only
+    // text and the collision-avoidance math move with the slider.
+    expect(svg().getAttribute("height")).toBe(baseHeight);
+  });
+});
+
 describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   beforeEach(() => {
     window.localStorage.clear();

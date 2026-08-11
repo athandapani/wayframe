@@ -115,6 +115,57 @@ describe("font-scale system (wayframe#42/#50)", () => {
     const scaledSvg = scaled.querySelector("svg")!;
     expect(Number(scaledSvg.getAttribute("height"))).toBeGreaterThan(Number(baseSvg.getAttribute("height")));
   });
+
+  it("scales a wrapped marker label's line spacing with fontScale, so bigger text doesn't overlap its own second line", () => {
+    // A tight metricsScale forces "First milestone" to wrap onto two lines
+    // regardless of fontScale, isolating the line-pitch bug from wrapping
+    // itself: RoadmapWorkspace never scales boxScale (this revision), so
+    // nothing grows the row to make room — the two lines have to stay
+    // legible on their own, which means their vertical gap must track
+    // fontScale the same way the font size does.
+    // A milestone's wrapped lines render as separate <text> elements, one
+    // per line, not one element holding the joined title — "First" (the
+    // top line) and "milestone" (the line closest to the marker), matched
+    // by their shared x so a same-named line from the other milestone in
+    // this fixture can't be picked up by mistake.
+    const { container: base } = render(
+      <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} metricsScale={3} fontScale={1} />,
+    );
+    const baseFirst = [...base.querySelectorAll("text")].find((t) => t.textContent === "First")!;
+    expect(baseFirst).toBeTruthy();
+    const baseSecond = [...base.querySelectorAll("text")].find(
+      (t) => t.textContent === "milestone" && t.getAttribute("x") === baseFirst.getAttribute("x"),
+    )!;
+    expect(baseSecond).toBeTruthy();
+    const baseGap = Math.abs(Number(baseSecond.getAttribute("y")) - Number(baseFirst.getAttribute("y")));
+
+    const { container: scaled } = render(
+      <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} metricsScale={3} fontScale={1.6} />,
+    );
+    const scaledFirst = [...scaled.querySelectorAll("text")].find((t) => t.textContent === "First")!;
+    expect(scaledFirst).toBeTruthy();
+    const scaledSecond = [...scaled.querySelectorAll("text")].find(
+      (t) => t.textContent === "milestone" && t.getAttribute("x") === scaledFirst.getAttribute("x"),
+    )!;
+    expect(scaledSecond).toBeTruthy();
+    const scaledGap = Math.abs(Number(scaledSecond.getAttribute("y")) - Number(scaledFirst.getAttribute("y")));
+
+    expect(scaledGap).toBeCloseTo(baseGap * 1.6, 1);
+  });
+
+  it("truncates a top-band phase pill's label instead of letting it overrun its neighbour at high metricsScale", () => {
+    const base = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} metricsScale={1} />);
+    expect(base.getByText("Phase One")).toBeInTheDocument();
+    base.unmount();
+
+    // At metricsScale 1 the full title fits its pill; at metricsScale 100
+    // the same pixel-wide pill can no longer fit any meaningful slice of
+    // "Phase One", so the label is dropped rather than drawn past the
+    // pill's own edge into whatever sits beside it.
+    const scaled = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} metricsScale={100} />);
+    expect(scaled.queryByText("Phase One")).not.toBeInTheDocument();
+    expect(scaled.queryByText(/Phase/)).not.toBeInTheDocument();
+  });
 });
 
 describe("deriveShortLabel", () => {
