@@ -46,4 +46,20 @@ describe("buildMilestoneEditOps", () => {
     const ops = buildMilestoneEditOps(m, draft);
     expect(ops).toEqual([{ targetId: "m1", field: "showReferenceLine", newValue: true, reason: "manual edit" }]);
   });
+
+  it("emits an endDate op when a point milestone is converted to a phase (wayframe#45)", () => {
+    const m = milestone({ id: "m1", date: "2026-01-01" });
+    const draft = { ...milestoneToEditableFields(m), endDate: "2026-01-15" };
+
+    const ops = buildMilestoneEditOps(m, draft);
+    expect(ops).toEqual([{ targetId: "m1", field: "endDate", newValue: "2026-01-15", reason: "manual edit" }]);
+  });
+
+  it("emits an endDate-clear op when a phase is converted back to a milestone (wayframe#45)", () => {
+    const m = milestone({ id: "m1", date: "2026-01-01", endDate: "2026-01-15" });
+    const draft = { ...milestoneToEditableFields(m), endDate: "" };
+
+    const ops = buildMilestoneEditOps(m, draft);
+    expect(ops).toEqual([{ targetId: "m1", field: "endDate", newValue: "", reason: "manual edit" }]);
+  });
 });

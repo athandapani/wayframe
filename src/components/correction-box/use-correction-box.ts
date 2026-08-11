@@ -63,7 +63,7 @@ export type CorrectionBoxAction =
   | { type: "loadDocument"; data: RoadmapData }
   | { type: "hydrated"; data: RoadmapData }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
-  | { type: "addMilestone"; laneId: string; date: string; newId: string }
+  | { type: "addMilestone"; laneId: string; date: string; endDate?: string; newId: string }
   | { type: "addTopLevelItem"; kind: "milestone" | "phase"; date: string; newId: string }
   | { type: "removeMilestone"; id: string }
   | { type: "setMilestoneDate"; id: string; date: string }
@@ -222,12 +222,16 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "addMilestone": {
       // Created empty and immediately opened for editing by the caller —
       // the alternative (a modal that creates on save) leaves no marker on
-      // the chart to anchor the interaction to.
+      // the chart to anchor the interaction to. `endDate` arrives already
+      // resolved (wayframe#45): the manual "+" button's shape-first picker
+      // places a phase via a click-drag gesture on the chart, so by the time
+      // this fires there's a real drawn span, not a placeholder to edit later.
       const milestone: Milestone = {
         id: action.newId,
         laneId: action.laneId,
-        title: "New milestone",
+        title: action.endDate ? "New phase" : "New milestone",
         date: action.date,
+        endDate: action.endDate,
         status: "not-started",
         dependsOn: [],
         linksToTopLevelMilestone: null,
@@ -400,8 +404,8 @@ export interface UseCorrectionBoxResult {
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
   editBluf: (patch: Partial<RoadmapData["bluf"]>) => void;
   setLaneColor: (laneId: string, color: string | undefined) => void;
-  /** Creates an empty milestone in the lane and returns its id so the caller can open it. */
-  addMilestone: (laneId: string, date: string) => string;
+  /** Creates a milestone (or, with endDate, a phase) in the lane and returns its id so the caller can open it. */
+  addMilestone: (laneId: string, date: string, endDate?: string) => string;
   /** Creates an empty top-level milestone or phase in the PROGRAM band and returns its id so the caller can open it. */
   addTopLevelItem: (kind: "milestone" | "phase", date: string) => string;
   removeMilestone: (id: string) => void;
@@ -553,9 +557,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
   const editBluf = useCallback((patch: Partial<RoadmapData["bluf"]>) => dispatch({ type: "editBluf", patch }), []);
   const setLaneColor = useCallback((laneId: string, color: string | undefined) => dispatch({ type: "setLaneColor", laneId, color }), []);
-  const addMilestone = useCallback((laneId: string, date: string) => {
+  const addMilestone = useCallback((laneId: string, date: string, endDate?: string) => {
     const newId = nanoid();
-    dispatch({ type: "addMilestone", laneId, date, newId });
+    dispatch({ type: "addMilestone", laneId, date, endDate, newId });
     return newId;
   }, []);
   const addTopLevelItem = useCallback((kind: "milestone" | "phase", date: string) => {

@@ -20,6 +20,12 @@ export interface EditableMilestoneFields {
   shortLabel: string;
   /** Opt-in full-height reference line (wayframe#15), toggleable by hand as of wayframe#48. */
   showReferenceLine: boolean;
+  /**
+   * Blank reads as a point milestone; a filled-in date reads as a lane-scoped
+   * duration pill spanning date→endDate (wayframe#15/#45) — same entity, so
+   * this field alone decides which shape the marker renders as.
+   */
+  endDate: string;
 }
 
 export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields {
@@ -33,6 +39,7 @@ export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields
     isCriticalPath: m.isCriticalPathOverride ?? m.isCriticalPath,
     shortLabel: m.shortLabel ?? "",
     showReferenceLine: m.showReferenceLine ?? false,
+    endDate: m.endDate ?? "",
   };
 }
 
@@ -57,6 +64,7 @@ export function buildMilestoneEditOps(original: Milestone, draft: EditableMilest
   if (draft.isCriticalPath !== before.isCriticalPath) ops.push({ targetId: original.id, field: "isCriticalPathOverride", newValue: draft.isCriticalPath, reason });
   if (draft.shortLabel !== before.shortLabel) ops.push({ targetId: original.id, field: "shortLabel", newValue: draft.shortLabel, reason });
   if (draft.showReferenceLine !== before.showReferenceLine) ops.push({ targetId: original.id, field: "showReferenceLine", newValue: draft.showReferenceLine, reason });
+  if (draft.endDate !== before.endDate) ops.push({ targetId: original.id, field: "endDate", newValue: draft.endDate, reason });
 
   return ops;
 }

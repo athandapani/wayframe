@@ -6,7 +6,7 @@
 // extracted document) and the `/dev/demo-roadmap` QA route (the hardcoded
 // demo fixture). Parameterized by `initialData`/`today` so neither caller
 // hand-maintains its own copy.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RoadmapData } from "@/components/timeline/types";
 import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTimeline";
 import type { Theme } from "@/components/timeline/theme";
@@ -85,6 +85,8 @@ function RoadmapView({
   onMilestoneClick,
   onTopLevelItemClick,
   onAddMilestone,
+  onPickShape,
+  placementMode,
   onAddTopLevelItem,
   topBandStyle,
   periodGridlineStyle,
@@ -110,7 +112,9 @@ function RoadmapView({
   onBlufEdit?: (patch: Partial<RoadmapData["bluf"]>) => void;
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
-  onAddMilestone?: (laneId: string) => void;
+  onAddMilestone?: (laneId: string, date: string, endDate?: string) => void;
+  onPickShape?: (laneId: string, shape: "milestone" | "phase") => void;
+  placementMode?: { laneId: string; shape: "milestone" | "phase" } | null;
   onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
   topBandStyle?: TopBandStyle;
   periodGridlineStyle?: PeriodGridlineStyle;
@@ -149,6 +153,8 @@ function RoadmapView({
           onMilestoneClick={onMilestoneClick}
           onTopLevelItemClick={onTopLevelItemClick}
           onAddMilestone={onAddMilestone}
+          onPickShape={onPickShape}
+          placementMode={placementMode}
           onAddTopLevelItem={onAddTopLevelItem}
           topBandStyle={topBandStyle}
           periodGridlineStyle={periodGridlineStyle}
@@ -224,6 +230,12 @@ export function RoadmapWorkspace({
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
+  // Shape-first manual creation (wayframe#45): a lane's "+" picker sets this
+  // once a shape is chosen, arming RoadmapTimeline's placement gesture
+  // (click for a milestone, click-drag for a phase). Lives here, not inside
+  // RoadmapTimeline, so the "click a point.../Cancel" banner below can
+  // render outside the chart — the same split trace/tracedIds already uses.
+  const [placement, setPlacement] = useState<{ laneId: string; shape: "milestone" | "phase" } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
@@ -254,13 +266,31 @@ export function RoadmapWorkspace({
     else setFileError({ message: result.message, issues: result.issues });
   }
 
-  // New milestones land on today's date so they appear near the Today line
-  // rather than at the far edge of the domain, then open straight into the
-  // editor — an untitled diamond with no follow-up is a dead end.
-  function handleAddMilestone(laneId: string) {
-    const iso = today.toISOString().slice(0, 10);
-    setSelectedMilestoneId(box.addMilestone(laneId, iso));
+  // The date (and, for a phase, endDate) come from wherever the user placed
+  // it on the chart (wayframe#45) — no more defaulting to today and editing
+  // the date afterward, the point of the shape-first picker + placement
+  // gesture is picking the real date up front. Opens straight into the
+  // editor either way — an untitled marker with no follow-up is a dead end.
+  function handleAddMilestone(laneId: string, date: string, endDate?: string) {
+    setSelectedMilestoneId(box.addMilestone(laneId, date, endDate));
+    setPlacement(null);
   }
+
+  // A lane's "+" resolves to a shape, not a milestone — picking one arms the
+  // placement gesture above rather than creating anything itself.
+  function handlePickShape(laneId: string, shape: "milestone" | "phase") {
+    setPlacement({ laneId, shape });
+  }
+
+  // Escape is the keyboard equivalent of the banner's Cancel button below.
+  useEffect(() => {
+    if (!placement) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setPlacement(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [placement]);
 
   // Mirrors handleAddMilestone above, for the PROGRAM band's own "+"
   // (wayframe#41) — same "create empty, open for editing" pattern.
@@ -359,6 +389,18 @@ export function RoadmapWorkspace({
             </span>
             <button onClick={() => setTrace(null)} className="rounded-full border px-2 py-0.5" style={{ borderColor: "var(--wf-border)" }}>
               Clear
+            </button>
+          </div>
+        )}
+        {/* Armed placement gesture (wayframe#45) — the chart itself has no other affordance for "never mind". */}
+        {placement && (
+          <div
+            className="fixed top-16 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border px-3 py-1.5 text-xs shadow"
+            style={{ background: "var(--wf-panel)", borderColor: theme.accent, color: "var(--wf-ink)" }}
+          >
+            <span>{placement.shape === "milestone" ? "Click a point on the lane to place the milestone." : "Click-drag on the lane to draw the phase."}</span>
+            <button onClick={() => setPlacement(null)} className="rounded-full border px-2 py-0.5" style={{ borderColor: "var(--wf-border)" }}>
+              Cancel
             </button>
           </div>
         )}
@@ -625,6 +667,8 @@ export function RoadmapWorkspace({
             onBlufEdit={box.editBluf}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onAddMilestone={handleAddMilestone}
+            onPickShape={handlePickShape}
+            placementMode={placement}
             onAddTopLevelItem={handleAddTopLevelItem}
             topBandStyle={topBand.style}
             periodGridlineStyle={gridlines.style}

@@ -11,6 +11,7 @@ import type { Milestone, RoadmapData, Status } from "@/components/timeline/types
 import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMilestoneFields } from "@/lib/corrections/build-milestone-ops";
 import type { PatchOp } from "@/lib/corrections/schema";
 import type { TraceDirection } from "@/lib/critical-path/trace";
+import { addDays } from "@/components/timeline/date-utils";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
@@ -139,7 +140,7 @@ function ModalForm({
 
         <div className="grid grid-cols-2 gap-4 p-4 text-sm">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-zinc-500">Date</span>
+            <span className="mb-1 block text-xs font-medium text-zinc-500">Date{draft.endDate ? " (start)" : ""}</span>
             <input
               type="date"
               className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
@@ -147,6 +148,29 @@ function ModalForm({
               onChange={(e) => setDraft({ ...draft, date: e.target.value })}
             />
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">End date</span>
+            <input
+              type="date"
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.endDate}
+              onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+              placeholder="blank = milestone"
+            />
+          </label>
+          {/* End date is the whole answer to "is this a milestone or a phase" (wayframe#45) —
+              blank reads as a point milestone, filled-in reads as a lane-scoped duration pill.
+              The convert button is a one-click shortcut for the same toggle, not a separate path. */}
+          <div className="col-span-2 -mt-2 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-zinc-400">Blank reads as a milestone (diamond); a filled-in date reads as a phase (pill).</p>
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, endDate: draft.endDate ? "" : addDays(draft.date, 14) })}
+              className="shrink-0 rounded border border-zinc-300 px-2 py-1 text-[11px] dark:border-zinc-600"
+            >
+              {draft.endDate ? "Convert to milestone" : "Convert to pill"}
+            </button>
+          </div>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-zinc-500">Status</span>
             <select

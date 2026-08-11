@@ -205,6 +205,91 @@ function AddMilestoneButton({
   );
 }
 
+/**
+ * Lane-scoped counterpart to AddMilestoneButton (wayframe#45): a "+" that
+ * pops a Milestone/Phase picker rather than adding directly, mirroring
+ * TopBandAddPicker below — but this one anchors its popover's *left* edge to
+ * the button (opens rightward) since the lane button sits near the chart's
+ * *left* margin, the opposite edge TopBandAddPicker worries about clipping
+ * against. Picking a shape doesn't create anything itself; it hands the
+ * shape to `onPick`, which arms the caller's placement gesture (a click for
+ * a milestone, a click-drag for a phase — see beginCreateDrag/dateAtX above).
+ */
+function AddLanePicker({
+  x,
+  y,
+  theme,
+  onPick,
+  fontScale = 1,
+}: {
+  x: number;
+  y: number;
+  theme: Theme;
+  onPick: (shape: "milestone" | "phase") => void;
+  fontScale?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const r = 8;
+  const popW = 124;
+  const popCenter = x + popW / 2;
+  return (
+    <g>
+      <g
+        className="cursor-pointer opacity-45 transition-opacity hover:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label="Add a milestone or phase to this lane"
+      >
+        <circle cx={x} cy={y} r={r} fill="none" stroke={theme.ink} strokeWidth={1.25} />
+        <line x1={x - 4} x2={x + 4} y1={y} y2={y} stroke={theme.ink} strokeWidth={1.5} strokeLinecap="round" />
+        <line x1={x} x2={x} y1={y - 4} y2={y + 4} stroke={theme.ink} strokeWidth={1.5} strokeLinecap="round" />
+        <title>Add a milestone or phase</title>
+      </g>
+      {open && (
+        <g>
+          <rect x={x} y={y + r + 4} width={popW} height={54} rx={6} fill={theme.panelBg} stroke={theme.panelBorder} />
+          <text
+            x={popCenter}
+            y={y + r + 22}
+            textAnchor="middle"
+            fontSize={11 * fontScale}
+            fontWeight={600}
+            fill={theme.panelInk}
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick("milestone");
+            }}
+          >
+            Milestone
+          </text>
+          <text
+            x={popCenter}
+            y={y + r + 42}
+            textAnchor="middle"
+            fontSize={11 * fontScale}
+            fontWeight={600}
+            fill={theme.panelInk}
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick("phase");
+            }}
+          >
+            Phase (pill)
+          </text>
+        </g>
+      )}
+    </g>
+  );
+}
+
 // PROGRAM-band highlight treatment + its manual add-milestone/phase
 // affordance (wayframe#41) — three variants, all kept as a real viewer style
 // switcher (see use-top-band-style.ts) rather than one picked default; each
@@ -603,8 +688,17 @@ export interface RoadmapTimelineProps {
   width?: number;
   /** Line treatment for critical-path connectors — a viewer preference. */
   criticalPathStyle?: CriticalPathStyle;
-  /** Renders a per-lane "+" in the lane header when provided. */
-  onAddMilestone?: (laneId: string) => void;
+  /**
+   * Fired once a lane's manual creation gesture completes (wayframe#45): a
+   * click places a point milestone, a click-drag draws a phase and supplies
+   * `endDate`. Renders a per-lane "+" (shape picker) in the lane header when
+   * provided — omit to keep lanes create-only-via-AI.
+   */
+  onAddMilestone?: (laneId: string, date: string, endDate?: string) => void;
+  /** Fired when a lane's "+" picker resolves to a shape — the caller arms `placementMode` in response. */
+  onPickShape?: (laneId: string, shape: "milestone" | "phase") => void;
+  /** Which lane is armed for placement and which shape it'll create; controlled by the caller so it can render a "click to place"/"Cancel" affordance outside the chart. */
+  placementMode?: { laneId: string; shape: "milestone" | "phase" } | null;
   /** Fired after a marker is dragged to a new date (snapped to a day). */
   onMilestoneDateChange?: (milestoneId: string, isoDate: string) => void;
   /** Ids in the active trace — highlighted in the theme's trace colour. */
@@ -645,6 +739,8 @@ export function RoadmapTimeline({
   showCriticalPath = true,
   criticalPathStyle = "thick",
   onAddMilestone,
+  onPickShape,
+  placementMode = null,
   onMilestoneDateChange,
   tracedIds,
   labelDensity = "all",
@@ -791,6 +887,41 @@ export function RoadmapTimeline({
     setDrag(null);
   }
 
+  // Manual phase placement (wayframe#45): a click-drag on empty lane space
+  // draws a new phase's span while `placementMode` targets that lane with
+  // shape "phase" — the milestone case needs no drag state at all, a plain
+  // click on the lane (below) is enough. Reuses the drag-to-reschedule
+  // mechanism above rather than a second one; only what gets committed at
+  // the end differs.
+  const [createDrag, setCreateDrag] = useState<{ laneId: string; startX: number; curX: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  /** clientX -> local SVG x. getBoundingClientRect already accounts for the container's horizontal scroll. */
+  function localX(clientX: number): number {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return rect ? clientX - rect.left : clientX;
+  }
+  function beginCreateDrag(laneId: string, evt: React.PointerEvent<SVGRectElement>) {
+    if (placementMode?.laneId !== laneId || placementMode.shape !== "phase" || !onAddMilestone) return;
+    evt.currentTarget.setPointerCapture(evt.pointerId);
+    const lx = localX(evt.clientX);
+    setCreateDrag({ laneId, startX: lx, curX: lx });
+  }
+  function moveCreateDrag(evt: React.PointerEvent<SVGSVGElement>) {
+    if (!createDrag) return;
+    setCreateDrag({ ...createDrag, curX: localX(evt.clientX) });
+  }
+  function endCreateDrag() {
+    if (!createDrag) return;
+    if (Math.abs(createDrag.curX - createDrag.startX) > DRAG_THRESHOLD_PX) {
+      const lo = Math.min(createDrag.startX, createDrag.curX);
+      const hi = Math.max(createDrag.startX, createDrag.curX);
+      const date = dateAtX(lo);
+      const endDate = dateAtX(hi);
+      if (endDate > date) onAddMilestone?.(createDrag.laneId, date, endDate);
+    }
+    setCreateDrag(null);
+  }
+
   const axisRows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
   if (axisTiers.tier2 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
   if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
@@ -803,12 +934,34 @@ export function RoadmapTimeline({
           chart, so the theme owns the ink rather than the page's dark-mode
           class deciding it. */}
       <svg
+        ref={svgRef}
         width={width}
         height={height}
         style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
-        onPointerMove={drag ? moveDrag : undefined}
-        onPointerUp={drag ? endDrag : undefined}
-        onPointerCancel={drag ? endDrag : undefined}
+        onPointerMove={
+          drag || createDrag
+            ? (e) => {
+                moveDrag(e);
+                moveCreateDrag(e);
+              }
+            : undefined
+        }
+        onPointerUp={
+          drag || createDrag
+            ? () => {
+                endDrag();
+                endCreateDrag();
+              }
+            : undefined
+        }
+        onPointerCancel={
+          drag || createDrag
+            ? () => {
+                setDrag(null);
+                setCreateDrag(null);
+              }
+            : undefined
+        }
       >
         {axisRows.map((row, i) => (
           <AxisRow key={i} y={MARGIN.top + i * axisRowHeight} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} rowHeight={axisRowHeight} fontScale={fontScale} />
@@ -977,12 +1130,36 @@ export function RoadmapTimeline({
                 height={row.height - LANE_GUTTER * 2}
                 fill={tint}
                 fillOpacity={theme.laneWashOpacity}
+                style={placementMode?.laneId === row.swimlane.id ? { cursor: "crosshair" } : undefined}
+                onPointerDown={placementMode?.laneId === row.swimlane.id ? (e) => beginCreateDrag(row.swimlane.id, e) : undefined}
+                onClick={
+                  placementMode?.laneId === row.swimlane.id && placementMode.shape === "milestone"
+                    ? (e) => onAddMilestone?.(row.swimlane.id, dateAtX(localX(e.clientX)))
+                    : undefined
+                }
               />
+              {/* Live preview while drawing a new phase by drag (wayframe#45). Painted right after
+                  the wash so lane content (markers, other pills) still draws on top of it. */}
+              {createDrag && createDrag.laneId === row.swimlane.id && (
+                <rect
+                  x={Math.min(createDrag.startX, createDrag.curX)}
+                  y={y0 + row.height / 2 - (PILL_HEIGHT_SM * boxScale) / 2}
+                  width={Math.abs(createDrag.curX - createDrag.startX)}
+                  height={PILL_HEIGHT_SM * boxScale}
+                  rx={(PILL_HEIGHT_SM * boxScale) / 2}
+                  fill={darken(tint, 0.4)}
+                  fillOpacity={0.5}
+                  stroke={darken(tint, 0.4)}
+                  strokeDasharray="3 2"
+                />
+              )}
               <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
               <text x={16} y={y0 + row.height / 2} fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink} dominantBaseline="middle">
                 {row.swimlane.name}
               </text>
-              {onAddMilestone && <AddMilestoneButton laneId={row.swimlane.id} x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} onAdd={onAddMilestone} />}
+              {onAddMilestone && onPickShape && (
+                <AddLanePicker x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} fontScale={fontScale} onPick={(shape) => onPickShape(row.swimlane.id, shape)} />
+              )}
             </g>
           );
         })}

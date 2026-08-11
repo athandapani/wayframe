@@ -58,5 +58,7 @@ function applyOp(m: Milestone, op: PatchOp): Milestone {
       return { ...m, shortLabel: op.newValue || undefined };
     case "showReferenceLine":
       return { ...m, showReferenceLine: op.newValue };
+    case "endDate":
+      return { ...m, endDate: op.newValue || undefined };
   }
 }

@@ -133,6 +133,23 @@ describe("correction box reducer", () => {
   });
 });
 
+describe("addMilestone reducer action (wayframe#45)", () => {
+  it("creates a point milestone titled 'New milestone' when no endDate is given", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "addMilestone", laneId: "lane-1", date: "2026-02-01", newId: "new-1" });
+    const created = next.data.milestones.find((m) => m.id === "new-1");
+    expect(created).toMatchObject({ laneId: "lane-1", title: "New milestone", date: "2026-02-01", endDate: undefined });
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("creates a phase titled 'New phase' with the given endDate when one is provided", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "addMilestone", laneId: "lane-1", date: "2026-02-01", endDate: "2026-02-15", newId: "new-1" });
+    const created = next.data.milestones.find((m) => m.id === "new-1");
+    expect(created).toMatchObject({ laneId: "lane-1", title: "New phase", date: "2026-02-01", endDate: "2026-02-15" });
+  });
+});
+
 describe("lastUpdatedAt stamping (wayframe#40/#49)", () => {
   it("apply stamps lastUpdatedAt with the current time — distinct from generatedAt, which never changes", () => {
     const state: CorrectionBoxState = {

@@ -76,6 +76,12 @@ export const PatchOpSchema = z.discriminatedUnion("field", [
     newValue: z.boolean(),
     reason: z.string().min(1),
   }),
+  z.object({
+    targetId: z.string().min(1),
+    field: z.literal("endDate"),
+    newValue: z.string(), // "" clears the field, converting a phase back into a point milestone (wayframe#45)
+    reason: z.string().min(1),
+  }),
 ]);
 
 export const SkippedSchema = z.object({

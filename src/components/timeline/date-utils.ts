@@ -10,3 +10,10 @@ export function formatDateCompact(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00Z");
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
+
+/** UTC-anchored day arithmetic, matching parseDate's convention. */
+export function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
