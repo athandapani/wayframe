@@ -21,6 +21,7 @@ const input: CorrectionInput = {
   lanes: [{ id: "lane-pilot", name: "Field Pilot Deployments" }],
   swimlanes: [{ id: "lane-pilot", name: "Field Pilot Deployments", type: "lane" }],
   topLevelItems: [{ id: "t1", type: "milestone", title: "GA", date: "2027-03-01", status: "not-started" }],
+  document: { programName: "Atlas", owner: "K. Simmons", bluf: { statement: "On track", bullets: [] } },
   correctionText: "mark pilot site 3 go-live complete",
 };
 
@@ -225,5 +226,66 @@ describe("proposeCorrection topLevelItemOps/addTopLevelItems/dependencyOps (wayf
     const result = await proposeCorrection(input, callModel);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+});
+
+describe("proposeCorrection attachmentOps/blufOp/documentOp (wayframe#55/#60)", () => {
+  it("coerces an add attachmentOp from the model's flat raw shape", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], attachmentOps: [{ targetId: "m1", action: "add", type: "link", url: "https://example.com/survey.pdf", reason: "attach the survey" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.attachmentOps).toEqual([
+        { targetId: "m1", action: "add", attachment: { type: "link", url: "https://example.com/survey.pdf" }, reason: "attach the survey" },
+      ]);
+    }
+  });
+
+  it("rejects an add attachmentOp missing a url", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], attachmentOps: [{ targetId: "m1", action: "add", type: "link", reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("schema_validation_failed");
+  });
+
+  it("fails closed with unknown_target when an attachmentOp references an id outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], attachmentOps: [{ targetId: "does-not-exist", action: "remove", index: 0, reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("passes through a blufOp touching only the statement", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], blufOp: { statement: "On track for GA", reason: "update the so-what" } }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.blufOp).toEqual({ statement: "On track for GA", reason: "update the so-what" });
+  });
+
+  it("passes through a documentOp touching programName and owner", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], documentOp: { programName: "Atlas v2", owner: "K. Simmons", reason: "rename and reassign" } }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.documentOp).toEqual({ programName: "Atlas v2", owner: "K. Simmons", reason: "rename and reassign" });
+  });
+
+  it("defaults blufOp/documentOp to null when the model omits them", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(toolUseResponse({ ops: [], skipped: [] }));
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.blufOp).toBeNull();
+      expect(result.response.documentOp).toBeNull();
+    }
   });
 });

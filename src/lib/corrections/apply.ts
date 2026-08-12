@@ -1,5 +1,5 @@
 import type { Milestone, TopLevelItem } from "@/components/timeline/types";
-import type { AddMilestoneOp, AddTopLevelItemOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
+import type { AddMilestoneOp, AddTopLevelItemOp, AttachmentOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
 
 /**
  * Commits a set of ops (direct + cascaded) onto a milestone list. A date op
@@ -94,6 +94,28 @@ export function applyDependencyOps(
       if (m.id !== op.dependentId) return m;
       const without = m.dependsOn.filter((d) => d.id !== op.dependencyId);
       return op.add ? { ...m, dependsOn: [...without, { id: op.dependencyId, showConnector: op.showConnector ?? true }] } : { ...m, dependsOn: without };
+    });
+  }, milestones as Milestone[]);
+}
+
+/**
+ * Commits attachmentOps onto the milestone list (wayframe#55/#60) — shared by
+ * the AI attachmentOps path and the manual editor's row add/remove/edit
+ * (an edit is remove-then-add at the same index), per the standing rule
+ * adopted in #55/#56: one implementation, not two that could drift.
+ */
+export function applyAttachmentOps(milestones: readonly Milestone[], ops: readonly AttachmentOp[]): Milestone[] {
+  return ops.reduce((acc, op) => {
+    return acc.map((m) => {
+      if (m.id !== op.targetId) return m;
+      const attachments = m.attachments ?? [];
+      if (op.action === "remove") {
+        return { ...m, attachments: attachments.filter((_, i) => i !== op.index) };
+      }
+      const next = [...attachments];
+      if (op.index !== undefined && op.index <= next.length) next.splice(op.index, 0, op.attachment);
+      else next.push(op.attachment);
+      return { ...m, attachments: next };
     });
   }, milestones as Milestone[]);
 }

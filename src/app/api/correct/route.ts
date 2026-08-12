@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { proposeCorrection, type CorrectionError } from "@/lib/corrections/correct";
 import { CORRECTION_TOOL } from "@/lib/corrections/tool-schema";
-import type { CorrectionLaneRef, CorrectionMilestoneRef, CorrectionSwimlaneRef, CorrectionTopLevelItemRef } from "@/lib/corrections/prompt";
+import type { CorrectionDocumentRef, CorrectionLaneRef, CorrectionMilestoneRef, CorrectionSwimlaneRef, CorrectionTopLevelItemRef } from "@/lib/corrections/prompt";
 
 const client = new Anthropic();
 
@@ -38,6 +38,15 @@ function isSwimlaneRef(v: unknown): v is CorrectionSwimlaneRef {
   return typeof r.id === "string" && typeof r.name === "string" && (r.type === "lane" || r.type === "separator");
 }
 
+function isDocumentRef(v: unknown): v is CorrectionDocumentRef {
+  if (!v || typeof v !== "object") return false;
+  const r = v as Record<string, unknown>;
+  if (typeof r.programName !== "string" || typeof r.owner !== "string") return false;
+  if (!r.bluf || typeof r.bluf !== "object") return false;
+  const bluf = r.bluf as Record<string, unknown>;
+  return typeof bluf.statement === "string" && Array.isArray(bluf.bullets) && bluf.bullets.every((b) => typeof b === "string");
+}
+
 function isTopLevelItemRef(v: unknown): v is CorrectionTopLevelItemRef {
   if (!v || typeof v !== "object") return false;
   const r = v as Record<string, unknown>;
@@ -56,11 +65,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { milestones, lanes, swimlanes, topLevelItems, correctionText } = body as {
+  const { milestones, lanes, swimlanes, topLevelItems, document, correctionText } = body as {
     milestones?: unknown;
     lanes?: unknown;
     swimlanes?: unknown;
     topLevelItems?: unknown;
+    document?: unknown;
     correctionText?: unknown;
   };
 
@@ -92,12 +102,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!isDocumentRef(document)) {
+    return NextResponse.json(
+      { error: { kind: "no_input", message: "document must include programName, owner, and bluf.statement/bullets." } },
+      { status: 400 },
+    );
+  }
+
   const result = await proposeCorrection(
     {
       milestones,
       lanes,
       swimlanes,
       topLevelItems,
+      document,
       correctionText: typeof correctionText === "string" ? correctionText : "",
     },
     async (system, messages) =>

@@ -1,5 +1,18 @@
 import type { Milestone, Swimlane, TopLevelItem } from "@/components/timeline/types";
-import type { AddMilestoneOp, AddTopLevelItemOp, AmbiguousChoice, DeleteOp, DependencyOp, PatchOp, Skipped, SwimlaneOp, TopLevelItemOp } from "./schema";
+import type {
+  AddMilestoneOp,
+  AddTopLevelItemOp,
+  AmbiguousChoice,
+  AttachmentOp,
+  BlufOp,
+  DeleteOp,
+  DependencyOp,
+  DocumentFieldsOp,
+  PatchOp,
+  Skipped,
+  SwimlaneOp,
+  TopLevelItemOp,
+} from "./schema";
 
 /**
  * Resolves a proposed patch's ops/skipped ids against the live milestone
@@ -187,6 +200,51 @@ export function buildDependencyOpPreview(milestones: readonly Milestone[], ops: 
     showConnector: op.showConnector,
     reason: op.reason,
   }));
+}
+
+export interface PreviewAttachmentOpRow {
+  targetId: string;
+  targetTitle: string;
+  action: AttachmentOp["action"];
+  detail: string;
+  reason: string;
+}
+
+/** Mirrors buildDeletePreview/buildSwimlaneOpPreview's "give the pending card something to render" fix, applied to the new attachmentOps family (wayframe#60). */
+export function buildAttachmentOpPreview(milestones: readonly Milestone[], ops: readonly AttachmentOp[]): PreviewAttachmentOpRow[] {
+  const byId = new Map(milestones.map((m) => [m.id, m]));
+  return ops.map((op) => ({
+    targetId: op.targetId,
+    targetTitle: byId.get(op.targetId)?.title ?? op.targetId,
+    action: op.action,
+    detail: op.action === "add" ? `${op.attachment.type}: ${op.attachment.url}${op.attachment.label ? ` (${op.attachment.label})` : ""}` : `attachment #${op.index + 1}`,
+    reason: op.reason,
+  }));
+}
+
+/** A single-entity op with no targetId of its own (blufOp/documentOp are document-level, not per-milestone) — just the changed field names/values for display. */
+export interface PreviewFieldChangeRow {
+  field: string;
+  newValue: string;
+}
+
+export function buildBlufOpPreview(op: BlufOp | null): PreviewFieldChangeRow[] {
+  if (!op) return [];
+  const rows: PreviewFieldChangeRow[] = [];
+  if (op.statement !== undefined) rows.push({ field: "statement", newValue: op.statement });
+  if (op.bullets !== undefined) rows.push({ field: "bullets", newValue: op.bullets.join("; ") });
+  if (op.label !== undefined) rows.push({ field: "label", newValue: op.label });
+  return rows;
+}
+
+export function buildDocumentOpPreview(op: DocumentFieldsOp | null): PreviewFieldChangeRow[] {
+  if (!op) return [];
+  const rows: PreviewFieldChangeRow[] = [];
+  if (op.programName !== undefined) rows.push({ field: "programName", newValue: op.programName });
+  if (op.owner !== undefined) rows.push({ field: "owner", newValue: op.owner });
+  if (op.reportsTo !== undefined) rows.push({ field: "reportsTo", newValue: op.reportsTo });
+  if (op.nextReviewDate !== undefined) rows.push({ field: "nextReviewDate", newValue: op.nextReviewDate });
+  return rows;
 }
 
 /** Resolves an ambiguous tie's candidate ids into display-ready rows for the clarifying-question UI (wayframe#38 item 1 / #39). */

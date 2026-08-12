@@ -13,8 +13,11 @@ import {
   buildAddPreview,
   buildAddTopLevelItemPreview,
   buildAmbiguousPreview,
+  buildAttachmentOpPreview,
+  buildBlufOpPreview,
   buildDeletePreview,
   buildDependencyOpPreview,
+  buildDocumentOpPreview,
   buildOpPreview,
   buildSkippedPreview,
   buildSwimlaneOpPreview,
@@ -39,6 +42,9 @@ export function CorrectionSidebar({ box, onNeedsEditor }: { box: UseCorrectionBo
   const topLevelOpRows = box.pending ? buildTopLevelItemOpPreview(box.data.topLevelItems, box.pending.topLevelItemOps) : [];
   const addTopLevelRows = box.pending ? buildAddTopLevelItemPreview(box.pending.addTopLevelItems) : [];
   const dependencyRows = box.pending ? buildDependencyOpPreview(box.data.milestones, box.pending.dependencyOps) : [];
+  const attachmentRows = box.pending ? buildAttachmentOpPreview(box.data.milestones, box.pending.attachmentOps) : [];
+  const blufRows = box.pending ? buildBlufOpPreview(box.pending.blufOp) : [];
+  const documentRows = box.pending ? buildDocumentOpPreview(box.pending.documentOp) : [];
   const ambiguous = box.pending?.ambiguous ? buildAmbiguousPreview(box.data.milestones, box.data.swimlanes, box.pending.ambiguous) : null;
   const hasCleanResolution =
     opRows.length > 0 ||
@@ -48,7 +54,10 @@ export function CorrectionSidebar({ box, onNeedsEditor }: { box: UseCorrectionBo
     swimlaneOpRows.length > 0 ||
     topLevelOpRows.length > 0 ||
     addTopLevelRows.length > 0 ||
-    dependencyRows.length > 0;
+    dependencyRows.length > 0 ||
+    attachmentRows.length > 0 ||
+    blufRows.length > 0 ||
+    documentRows.length > 0;
 
   function handleApply() {
     const ids = box.apply();
@@ -146,6 +155,21 @@ export function CorrectionSidebar({ box, onNeedsEditor }: { box: UseCorrectionBo
               {dependencyRows.map((d, i) => (
                 <li key={`dependency-${i}`}>
                   {d.add ? "+ Link" : "− Unlink"} {d.dependentTitle} {d.add ? "to depend on" : "from"} {d.dependencyTitle}
+                </li>
+              ))}
+              {attachmentRows.map((a, i) => (
+                <li key={`attachment-${i}`}>
+                  <span className="font-semibold">{a.action === "add" ? "+" : "−"} Attachment</span> on {a.targetTitle}: {a.detail}
+                </li>
+              ))}
+              {blufRows.map((b, i) => (
+                <li key={`bluf-${i}`}>
+                  BLUF {b.field} → <span className="font-semibold">{b.newValue}</span>
+                </li>
+              ))}
+              {documentRows.map((d, i) => (
+                <li key={`document-${i}`}>
+                  {d.field} → <span className="font-semibold">{d.newValue}</span>
                 </li>
               ))}
               {skippedRows.map((s) => (

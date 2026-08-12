@@ -145,6 +145,9 @@ describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
         topLevelItemOps: [],
         addTopLevelItems: [],
         dependencyOps: [],
+        attachmentOps: [],
+        blufOp: null,
+        documentOp: null,
         ambiguous: null,
       },
     };
@@ -170,6 +173,9 @@ describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
         topLevelItemOps: [],
         addTopLevelItems: [],
         dependencyOps: [],
+        attachmentOps: [],
+        blufOp: null,
+        documentOp: null,
         ambiguous: null,
       },
     };

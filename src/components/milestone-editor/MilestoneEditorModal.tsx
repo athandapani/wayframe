@@ -4,12 +4,12 @@
 // from wayframe#17's UI exploration (full prototype preserved on
 // prototype/milestone-editor-ui). Save behavior per wayframe#18: instant
 // apply (no preview step) through useCorrectionBox's shared reducer, so
-// undo covers this alongside AI corrections. dependsOn/attachments are
-// read-only here — editing those is a separate, deferred follow-up.
+// undo covers this alongside AI corrections. Attachments gained a real
+// add/remove/edit UI in wayframe#60 (previously read-only).
 import { useState } from "react";
-import type { Milestone, RoadmapData, Status } from "@/components/timeline/types";
+import type { Attachment, Milestone, RoadmapData, Status } from "@/components/timeline/types";
 import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMilestoneFields } from "@/lib/corrections/build-milestone-ops";
-import type { PatchOp } from "@/lib/corrections/schema";
+import type { AttachmentOp, PatchOp } from "@/lib/corrections/schema";
 import type { TraceDirection } from "@/lib/critical-path/trace";
 import { addDays } from "@/components/timeline/date-utils";
 
@@ -88,6 +88,78 @@ function EdgeEditor({
   );
 }
 
+/**
+ * Attachment rows (wayframe#55/#60) — real add/remove/edit, replacing the
+ * old "read-only for now" text. Edits apply immediately (mirrors
+ * EdgeEditor's pattern above), reading live from `milestone.attachments`
+ * rather than modal draft state, so a row's current value is always what's
+ * actually saved.
+ */
+function AttachmentEditor({
+  attachments,
+  onAdd,
+  onRemove,
+  onEdit,
+}: {
+  attachments: Attachment[];
+  onAdd: (attachment: Attachment) => void;
+  onRemove: (index: number) => void;
+  onEdit: (index: number, attachment: Attachment) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold text-zinc-500">Attachments</p>
+      {attachments.length === 0 ? (
+        <p className="mb-1.5 text-xs text-zinc-400">None</p>
+      ) : (
+        <ul className="mb-1.5 space-y-1.5">
+          {attachments.map((a, i) => (
+            <li key={i} className="flex items-center gap-1.5">
+              <select
+                aria-label={`Attachment ${i + 1} type`}
+                value={a.type}
+                onChange={(e) => onEdit(i, { ...a, type: e.target.value as Attachment["type"] })}
+                className="shrink-0 rounded border border-zinc-300 bg-transparent px-1 py-1 text-xs dark:border-zinc-600"
+              >
+                <option value="link">link</option>
+                <option value="image">image</option>
+              </select>
+              <input
+                aria-label={`Attachment ${i + 1} URL`}
+                value={a.url}
+                onChange={(e) => onEdit(i, { ...a, url: e.target.value })}
+                placeholder="https://…"
+                className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-1.5 py-1 text-xs dark:border-zinc-600"
+              />
+              <input
+                aria-label={`Attachment ${i + 1} label`}
+                value={a.label ?? ""}
+                onChange={(e) => onEdit(i, { ...a, label: e.target.value || undefined })}
+                placeholder="label (optional)"
+                className="w-24 shrink-0 rounded border border-zinc-300 bg-transparent px-1.5 py-1 text-xs dark:border-zinc-600"
+              />
+              <button
+                onClick={() => onRemove(i)}
+                aria-label={`Remove attachment ${i + 1}`}
+                className="shrink-0 rounded border border-zinc-300 px-1.5 text-[11px] text-zinc-500 hover:text-zinc-800 dark:border-zinc-600 dark:hover:text-zinc-200"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        onClick={() => onAdd({ type: "link", url: "" })}
+        className="rounded border border-zinc-300 px-2 py-1 text-[11px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
+      >
+        + Add attachment
+      </button>
+    </div>
+  );
+}
+
 // Keyed on milestone.id by the wrapper below so a fresh draft mounts per
 // selection, rather than resetting local state from an effect.
 function ModalForm({
@@ -97,6 +169,7 @@ function ModalForm({
   onClose,
   onDelete,
   onToggleDependency,
+  onEditAttachments,
   onTrace,
 }: {
   data: RoadmapData;
@@ -105,6 +178,7 @@ function ModalForm({
   onClose: () => void;
   onDelete: (id: string) => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
+  onEditAttachments: (ops: AttachmentOp[]) => void;
   onTrace: (direction: TraceDirection) => void;
 }) {
   const [draft, setDraft] = useState<EditableMilestoneFields>(() => milestoneToEditableFields(milestone));
@@ -276,7 +350,19 @@ function ModalForm({
                 ))}
               </div>
             </div>
-            <p className="text-xs text-zinc-400">Attachments: {milestone.attachments?.length ?? 0} — read-only for now.</p>
+            <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
+              <AttachmentEditor
+                attachments={milestone.attachments ?? []}
+                onAdd={(attachment) => onEditAttachments([{ targetId: milestone.id, action: "add", attachment, reason: "manual edit" }])}
+                onRemove={(index) => onEditAttachments([{ targetId: milestone.id, action: "remove", index, reason: "manual edit" }])}
+                onEdit={(index, attachment) =>
+                  onEditAttachments([
+                    { targetId: milestone.id, action: "remove", index, reason: "manual edit" },
+                    { targetId: milestone.id, action: "add", attachment, index, reason: "manual edit" },
+                  ])
+                }
+              />
+            </div>
           </div>
         </div>
 
@@ -315,6 +401,7 @@ export function MilestoneEditorModal({
   onClose,
   onDelete,
   onToggleDependency,
+  onEditAttachments,
   onTrace,
 }: {
   data: RoadmapData;
@@ -323,6 +410,7 @@ export function MilestoneEditorModal({
   onClose: () => void;
   onDelete: (id: string) => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
+  onEditAttachments: (ops: AttachmentOp[]) => void;
   onTrace: (direction: TraceDirection) => void;
 }) {
   if (!milestone) return null;
@@ -335,6 +423,7 @@ export function MilestoneEditorModal({
       onClose={onClose}
       onDelete={onDelete}
       onToggleDependency={onToggleDependency}
+      onEditAttachments={onEditAttachments}
       onTrace={onTrace}
     />
   );

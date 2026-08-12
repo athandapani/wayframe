@@ -183,7 +183,13 @@ export const SkippedSchema = z.object({
   reason: z.string().min(1),
 });
 
-/** The field literals a free-text correction can target — mirrors PatchOpSchema's discriminant. */
+/**
+ * The field literals a free-text correction can target — mirrors
+ * PatchOpSchema's discriminant. `showReferenceLine`/`endDate` were already
+ * real PatchOpSchema variants (wayframe#15/#48, plumbed for the manual
+ * editor) but never listed here, so the AI path could never reach them — a
+ * near-miss closed by wayframe#60, not a new field.
+ */
 export const CORRECTION_FIELDS = [
   "date",
   "status",
@@ -193,6 +199,8 @@ export const CORRECTION_FIELDS = [
   "comment",
   "isCriticalPathOverride",
   "shortLabel",
+  "showReferenceLine",
+  "endDate",
 ] as const;
 const FieldEnum = z.enum(CORRECTION_FIELDS);
 
@@ -235,6 +243,13 @@ export function coercePatchOp(raw: RawPatchOp): { ok: true; op: PatchOp } | { ok
       return { ok: false, issue: `op for "${raw.targetId}": isCriticalPathOverride newValue "${raw.newValue}" isn't true/false` };
     }
     return { ok: true, op: { targetId: raw.targetId, field: "isCriticalPathOverride", newValue: v === "true", reason: raw.reason } };
+  }
+  if (raw.field === "showReferenceLine") {
+    const v = raw.newValue.trim().toLowerCase();
+    if (v !== "true" && v !== "false") {
+      return { ok: false, issue: `op for "${raw.targetId}": showReferenceLine newValue "${raw.newValue}" isn't true/false` };
+    }
+    return { ok: true, op: { targetId: raw.targetId, field: "showReferenceLine", newValue: v === "true", reason: raw.reason } };
   }
   const parsed = PatchOpSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, issue: `op for "${raw.targetId}": ${parsed.error.issues.map((i) => i.message).join("; ")}` };
@@ -382,6 +397,88 @@ export const AmbiguousChoiceSchema = z.object({
 export type AmbiguousCandidate = z.infer<typeof AmbiguousCandidateSchema>;
 export type AmbiguousChoice = z.infer<typeof AmbiguousChoiceSchema>;
 
+/**
+ * BLUF (So-what) edit (wayframe#55/#60) — one op, not targetId-addressed:
+ * bluf is a single document-level entity (RoadmapData.bluf), the same
+ * reasoning that keeps addMilestones' laneId required rather than every op
+ * being self-describing. Mirrors editBluf's existing manual reducer action
+ * (use-correction-box.ts) field-for-field, minus `size` — that's a resize
+ * gesture, not something a free-text request plausibly asks for.
+ */
+export const BlufOpSchema = z.object({
+  statement: z.string().optional(),
+  bullets: z.array(z.string()).optional(),
+  label: z.string().optional(),
+  reason: z.string().min(1),
+});
+export type BlufOp = z.infer<typeof BlufOpSchema>;
+
+/**
+ * Document-header fields (wayframe#55/#60) — programName/owner/reportsTo/
+ * nextReviewDate all live at the RoadmapData root, one op shape for the same
+ * reason as blufOp: there's exactly one of each per document, no id to
+ * target.
+ */
+export const DocumentFieldsOpSchema = z.object({
+  programName: z.string().optional(),
+  owner: z.string().optional(),
+  reportsTo: z.string().optional(),
+  nextReviewDate: z.string().optional(),
+  reason: z.string().min(1),
+});
+export type DocumentFieldsOp = z.infer<typeof DocumentFieldsOpSchema>;
+
+/** Mirrors the existing Attachment type (components/timeline/types.ts). */
+export const AttachmentSchema = z.object({
+  type: z.enum(["image", "link"]),
+  url: z.string().min(1),
+  label: z.string().optional(),
+});
+export type AttachmentInput = z.infer<typeof AttachmentSchema>;
+
+/**
+ * Milestone.attachments management (wayframe#55/#60) — add-one/remove-one,
+ * never a whole-list replace: the model isn't asked to echo back every
+ * attachment a milestone already has just to add or drop one. `index` on
+ * "add" is optional and manual-editor-only (lets the modal's in-place row
+ * edit reuse this same op as remove-then-reinsert-at-position); the AI path
+ * never sets it, so a model-proposed add always appends.
+ */
+export const AttachmentOpSchema = z.discriminatedUnion("action", [
+  z.object({ targetId: z.string().min(1), action: z.literal("add"), attachment: AttachmentSchema, index: z.number().int().min(0).optional(), reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), action: z.literal("remove"), index: z.number().int().min(0), reason: z.string().min(1) }),
+]);
+export type AttachmentOp = z.infer<typeof AttachmentOpSchema>;
+
+/** Flat tool-call shape, coerced below — same split as RawSwimlaneOpSchema/coerceSwimlaneOp. */
+export const RawAttachmentOpSchema = z.object({
+  targetId: z.string().min(1),
+  action: z.enum(["add", "remove"]),
+  type: z.enum(["image", "link"]).optional(),
+  url: z.string().optional(),
+  label: z.string().optional(),
+  index: z.number().optional(),
+  reason: z.string().min(1),
+});
+export type RawAttachmentOp = z.infer<typeof RawAttachmentOpSchema>;
+
+export function coerceAttachmentOp(raw: RawAttachmentOp): { ok: true; op: AttachmentOp } | { ok: false; issue: string } {
+  if (raw.action === "remove") {
+    if (raw.index === undefined) return { ok: false, issue: `attachmentOp "remove" for "${raw.targetId}": needs an index` };
+    const parsed = AttachmentOpSchema.safeParse({ targetId: raw.targetId, action: "remove", index: raw.index, reason: raw.reason });
+    if (!parsed.success) return { ok: false, issue: `attachmentOp "remove" for "${raw.targetId}": ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+    return { ok: true, op: parsed.data };
+  }
+  const parsed = AttachmentOpSchema.safeParse({
+    targetId: raw.targetId,
+    action: "add",
+    attachment: { type: raw.type, url: raw.url, label: raw.label || undefined },
+    reason: raw.reason,
+  });
+  if (!parsed.success) return { ok: false, issue: `attachmentOp "add" for "${raw.targetId}": needs type (image|link) and a url` };
+  return { ok: true, op: parsed.data };
+}
+
 /** Shape the tool call's raw JSON is validated against, before op coercion. */
 export const RawCorrectionResponseSchema = z.object({
   ops: z.array(RawPatchOpSchema).default([]),
@@ -391,6 +488,9 @@ export const RawCorrectionResponseSchema = z.object({
   topLevelItemOps: z.array(RawTopLevelItemOpSchema).default([]),
   addTopLevelItems: z.array(RawAddTopLevelItemOpSchema).default([]),
   dependencyOps: z.array(DependencyOpSchema).default([]),
+  attachmentOps: z.array(RawAttachmentOpSchema).default([]),
+  blufOp: BlufOpSchema.nullable().default(null),
+  documentOp: DocumentFieldsOpSchema.nullable().default(null),
   skipped: z.array(SkippedSchema).default([]),
   ambiguous: AmbiguousChoiceSchema.nullable().default(null),
 });
@@ -404,6 +504,9 @@ export const CorrectionResponseSchema = z.object({
   topLevelItemOps: z.array(TopLevelItemOpSchema).default([]),
   addTopLevelItems: z.array(AddTopLevelItemOpSchema).default([]),
   dependencyOps: z.array(DependencyOpSchema).default([]),
+  attachmentOps: z.array(AttachmentOpSchema).default([]),
+  blufOp: BlufOpSchema.nullable().default(null),
+  documentOp: DocumentFieldsOpSchema.nullable().default(null),
   skipped: z.array(SkippedSchema).default([]),
   ambiguous: AmbiguousChoiceSchema.nullable().default(null),
 });
@@ -473,6 +576,11 @@ export function findUnknownTargets(
     }
     if (!knownIds.has(op.dependencyId)) {
       problems.push(`dependencyOp references unknown dependencyId "${op.dependencyId}"`);
+    }
+  }
+  for (const op of response.attachmentOps) {
+    if (!knownIds.has(op.targetId)) {
+      problems.push(`attachmentOp references unknown targetId "${op.targetId}"`);
     }
   }
   if (response.ambiguous) {

@@ -43,7 +43,7 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
               description:
                 "Always a string, whatever the field's real type: for field=date, the shifted ISO date (YYYY-MM-DD); for field=status, one of " +
                 STATUS_ENUM.join("|") +
-                "; for field=percentComplete, an integer 0-100 as a string; for field=isCriticalPathOverride, the literal string \"true\" or \"false\"; for title/owner/comment/shortLabel, the literal new text.",
+                "; for field=percentComplete, an integer 0-100 as a string; for field=isCriticalPathOverride or field=showReferenceLine, the literal string \"true\" or \"false\"; for field=endDate, an ISO date (YYYY-MM-DD), or an empty string to clear it (converts a duration pill back into a point milestone); for title/owner/comment/shortLabel, the literal new text.",
             },
             reason: { type: "string", description: "Short explanation of why this milestone matched the request." },
           },
@@ -145,6 +145,46 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
           },
           required: ["dependentId", "dependencyId", "add", "reason"],
         },
+      },
+      attachmentOps: {
+        type: "array",
+        description: "Adds or removes one attachment (image/link) on a milestone. Never a whole-list replace — to add one, don't also re-list the milestone's existing attachments.",
+        items: {
+          type: "object",
+          properties: {
+            targetId: { type: "string", description: "Real id of the milestone this attachment belongs to." },
+            action: { type: "string", enum: ["add", "remove"] },
+            type: { type: "string", enum: ["image", "link"], description: "Required for action=add." },
+            url: { type: "string", description: "Required for action=add." },
+            label: { type: "string", description: "Optional for action=add." },
+            index: { type: "number", description: "Required for action=remove: the attachment's position (0-based) in that milestone's attachment list, as given to you." },
+            reason: { type: "string", description: "Short explanation of what matched and why." },
+          },
+          required: ["targetId", "action", "reason"],
+        },
+      },
+      blufOp: {
+        type: ["object", "null"],
+        description: "Edits the roadmap's single BLUF (\"so what\") panel — its statement, bullet list, or label. Not targetId-addressed; there's exactly one per document. Omit any field the request doesn't touch. Set to null if the request isn't about the BLUF panel.",
+        properties: {
+          statement: { type: "string", description: "The BLUF panel's headline statement, if the request changes it." },
+          bullets: { type: "array", items: { type: "string" }, description: "The full replacement bullet list, if the request changes it — always the complete list, not just an added/removed bullet." },
+          label: { type: "string", description: "The panel's heading label (defaults to \"So what\" if never set), if the request changes it." },
+          reason: { type: "string", description: "Short explanation of what matched and why." },
+        },
+        required: ["reason"],
+      },
+      documentOp: {
+        type: ["object", "null"],
+        description: "Edits the roadmap's document-header fields — programName, owner, reportsTo, or nextReviewDate. Not targetId-addressed; there's exactly one of each per document. Omit any field the request doesn't touch. Set to null if the request isn't about these.",
+        properties: {
+          programName: { type: "string", description: "The roadmap's program name, if the request renames it." },
+          owner: { type: "string", description: "The program owner's name, if the request changes it." },
+          reportsTo: { type: "string", description: "Who the program owner reports to, if the request changes it." },
+          nextReviewDate: { type: "string", description: "ISO date (YYYY-MM-DD) of the next scheduled review, if the request changes it." },
+          reason: { type: "string", description: "Short explanation of what matched and why." },
+        },
+        required: ["reason"],
       },
       skipped: {
         type: "array",

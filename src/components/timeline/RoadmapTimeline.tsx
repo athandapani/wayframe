@@ -839,6 +839,8 @@ export interface RoadmapTimelineProps {
   boxScale?: number;
   /** Opt-in period-boundary gridlines (wayframe#44/#53) — a viewer preference, see use-period-gridlines.ts. */
   periodGridlineStyle?: PeriodGridlineStyle;
+  /** Click-to-edit on programName/owner in the chart header (wayframe#55/#60) — omit to keep them static text (dev preview / off-screen export capture). */
+  onEditDocument?: (patch: { programName?: string; owner?: string }) => void;
 }
 
 export function RoadmapTimeline({
@@ -865,6 +867,7 @@ export function RoadmapTimeline({
   metricsScale = 1,
   boxScale = 1,
   periodGridlineStyle = "year-line",
+  onEditDocument,
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -881,6 +884,17 @@ export function RoadmapTimeline({
    * left alone so a click still opens the editor.
    */
   const [drag, setDrag] = useState<{ id: string; startX: number; dx: number; moved: boolean } | null>(null);
+
+  // Click-to-edit on programName/owner (wayframe#55/#60) — plain text, not
+  // rich text like the BLUF panel, so a bare foreignObject<input> is enough
+  // rather than RichTextEditableLine's contentEditable/Range-API machinery.
+  const [editingHeaderField, setEditingHeaderField] = useState<"programName" | "owner" | null>(null);
+  const [headerDraft, setHeaderDraft] = useState("");
+
+  function commitHeaderEdit() {
+    if (editingHeaderField) onEditDocument?.({ [editingHeaderField]: headerDraft });
+    setEditingHeaderField(null);
+  }
 
   // Drag-to-reposition-with-connector (wayframe#51, generalized to every
   // label type in wayframe#47). One shared mechanism covers reference-line
@@ -1158,6 +1172,8 @@ export function RoadmapTimeline({
   if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
 
   const programNameLines = wrapText(data.programName, Math.max(6, Math.floor(26 / metricsScale)), 3);
+  const headerY = topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14);
+  const ownerY = headerY + programNameLines.length * 15 * fontScale + 4 * fontScale;
 
   return (
     <div ref={containerRef} className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
@@ -1253,28 +1269,99 @@ export function RoadmapTimeline({
             for. Wrapped to the header column since real programme names
             don't fit on one line. The char budget shrinks as metricsScale
             grows so wider glyphs still wrap inside the same header column
-            instead of running into the phase timeline beside it. */}
-        {programNameLines.map((line, i) => (
+            instead of running into the phase timeline beside it.
+            Click-to-edit (wayframe#55/#60) — plain text, not the BLUF
+            panel's rich-text surface, so a single-line input covers
+            multi-line wrapped display; the underlying field is one string
+            either way. */}
+        {editingHeaderField === "programName" ? (
+          <foreignObject x={14} y={headerY - 14 * fontScale} width={260} height={22 * fontScale}>
+            <input
+              autoFocus
+              value={headerDraft}
+              onChange={(e) => setHeaderDraft(e.target.value)}
+              onBlur={commitHeaderEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitHeaderEdit();
+                if (e.key === "Escape") setEditingHeaderField(null);
+              }}
+              aria-label="Program name"
+              style={{ fontSize: 13 * fontScale, fontWeight: 700, color: theme.ink, background: theme.ground, width: "100%", border: `1px dashed ${theme.ink}`, outline: "none", padding: "0 2px" }}
+            />
+          </foreignObject>
+        ) : (
+          programNameLines.map((line, i) => (
+            <text
+              key={i}
+              x={16}
+              y={headerY + i * 15 * fontScale}
+              fontSize={13 * fontScale}
+              fontWeight={700}
+              fill={theme.ink}
+              className={onEditDocument ? "cursor-text" : undefined}
+              onClick={
+                onEditDocument
+                  ? () => {
+                      setHeaderDraft(data.programName);
+                      setEditingHeaderField("programName");
+                    }
+                  : undefined
+              }
+            >
+              {line}
+            </text>
+          ))
+        )}
+        {editingHeaderField === "owner" ? (
+          <foreignObject x={14} y={ownerY - 10 * fontScale} width={220} height={18 * fontScale}>
+            <input
+              autoFocus
+              value={headerDraft}
+              onChange={(e) => setHeaderDraft(e.target.value)}
+              onBlur={commitHeaderEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitHeaderEdit();
+                if (e.key === "Escape") setEditingHeaderField(null);
+              }}
+              aria-label="Program owner"
+              style={{ fontSize: 10 * fontScale, color: theme.inkMuted, background: theme.ground, width: "100%", border: `1px dashed ${theme.inkMuted}`, outline: "none", padding: "0 2px" }}
+            />
+          </foreignObject>
+        ) : data.owner ? (
           <text
-            key={i}
             x={16}
-            y={topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14) + i * 15 * fontScale}
-            fontSize={13 * fontScale}
-            fontWeight={700}
-            fill={theme.ink}
-          >
-            {line}
-          </text>
-        ))}
-        {data.owner && (
-          <text
-            x={16}
-            y={topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14) + programNameLines.length * 15 * fontScale + 4 * fontScale}
+            y={ownerY}
             fontSize={10 * fontScale}
             fill={theme.inkMuted}
+            className={onEditDocument ? "cursor-text" : undefined}
+            onClick={
+              onEditDocument
+                ? () => {
+                    setHeaderDraft(data.owner);
+                    setEditingHeaderField("owner");
+                  }
+                : undefined
+            }
           >
             {data.owner}
           </text>
+        ) : (
+          onEditDocument && (
+            <text
+              x={16}
+              y={ownerY}
+              fontSize={10 * fontScale}
+              fill={theme.inkMuted}
+              opacity={0.6}
+              className="cursor-text"
+              onClick={() => {
+                setHeaderDraft("");
+                setEditingHeaderField("owner");
+              }}
+            >
+              + Add owner
+            </text>
+          )
         )}
         {data.topLevelItems.map((t: TopLevelItem) => {
           const y = topBandY + topBandHeight / 2;

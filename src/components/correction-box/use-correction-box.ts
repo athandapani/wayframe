@@ -7,15 +7,18 @@ import {
   type AddMilestoneOp,
   type AddTopLevelItemOp,
   type AmbiguousChoice,
+  type AttachmentOp,
+  type BlufOp,
   type DeleteOp,
   type DependencyOp,
+  type DocumentFieldsOp,
   type PatchOp,
   type Skipped,
   type SwimlaneOp,
   type TopLevelItemOp,
 } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
-import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
+import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
 import {
   addSwimlaneOp,
   applyDeletes,
@@ -71,6 +74,12 @@ export interface PendingPatch {
   addTopLevelItems: AddTopLevelItemOp[];
   /** Dependency-edge add/remove, optionally setting showConnector (wayframe#59). */
   dependencyOps: DependencyOp[];
+  /** Milestone attachment add/remove, one op per attachment (wayframe#55/#60). */
+  attachmentOps: AttachmentOp[];
+  /** BLUF panel edit — statement/bullets/label — not targetId-addressed (wayframe#55/#60). */
+  blufOp: BlufOp | null;
+  /** Document-header edit — programName/owner/reportsTo/nextReviewDate — not targetId-addressed (wayframe#55/#60). */
+  documentOp: DocumentFieldsOp | null;
   /** A tied match needing a clarifying answer before it can become an op — see resolveAmbiguous. */
   ambiguous: AmbiguousChoice | null;
 }
@@ -99,6 +108,8 @@ export type CorrectionBoxAction =
   | { type: "editMilestone"; ops: PatchOp[] }
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
   | { type: "editBluf"; patch: Partial<RoadmapData["bluf"]> }
+  | { type: "editDocument"; patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">> }
+  | { type: "editAttachments"; ops: AttachmentOp[] }
   | { type: "loadDocument"; data: RoadmapData }
   | { type: "hydrated"; data: RoadmapData }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
@@ -147,15 +158,30 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const edited = applyOps(state.data.milestones, state.pending.ops);
       const added = applyAddMilestoneOps(action.adds);
       const withDependencyOps = applyDependencyOps([...edited, ...added], state.pending.dependencyOps);
-      const withMilestoneOps = { ...state.data, milestones: withDependencyOps };
+      const withAttachmentOps = applyAttachmentOps(withDependencyOps, state.pending.attachmentOps);
+      const withMilestoneOps = { ...state.data, milestones: withAttachmentOps };
       const withDeletes = applyDeletes(withMilestoneOps, state.pending.deletes);
       const withSwimlaneOps = applySwimlaneOps(withDeletes, action.resolvedSwimlaneOps);
       const editedTopLevel = applyTopLevelItemOps(withSwimlaneOps.topLevelItems, state.pending.topLevelItemOps);
       const addedTopLevel = applyAddTopLevelItemOps(action.resolvedTopLevelAdds);
       const withTopLevelOps = { ...withSwimlaneOps, topLevelItems: [...editedTopLevel, ...addedTopLevel] };
+      // blufOp/documentOp are document-level, not per-milestone — merged in
+      // directly rather than routed through an apply.ts helper, same "single
+      // entity" reasoning that keeps them out of PatchOp's targetId scheme.
+      const { blufOp, documentOp } = state.pending;
+      const withBluf = blufOp ? { ...withTopLevelOps, bluf: { ...withTopLevelOps.bluf, ...(blufOp.statement !== undefined && { statement: blufOp.statement }), ...(blufOp.bullets !== undefined && { bullets: blufOp.bullets }), ...(blufOp.label !== undefined && { label: blufOp.label }) } } : withTopLevelOps;
+      const withDocument = documentOp
+        ? {
+            ...withBluf,
+            ...(documentOp.programName !== undefined && { programName: documentOp.programName }),
+            ...(documentOp.owner !== undefined && { owner: documentOp.owner }),
+            ...(documentOp.reportsTo !== undefined && { reportsTo: documentOp.reportsTo }),
+            ...(documentOp.nextReviewDate !== undefined && { nextReviewDate: documentOp.nextReviewDate }),
+          }
+        : withBluf;
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(withTopLevelOps)),
+        data: stampUpdated(withComputedCriticalPath(withDocument)),
         history: [...state.history, state.data],
         pending: null,
         error: null,
@@ -236,6 +262,29 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated({ ...state.data, bluf: { ...state.data.bluf, ...action.patch } }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "editDocument": {
+      // Click-to-edit on programName/owner (chart header, RoadmapTimeline)
+      // and reportsTo/nextReviewDate (Executive view) (wayframe#55/#60) —
+      // same instant-save, shared-undo-stack treatment as editBluf.
+      return {
+        ...state,
+        data: stampUpdated({ ...state.data, ...action.patch }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "editAttachments": {
+      // Manual add/remove/edit-row in MilestoneEditorModal (wayframe#55/#60)
+      // — routes through the same applyAttachmentOps the AI attachmentOps
+      // path uses (an in-place row edit is remove-then-add at that index),
+      // per the standing rule adopted in #55/#56.
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyAttachmentOps(state.data.milestones, action.ops) })),
         history: [...state.history, state.data],
         error: null,
       };
@@ -480,6 +529,8 @@ export interface UseCorrectionBoxResult {
   editMilestone: (ops: PatchOp[]) => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
   editBluf: (patch: Partial<RoadmapData["bluf"]>) => void;
+  editDocument: (patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => void;
+  editAttachments: (ops: AttachmentOp[]) => void;
   setLaneColor: (laneId: string, color: string | undefined) => void;
   /** Creates a milestone (or, with endDate, a phase) in the lane and returns its id so the caller can open it. */
   addMilestone: (laneId: string, date: string, endDate?: string) => string;
@@ -589,6 +640,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
               laneName: laneNameById.get(m.laneId) ?? "",
               date: m.date,
               status: m.status,
+              // Given so attachmentOps "remove" can reference a real
+              // 0-based index (wayframe#60) — omitted when there are none.
+              ...(m.attachments && m.attachments.length > 0 && { attachments: m.attachments }),
             })),
             lanes: state.data.swimlanes.filter((l) => l.type === "lane").map((l) => ({ id: l.id, name: l.name })),
             // Full swimlane list, including separators — deletes and the
@@ -607,6 +661,14 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
                   ? { id: t.id, type: "annotation", title: t.title, date: t.date, message: t.message }
                   : { id: t.id, type: "milestone", title: t.title, date: t.date, status: t.status },
             ),
+            // Document-header + BLUF current values, for blufOp/documentOp (wayframe#60).
+            document: {
+              programName: state.data.programName,
+              owner: state.data.owner,
+              reportsTo: state.data.reportsTo,
+              nextReviewDate: state.data.nextReviewDate,
+              bluf: { statement: state.data.bluf.statement, bullets: state.data.bluf.bullets, label: state.data.bluf.label },
+            },
           }),
         });
         const body = await res.json().catch(() => null);
@@ -624,6 +686,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const topLevelItemOps: TopLevelItemOp[] = body.patch.topLevelItemOps ?? [];
         const addTopLevelItems: AddTopLevelItemOp[] = body.patch.addTopLevelItems ?? [];
         const dependencyOps: DependencyOp[] = body.patch.dependencyOps ?? [];
+        const attachmentOps: AttachmentOp[] = body.patch.attachmentOps ?? [];
+        const blufOp: BlufOp | null = body.patch.blufOp ?? null;
+        const documentOp: DocumentFieldsOp | null = body.patch.documentOp ?? null;
         const ambiguous: AmbiguousChoice | null = body.patch.ambiguous ?? null;
 
         if (
@@ -635,6 +700,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
           topLevelItemOps.length === 0 &&
           addTopLevelItems.length === 0 &&
           dependencyOps.length === 0 &&
+          attachmentOps.length === 0 &&
+          !blufOp &&
+          !documentOp &&
           !ambiguous
         ) {
           dispatch({ type: "requestFailed", error: `No milestones matched "${text}"` });
@@ -644,7 +712,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const ops = applyCascade(state.data.milestones, directOps);
         dispatch({
           type: "proposed",
-          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps, addTopLevelItems, dependencyOps, ambiguous },
+          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps, addTopLevelItems, dependencyOps, attachmentOps, blufOp, documentOp, ambiguous },
         });
       } catch (err) {
         dispatch({ type: "requestFailed", error: err instanceof Error ? err.message : "Correction request failed." });
@@ -686,6 +754,11 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
   const editBluf = useCallback((patch: Partial<RoadmapData["bluf"]>) => dispatch({ type: "editBluf", patch }), []);
+  const editDocument = useCallback(
+    (patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => dispatch({ type: "editDocument", patch }),
+    [],
+  );
+  const editAttachments = useCallback((ops: AttachmentOp[]) => dispatch({ type: "editAttachments", ops }), []);
   const setLaneColor = useCallback((laneId: string, color: string | undefined) => dispatch({ type: "setLaneColor", laneId, color }), []);
   const addMilestone = useCallback((laneId: string, date: string, endDate?: string) => {
     const newId = nanoid();
@@ -728,6 +801,8 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     editMilestone,
     editTopLevelItem,
     editBluf,
+    editDocument,
+    editAttachments,
     setLaneColor,
     addMilestone,
     addTopLevelItem,

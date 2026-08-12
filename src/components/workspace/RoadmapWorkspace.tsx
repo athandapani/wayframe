@@ -83,6 +83,7 @@ function RoadmapView({
   blufOpen,
   onBlufOpenChange,
   onBlufEdit,
+  onEditDocument,
   soWhatFillColor,
   soWhatFillTransparency,
   onMilestoneClick,
@@ -113,6 +114,8 @@ function RoadmapView({
   onBlufOpenChange: (open: boolean) => void;
   /** Omit for the off-screen export capture — that copy has no document to write back into. */
   onBlufEdit?: (patch: Partial<RoadmapData["bluf"]>) => void;
+  /** Click-to-edit on programName/owner (program view) and reportsTo/nextReviewDate (executive view) (wayframe#55/#60) — omit for the off-screen export capture. */
+  onEditDocument?: (patch: { programName?: string; owner?: string; reportsTo?: string; nextReviewDate?: string }) => void;
   soWhatFillColor?: string | null;
   soWhatFillTransparency?: number;
   onMilestoneClick?: (m: { id: string }) => void;
@@ -169,6 +172,7 @@ function RoadmapView({
           fontScale={fontScale}
           fontFamily={fontFamily}
           metricsScale={fontScale}
+          onEditDocument={onEditDocument}
         />
         {legend}
         <BlufCallout
@@ -185,7 +189,7 @@ function RoadmapView({
   }
   return (
     <div className="pt-16" style={{ background: theme.ground, color: theme.ink }}>
-      <ExecutiveView data={data} today={today} timelineSummary={timelineSummary} />
+      <ExecutiveView data={data} today={today} timelineSummary={timelineSummary} onEditDocument={onEditDocument} />
     </div>
   );
 }
@@ -757,6 +761,7 @@ export function RoadmapWorkspace({
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
             onBlufEdit={box.editBluf}
+            onEditDocument={box.editDocument}
             soWhatFillColor={soWhat.color}
             soWhatFillTransparency={soWhat.transparency}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
@@ -817,6 +822,7 @@ export function RoadmapWorkspace({
         onClose={() => setSelectedMilestoneId(null)}
         onDelete={handleDeleteMilestone}
         onToggleDependency={box.toggleDependency}
+        onEditAttachments={box.editAttachments}
         onTrace={(direction) => {
           if (selectedMilestoneId) setTrace({ rootId: selectedMilestoneId, direction });
           setSelectedMilestoneId(null);

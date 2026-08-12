@@ -15,8 +15,11 @@ import {
   buildAddPreview,
   buildAddTopLevelItemPreview,
   buildAmbiguousPreview,
+  buildAttachmentOpPreview,
+  buildBlufOpPreview,
   buildDeletePreview,
   buildDependencyOpPreview,
+  buildDocumentOpPreview,
   buildOpPreview,
   buildSkippedPreview,
   buildSwimlaneOpPreview,
@@ -46,6 +49,9 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
   const topLevelOpRows = box.pending ? buildTopLevelItemOpPreview(box.data.topLevelItems, box.pending.topLevelItemOps) : [];
   const addTopLevelRows = box.pending ? buildAddTopLevelItemPreview(box.pending.addTopLevelItems) : [];
   const dependencyRows = box.pending ? buildDependencyOpPreview(box.data.milestones, box.pending.dependencyOps) : [];
+  const attachmentRows = box.pending ? buildAttachmentOpPreview(box.data.milestones, box.pending.attachmentOps) : [];
+  const blufRows = box.pending ? buildBlufOpPreview(box.pending.blufOp) : [];
+  const documentRows = box.pending ? buildDocumentOpPreview(box.pending.documentOp) : [];
   const ambiguous = box.pending?.ambiguous ? buildAmbiguousPreview(box.data.milestones, box.data.swimlanes, box.pending.ambiguous) : null;
   const hasCleanResolution =
     opRows.length > 0 ||
@@ -55,7 +61,10 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
     swimlaneOpRows.length > 0 ||
     topLevelOpRows.length > 0 ||
     addTopLevelRows.length > 0 ||
-    dependencyRows.length > 0;
+    dependencyRows.length > 0 ||
+    attachmentRows.length > 0 ||
+    blufRows.length > 0 ||
+    documentRows.length > 0;
 
   function handleApply() {
     onNeedsEditor?.(box.apply());
@@ -147,6 +156,29 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
                 <span className="font-medium">{d.dependencyTitle}</span>
                 {d.add && d.showConnector !== undefined ? (d.showConnector ? " (visible connector)" : " (no connector line)") : ""}
                 <span className="text-zinc-400"> ({d.reason})</span>
+              </li>
+            ))}
+            {attachmentRows.map((a, i) => (
+              <li key={`attachment-${i}`}>
+                {a.action === "add" ? (
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">+ Attachment</span>
+                ) : (
+                  <span className="font-semibold text-red-600 dark:text-red-400">− Attachment</span>
+                )}{" "}
+                on <span className="font-medium">{a.targetTitle}</span>: {a.detail}
+                <span className="text-zinc-400"> ({a.reason})</span>
+              </li>
+            ))}
+            {blufRows.map((b, i) => (
+              <li key={`bluf-${i}`}>
+                BLUF <span className="font-medium">{b.field}</span> →{" "}
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">{b.newValue}</span>
+              </li>
+            ))}
+            {documentRows.map((d, i) => (
+              <li key={`document-${i}`}>
+                <span className="font-medium">{d.field}</span> →{" "}
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">{d.newValue}</span>
               </li>
             ))}
             {skippedRows.map((s) => (

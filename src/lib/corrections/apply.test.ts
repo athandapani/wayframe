@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Milestone, TopLevelItem } from "@/components/timeline/types";
-import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "./apply";
-import type { AddTopLevelItemOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
+import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "./apply";
+import type { AddTopLevelItemOp, AttachmentOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
 
 function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date">): Milestone {
   return {
@@ -182,5 +182,49 @@ describe("applyDependencyOps (wayframe#59)", () => {
     const ops: DependencyOp[] = [{ dependentId: "a", dependencyId: "a", add: true, reason: "r" }];
     const result = applyDependencyOps(milestones, ops);
     expect(result[0].dependsOn).toEqual([]);
+  });
+});
+
+describe("applyAttachmentOps (wayframe#55/#60)", () => {
+  it("appends an attachment when no index is given", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01", attachments: [{ type: "link", url: "https://a" }] })];
+    const ops: AttachmentOp[] = [{ targetId: "m1", action: "add", attachment: { type: "image", url: "https://b" }, reason: "r" }];
+    const result = applyAttachmentOps(milestones, ops);
+    expect(result[0].attachments).toEqual([{ type: "link", url: "https://a" }, { type: "image", url: "https://b" }]);
+  });
+
+  it("creates the attachments array when the milestone has none yet", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01" })];
+    const ops: AttachmentOp[] = [{ targetId: "m1", action: "add", attachment: { type: "link", url: "https://a" }, reason: "r" }];
+    const result = applyAttachmentOps(milestones, ops);
+    expect(result[0].attachments).toEqual([{ type: "link", url: "https://a" }]);
+  });
+
+  it("removes the attachment at the given index", () => {
+    const milestones = [
+      milestone({ id: "m1", date: "2026-01-01", attachments: [{ type: "link", url: "https://a" }, { type: "link", url: "https://b" }] }),
+    ];
+    const ops: AttachmentOp[] = [{ targetId: "m1", action: "remove", index: 0, reason: "r" }];
+    const result = applyAttachmentOps(milestones, ops);
+    expect(result[0].attachments).toEqual([{ type: "link", url: "https://b" }]);
+  });
+
+  it("reinserts at a given index — remove-then-add-at-index models the manual editor's in-place row edit", () => {
+    const milestones = [
+      milestone({ id: "m1", date: "2026-01-01", attachments: [{ type: "link", url: "https://a" }, { type: "link", url: "https://b" }] }),
+    ];
+    const ops: AttachmentOp[] = [
+      { targetId: "m1", action: "remove", index: 0, reason: "r" },
+      { targetId: "m1", action: "add", attachment: { type: "image", url: "https://edited" }, index: 0, reason: "r" },
+    ];
+    const result = applyAttachmentOps(milestones, ops);
+    expect(result[0].attachments).toEqual([{ type: "image", url: "https://edited" }, { type: "link", url: "https://b" }]);
+  });
+
+  it("leaves milestones with no matching op untouched", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01" }), milestone({ id: "m2", date: "2026-02-01" })];
+    const ops: AttachmentOp[] = [{ targetId: "m1", action: "add", attachment: { type: "link", url: "https://a" }, reason: "r" }];
+    const result = applyAttachmentOps(milestones, ops);
+    expect(result[1]).toBe(milestones[1]);
   });
 });

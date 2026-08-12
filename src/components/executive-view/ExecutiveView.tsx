@@ -6,6 +6,7 @@
 // carried through as supporting subtext.
 "use client";
 
+import { useState } from "react";
 import type { RoadmapData } from "../timeline/types";
 import { formatDateShort } from "../timeline/date-utils";
 import { laneRollups, topRisks, type Rag } from "./rag";
@@ -21,15 +22,76 @@ const RAG_BG: Record<Rag, string> = {
 const RAG_BORDER: Record<Rag, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
 const TREND_ARROW = { up: "↑", down: "↓", flat: "→" };
 
+/**
+ * Plain-text click-to-edit (wayframe#55/#60) — reportsTo/nextReviewDate were
+ * populated by extraction but rendered nowhere until this ticket. Same
+ * interaction family as RoadmapTimeline's header click-to-edit (a single
+ * text field, not the BLUF panel's rich-text surface), just an HTML input
+ * instead of a foreignObject one since this component isn't inside an SVG.
+ */
+function EditableHeaderField({
+  label,
+  value,
+  type = "text",
+  onCommit,
+}: {
+  label: string;
+  value: string | undefined;
+  type?: "text" | "date";
+  onCommit: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type={type}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          onCommit(draft);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            onCommit(draft);
+            setEditing(false);
+          }
+          if (e.key === "Escape") setEditing(false);
+        }}
+        aria-label={label}
+        className="rounded border border-zinc-300 bg-transparent px-1 py-0.5 text-xs outline-none dark:border-zinc-600"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(value ?? "");
+        setEditing(true);
+      }}
+      className="text-left text-xs text-zinc-500 hover:underline"
+    >
+      {label}: {value ? (type === "date" ? formatDateShort(value) : value) : <span className="opacity-60">+ Add</span>}
+    </button>
+  );
+}
+
 export function ExecutiveView({
   data,
   today,
   timelineSummary,
+  onEditDocument,
 }: {
   data: RoadmapData;
   today: Date;
   /** Generated on demand via RoadmapWorkspace's OptionsMenu trigger (wayframe#37) — undefined until the first "Generate" click. */
   timelineSummary?: ExecutiveTimelineSummary | null;
+  /** Click-to-edit on reportsTo/nextReviewDate (wayframe#55/#60) — omit to render read-only (off-screen export capture has no document to write back into). */
+  onEditDocument?: (patch: { reportsTo?: string; nextReviewDate?: string }) => void;
 }) {
   const lanes = laneRollups(data, today);
   const risks = topRisks(data);
@@ -43,7 +105,22 @@ export function ExecutiveView({
           program name — rendering the markup here would either show raw
           tags (plain text) or need its own dangerouslySetInnerHTML
           (unnecessary second XSS-relevant surface for a subtext line). */}
-      <p className="mb-6 text-sm text-zinc-500">{blufHtmlToPlainText(data.bluf.statement)}</p>
+      <p className="mb-2 text-sm text-zinc-500">{blufHtmlToPlainText(data.bluf.statement)}</p>
+
+      {onEditDocument ? (
+        <div className="mb-6 flex gap-4">
+          <EditableHeaderField label="Reports to" value={data.reportsTo} onCommit={(v) => onEditDocument({ reportsTo: v || undefined })} />
+          <EditableHeaderField label="Next review" value={data.nextReviewDate} type="date" onCommit={(v) => onEditDocument({ nextReviewDate: v || undefined })} />
+        </div>
+      ) : (
+        (data.reportsTo || data.nextReviewDate) && (
+          <p className="mb-6 text-xs text-zinc-500">
+            {data.reportsTo && <>Reports to {data.reportsTo}</>}
+            {data.reportsTo && data.nextReviewDate && " · "}
+            {data.nextReviewDate && <>Next review {formatDateShort(data.nextReviewDate)}</>}
+          </p>
+        )
+      )}
 
       {timelineSummary && <ExecutiveTimeline summary={timelineSummary} />}
 

@@ -4,11 +4,13 @@ import { CORRECTION_TOOL } from "./tool-schema";
 import {
   RawCorrectionResponseSchema,
   coerceAddTopLevelItemOp,
+  coerceAttachmentOp,
   coercePatchOp,
   coerceSwimlaneOp,
   coerceTopLevelItemOp,
   findUnknownTargets,
   type AddTopLevelItemOp,
+  type AttachmentOp,
   type CorrectionResponse,
   type PatchOp,
   type SwimlaneOp,
@@ -92,6 +94,13 @@ function validate(
     if (result.ok) addTopLevelItems.push(result.op);
     else coercionIssues.push(result.issue);
   }
+  // Same pattern again for attachmentOps (wayframe#60).
+  const attachmentOps: AttachmentOp[] = [];
+  for (const rawOp of parsed.data.attachmentOps) {
+    const result = coerceAttachmentOp(rawOp);
+    if (result.ok) attachmentOps.push(result.op);
+    else coercionIssues.push(result.issue);
+  }
   if (coercionIssues.length > 0) {
     return {
       ok: false,
@@ -107,6 +116,9 @@ function validate(
     topLevelItemOps,
     addTopLevelItems,
     dependencyOps: parsed.data.dependencyOps,
+    attachmentOps,
+    blufOp: parsed.data.blufOp,
+    documentOp: parsed.data.documentOp,
     skipped: parsed.data.skipped,
     ambiguous: parsed.data.ambiguous,
   };
