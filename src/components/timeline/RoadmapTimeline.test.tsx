@@ -222,9 +222,26 @@ describe("deriveShortLabel", () => {
   });
 });
 
-function ControlledBlufCallout({ bluf }: { bluf: { statement: string; bullets: string[] } }) {
+function ControlledBlufCallout({
+  bluf,
+  fillColor,
+  fillTransparency,
+}: {
+  bluf: { statement: string; bullets: string[]; label?: string };
+  fillColor?: string | null;
+  fillTransparency?: number;
+}) {
   const [open, setOpen] = useState(true);
-  return <BlufCallout bluf={bluf} open={open} onOpenChange={setOpen} theme={defaultTheme} />;
+  return (
+    <BlufCallout
+      bluf={bluf}
+      open={open}
+      onOpenChange={setOpen}
+      theme={defaultTheme}
+      fillColor={fillColor}
+      fillTransparency={fillTransparency}
+    />
+  );
 }
 
 describe("BlufCallout", () => {
@@ -233,7 +250,21 @@ describe("BlufCallout", () => {
     expect(screen.getByText(sampleRoadmap.bluf.statement)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Dismiss"));
     expect(screen.queryByText(sampleRoadmap.bluf.statement)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("So what?"));
+    fireEvent.click(screen.getByText("So what"));
     expect(screen.getByText(sampleRoadmap.bluf.statement)).toBeInTheDocument();
+  });
+
+  it("uses bluf.label in place of the default heading when set, in both open and closed state (wayframe#43/#52)", () => {
+    render(<ControlledBlufCallout bluf={{ ...sampleRoadmap.bluf, label: "Program Pulse" }} />);
+    expect(screen.getByText("Program Pulse")).toBeInTheDocument();
+    expect(screen.queryByText("So what")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Dismiss"));
+    expect(screen.getByText("Program Pulse")).toBeInTheDocument();
+  });
+
+  it("applies a custom fill color and transparency as the panel background (wayframe#43/#52)", () => {
+    render(<ControlledBlufCallout bluf={sampleRoadmap.bluf} fillColor="#112233" fillTransparency={50} />);
+    // 50% transparency -> alpha 0x80 (128/255), applied as a hex suffix on the custom color.
+    expect(screen.getByText(sampleRoadmap.bluf.statement).closest("div[style]")).toHaveStyle({ background: "#11223380" });
   });
 });

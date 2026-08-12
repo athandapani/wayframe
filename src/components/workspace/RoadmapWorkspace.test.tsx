@@ -82,7 +82,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
     fireEvent.click(screen.getByRole("button", { name: "So what: Shown" }));
 
     await waitFor(() => expect(screen.queryByText("Everything is on track.")).not.toBeInTheDocument());
-    expect(screen.getByText("So what?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "So what" })).toBeInTheDocument();
   });
 });
 

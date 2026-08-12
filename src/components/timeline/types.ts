@@ -169,6 +169,13 @@ export interface RoadmapData {
     statement: string;
     bullets: string[];
     /**
+     * Free-text panel label (wayframe#43/#52), replacing the hardcoded "So
+     * what" heading — same sanitized-rich-text treatment and document-level
+     * placement as `statement`/`bullets` above (everyone opening the file
+     * sees the same label). Falls back to "So what" when unset.
+     */
+    label?: string;
+    /**
      * Document property, not a viewer preference — unlike BlufCallout's
      * position, which one person likes to read the chart says nothing about
      * the roadmap, but "this callout needs to be bigger, there's a lot to

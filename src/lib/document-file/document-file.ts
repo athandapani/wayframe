@@ -67,6 +67,7 @@ const RoadmapDataSchema = z.object({
   bluf: z.object({
     statement: z.string(),
     bullets: z.array(z.string()),
+    label: z.string().optional(),
     size: z.object({ width: z.number(), height: z.number().nullable() }).optional(),
   }),
   actionItems: z.array(z.unknown()).optional(),
@@ -122,7 +123,12 @@ export function parseDocumentFile(text: string): LoadResult {
   // even round-trip its markup through a Save unsanitized.
   const sanitized: RoadmapData = {
     ...doc,
-    bluf: { ...doc.bluf, statement: sanitizeBlufHtml(doc.bluf.statement), bullets: doc.bluf.bullets.map(sanitizeBlufHtml) },
+    bluf: {
+      ...doc.bluf,
+      statement: sanitizeBlufHtml(doc.bluf.statement),
+      bullets: doc.bluf.bullets.map(sanitizeBlufHtml),
+      label: doc.bluf.label !== undefined ? sanitizeBlufHtml(doc.bluf.label) : undefined,
+    },
   };
   return { ok: true, document: sanitized };
 }

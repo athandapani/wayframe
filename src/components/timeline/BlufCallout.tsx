@@ -40,7 +40,19 @@ interface Position {
 interface BlufValue {
   statement: string;
   bullets: string[];
+  label?: string;
   size?: { width: number; height: number | null };
+}
+
+const DEFAULT_LABEL = "So what";
+
+/** Applies `transparency` (0 opaque .. 100 fully see-through) as an alpha channel on a `#rrggbb` hex color. */
+function withAlpha(hex: string, transparency: number): string {
+  const opacity = Math.max(0, Math.min(100, 100 - transparency)) / 100;
+  const alpha = Math.round(opacity * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hex}${alpha}`;
 }
 
 /** Offsets from the container's top-right corner, matching the default layout. */
@@ -70,6 +82,8 @@ export function BlufCallout({
   onOpenChange,
   theme,
   onEdit,
+  fillColor,
+  fillTransparency,
 }: {
   bluf: BlufValue;
   open: boolean;
@@ -82,6 +96,10 @@ export function BlufCallout({
   theme: Theme;
   /** Omit to render read-only (dev preview / off-screen export capture, neither has a document to write into). */
   onEdit?: (patch: Partial<BlufValue>) => void;
+  /** Viewer-local fill override (wayframe#43/#52, see use-so-what-style.ts) — overrides `theme.panelBg` outright when set. */
+  fillColor?: string | null;
+  /** Viewer-local transparency (wayframe#43/#52) — 0 opaque .. 100 fully see-through, applied on top of whichever background is active. */
+  fillTransparency?: number;
 }) {
   // useReducer rather than useState: reading persisted position has to
   // happen after mount (localStorage doesn't exist during SSR), and a bare
@@ -188,7 +206,12 @@ export function BlufCallout({
     transform: moved ? `translate(${pos.x}px, ${pos.y}px)` : undefined,
     zIndex: moved ? 20 : undefined,
   };
-  const surface = { background: theme.panelBg, borderColor: theme.panelBorder, color: theme.panelInk };
+  const surface = {
+    background: withAlpha(fillColor ?? theme.panelBg, fillTransparency ?? 0),
+    borderColor: theme.panelBorder,
+    color: theme.panelInk,
+  };
+  const label = bluf.label ?? DEFAULT_LABEL;
 
   if (!open) {
     return (
@@ -196,9 +219,8 @@ export function BlufCallout({
         onClick={() => onOpenChange(true)}
         style={{ ...anchor, ...surface, borderWidth: 1 }}
         className="mt-3 rounded-full border px-3 py-1 text-xs font-semibold shadow"
-      >
-        So what?
-      </button>
+        dangerouslySetInnerHTML={{ __html: sanitizeBlufHtml(label) }}
+      />
     );
   }
 
@@ -228,9 +250,17 @@ export function BlufCallout({
         className={"mb-1 flex items-start justify-between gap-2 " + (dragging ? "cursor-grabbing" : "cursor-grab")}
         title="Drag to move"
       >
-        <span className="font-bold tracking-wide uppercase select-none" style={{ color: theme.accent }}>
-          So what
-        </span>
+        {onEdit ? (
+          <div onPointerDown={(e) => e.stopPropagation()} className="min-w-0 flex-1 font-bold tracking-wide uppercase" style={{ color: theme.accent }}>
+            <RichTextEditableLine html={label} onChange={(html) => onEdit({ label: html })} sizePx={11} ariaLabel="So-what label" />
+          </div>
+        ) : (
+          <span
+            className="font-bold tracking-wide uppercase select-none"
+            style={{ color: theme.accent }}
+            dangerouslySetInnerHTML={{ __html: sanitizeBlufHtml(label) }}
+          />
+        )}
         <div className="flex shrink-0 items-center gap-1.5">
           {(pos.x !== 0 || pos.y !== 0) && (
             <button

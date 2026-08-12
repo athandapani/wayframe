@@ -23,6 +23,7 @@ import { useCriticalPathVisibility } from "@/components/timeline/use-critical-pa
 import { useLastUpdatedVisibility } from "@/components/timeline/use-last-updated-visibility";
 import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
 import { useTopBandStyle, TOP_BAND_STYLES, type TopBandStyle } from "@/components/timeline/use-top-band-style";
+import { useSoWhatStyle } from "@/components/timeline/use-so-what-style";
 import { usePeriodGridlines, PERIOD_GRIDLINE_STYLES, type PeriodGridlineStyle } from "@/components/timeline/use-period-gridlines";
 import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
 import type { LabelDensity } from "@/components/timeline/title-layout";
@@ -82,6 +83,8 @@ function RoadmapView({
   blufOpen,
   onBlufOpenChange,
   onBlufEdit,
+  soWhatFillColor,
+  soWhatFillTransparency,
   onMilestoneClick,
   onTopLevelItemClick,
   onAddMilestone,
@@ -110,6 +113,8 @@ function RoadmapView({
   onBlufOpenChange: (open: boolean) => void;
   /** Omit for the off-screen export capture — that copy has no document to write back into. */
   onBlufEdit?: (patch: Partial<RoadmapData["bluf"]>) => void;
+  soWhatFillColor?: string | null;
+  soWhatFillTransparency?: number;
   onMilestoneClick?: (m: { id: string }) => void;
   onTopLevelItemClick?: (t: { id: string }) => void;
   onAddMilestone?: (laneId: string, date: string, endDate?: string) => void;
@@ -166,7 +171,15 @@ function RoadmapView({
           metricsScale={fontScale}
         />
         {legend}
-        <BlufCallout bluf={data.bluf} open={blufOpen} onOpenChange={onBlufOpenChange} theme={theme} onEdit={onBlufEdit} />
+        <BlufCallout
+          bluf={data.bluf}
+          open={blufOpen}
+          onOpenChange={onBlufOpenChange}
+          theme={theme}
+          onEdit={onBlufEdit}
+          fillColor={soWhatFillColor}
+          fillTransparency={soWhatFillTransparency}
+        />
       </div>
     );
   }
@@ -222,6 +235,7 @@ export function RoadmapWorkspace({
   const { themeId, theme, setTheme } = useTheme();
   const criticalPathLine = useCriticalPathStyle();
   const topBand = useTopBandStyle();
+  const soWhat = useSoWhatStyle();
   const gridlines = usePeriodGridlines();
   const labels = useLabelDensity();
   const fontScale = useFontScale();
@@ -675,6 +689,39 @@ export function RoadmapWorkspace({
                 {blufOpen ? "Shown" : "Hidden"}
               </button>
             </OptionsMenuRow>
+            {blufOpen && (
+              <OptionsMenuRow label="So-what fill">
+                <input
+                  type="color"
+                  aria-label="So-what fill color"
+                  value={soWhat.color ?? theme.panelBg}
+                  onChange={(e) => soWhat.setColor(e.target.value)}
+                  style={{ borderColor: "var(--wf-border)" }}
+                  className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
+                />
+              </OptionsMenuRow>
+            )}
+            {blufOpen && (
+              <OptionsMenuRow label="So-what transparency">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={soWhat.transparency}
+                  onChange={(e) => soWhat.setTransparency(parseInt(e.target.value, 10))}
+                  aria-label="So-what transparency"
+                  className="w-24"
+                />
+              </OptionsMenuRow>
+            )}
+            {blufOpen && (soWhat.color !== null || soWhat.transparency !== 0) && (
+              <OptionsMenuRow label="So-what reset">
+                <button onClick={soWhat.reset} style={PILL_STYLE} className={pillToggle(true)}>
+                  Reset to theme
+                </button>
+              </OptionsMenuRow>
+            )}
             <OptionsMenuRow label="Import">
               <button onClick={() => setImportOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
                 Import a schedule
@@ -699,6 +746,8 @@ export function RoadmapWorkspace({
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
             onBlufEdit={box.editBluf}
+            soWhatFillColor={soWhat.color}
+            soWhatFillTransparency={soWhat.transparency}
             onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
             onAddMilestone={handleAddMilestone}
             onPickShape={handlePickShape}
@@ -741,6 +790,8 @@ export function RoadmapWorkspace({
               theme={theme}
               blufOpen={blufOpen}
               onBlufOpenChange={setBlufOpen}
+              soWhatFillColor={soWhat.color}
+              soWhatFillTransparency={soWhat.transparency}
               fontScale={fontScale.scale}
               fontFamily={fontFamily.fontFamily}
             />
