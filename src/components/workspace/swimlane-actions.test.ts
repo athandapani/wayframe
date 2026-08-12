@@ -100,8 +100,82 @@ describe("swimlane actions", () => {
       { type: "renameSwimlane", id: "lane-a", name: "x" } as const,
       { type: "removeSwimlane", id: "lane-a" } as const,
       { type: "moveSwimlane", id: "lane-a", delta: 1 } as const,
+      { type: "setRagOverride", id: "lane-a", rag: "red" } as const,
     ]) {
       expect(reduce(state(), action).history).toHaveLength(1);
     }
+  });
+
+  it("sets and clears a RAG override", () => {
+    const withOverride = reduce(state(), { type: "setRagOverride", id: "lane-a", rag: "red" });
+    expect(withOverride.data.swimlanes.find((l) => l.id === "lane-a")!.ragOverride).toBe("red");
+    const cleared = reduce(withOverride, { type: "setRagOverride", id: "lane-a", rag: "auto" });
+    expect(cleared.data.swimlanes.find((l) => l.id === "lane-a")!.ragOverride).toBeUndefined();
+  });
+});
+
+describe("removeTopLevelItem reducer action (wayframe#58)", () => {
+  it("deletes the item and clears any linksToTopLevelMilestone reference to it", () => {
+    const withTopLevel: CorrectionBoxState = {
+      ...state(),
+      data: {
+        ...baseData(),
+        topLevelItems: [{ id: "t1", type: "milestone", title: "Kickoff", date: "2026-01-01", status: "not-started" }],
+        milestones: [{ ...milestone("a1", "lane-a"), linksToTopLevelMilestone: "t1" }],
+      },
+    };
+    const next = reduce(withTopLevel, { type: "removeTopLevelItem", id: "t1" });
+    expect(next.data.topLevelItems).toHaveLength(0);
+    expect(next.data.milestones[0].linksToTopLevelMilestone).toBeNull();
+    expect(next.history).toHaveLength(1);
+  });
+});
+
+describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
+  it("applies pending deletes across entity types alongside milestone ops", () => {
+    const withPending: CorrectionBoxState = {
+      ...state(),
+      pending: {
+        inputText: "delete lane-a",
+        ops: [],
+        skipped: [],
+        adds: [],
+        deletes: [{ targetId: "lane-a", entityType: "swimlane", reason: "r" }],
+        swimlaneOps: [],
+        ambiguous: null,
+      },
+    };
+    const next = reduce(withPending, { type: "apply", adds: [], resolvedSwimlaneOps: [] });
+    expect(next.data.swimlanes.find((l) => l.id === "lane-a")).toBeUndefined();
+    expect(next.data.milestones.find((m) => m.id === "a1")).toBeUndefined();
+    expect(next.pending).toBeNull();
+  });
+
+  it("applies pending swimlaneOps, resolving a fresh id for an 'add'", () => {
+    const withPending: CorrectionBoxState = {
+      ...state(),
+      pending: {
+        inputText: "add a lane and recolor Alpha",
+        ops: [],
+        skipped: [],
+        adds: [],
+        deletes: [],
+        swimlaneOps: [
+          { kind: "add", swimlaneType: "lane", name: "Delta", reason: "r" },
+          { kind: "recolor", targetId: "lane-a", color: "blue", reason: "r" },
+        ],
+        ambiguous: null,
+      },
+    };
+    const next = reduce(withPending, {
+      type: "apply",
+      adds: [],
+      resolvedSwimlaneOps: [
+        { op: { kind: "add", swimlaneType: "lane", name: "Delta", reason: "r" }, newId: "new-lane" },
+        { op: { kind: "recolor", targetId: "lane-a", color: "blue", reason: "r" }, newId: "" },
+      ],
+    });
+    expect(next.data.swimlanes.find((l) => l.id === "new-lane")).toMatchObject({ name: "Delta", type: "lane" });
+    expect(next.data.swimlanes.find((l) => l.id === "lane-a")!.color).toBeDefined();
   });
 });

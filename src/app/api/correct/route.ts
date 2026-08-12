@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { proposeCorrection, type CorrectionError } from "@/lib/corrections/correct";
 import { CORRECTION_TOOL } from "@/lib/corrections/tool-schema";
-import type { CorrectionLaneRef, CorrectionMilestoneRef } from "@/lib/corrections/prompt";
+import type { CorrectionLaneRef, CorrectionMilestoneRef, CorrectionSwimlaneRef, CorrectionTopLevelItemRef } from "@/lib/corrections/prompt";
 
 const client = new Anthropic();
 
@@ -32,6 +32,18 @@ function isLaneRef(v: unknown): v is CorrectionLaneRef {
   return typeof r.id === "string" && typeof r.name === "string";
 }
 
+function isSwimlaneRef(v: unknown): v is CorrectionSwimlaneRef {
+  if (!v || typeof v !== "object") return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.id === "string" && typeof r.name === "string" && (r.type === "lane" || r.type === "separator");
+}
+
+function isTopLevelItemRef(v: unknown): v is CorrectionTopLevelItemRef {
+  if (!v || typeof v !== "object") return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.id === "string" && typeof r.title === "string";
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -41,7 +53,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { milestones, lanes, correctionText } = body as { milestones?: unknown; lanes?: unknown; correctionText?: unknown };
+  const { milestones, lanes, swimlanes, topLevelItems, correctionText } = body as {
+    milestones?: unknown;
+    lanes?: unknown;
+    swimlanes?: unknown;
+    topLevelItems?: unknown;
+    correctionText?: unknown;
+  };
 
   if (!Array.isArray(milestones) || !milestones.every(isMilestoneRef)) {
     return NextResponse.json(
@@ -57,10 +75,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!Array.isArray(swimlanes) || !swimlanes.every(isSwimlaneRef)) {
+    return NextResponse.json(
+      { error: { kind: "no_input", message: "swimlanes must be an array of {id, name, type}." } },
+      { status: 400 },
+    );
+  }
+
+  if (!Array.isArray(topLevelItems) || !topLevelItems.every(isTopLevelItemRef)) {
+    return NextResponse.json(
+      { error: { kind: "no_input", message: "topLevelItems must be an array of {id, title}." } },
+      { status: 400 },
+    );
+  }
+
   const result = await proposeCorrection(
     {
       milestones,
       lanes,
+      swimlanes,
+      topLevelItems,
       correctionText: typeof correctionText === "string" ? correctionText : "",
     },
     async (system, messages) =>

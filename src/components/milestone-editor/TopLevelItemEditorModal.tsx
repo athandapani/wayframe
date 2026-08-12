@@ -37,7 +37,17 @@ function toPatch(t: EditableTopLevelItem, draft: Draft): TopLevelItemPatch {
   return { title: draft.title, status: draft.status, date: draft.date, showReferenceLine: draft.showReferenceLine };
 }
 
-function ModalForm({ item, onSave, onClose }: { item: EditableTopLevelItem; onSave: (id: string, patch: TopLevelItemPatch) => void; onClose: () => void }) {
+function ModalForm({
+  item,
+  onSave,
+  onClose,
+  onDelete,
+}: {
+  item: EditableTopLevelItem;
+  onSave: (id: string, patch: TopLevelItemPatch) => void;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(item));
 
   function handleSave() {
@@ -118,13 +128,27 @@ function ModalForm({ item, onSave, onClose }: { item: EditableTopLevelItem; onSa
           </label>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-zinc-200 p-4 dark:border-zinc-700">
-          <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
-            Cancel
+        <div className="flex items-center justify-between border-t border-zinc-200 p-4 dark:border-zinc-700">
+          {/* No confirm dialog — same instant, undoable delete as
+              MilestoneEditorModal (wayframe#38 item 3 / #58): a mistake is
+              one Undo away from fixed, so a confirm step is just friction. */}
+          <button
+            onClick={() => {
+              onDelete(item.id);
+              onClose();
+            }}
+            className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+          >
+            Delete
           </button>
-          <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
-            Save
-          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
+              Cancel
+            </button>
+            <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
+              Save
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -135,11 +159,13 @@ export function TopLevelItemEditorModal({
   item,
   onSave,
   onClose,
+  onDelete,
 }: {
   item: EditableTopLevelItem | null;
   onSave: (id: string, patch: TopLevelItemPatch) => void;
   onClose: () => void;
+  onDelete: (id: string) => void;
 }) {
   if (!item) return null;
-  return <ModalForm key={item.id} item={item} onSave={onSave} onClose={onClose} />;
+  return <ModalForm key={item.id} item={item} onSave={onSave} onClose={onClose} onDelete={onDelete} />;
 }

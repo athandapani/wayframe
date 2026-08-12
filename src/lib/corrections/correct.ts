@@ -1,7 +1,15 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { buildCorrectionMessages, systemPrompt, type CorrectionInput } from "./prompt";
 import { CORRECTION_TOOL } from "./tool-schema";
-import { RawCorrectionResponseSchema, coercePatchOp, findUnknownTargets, type CorrectionResponse, type PatchOp } from "./schema";
+import {
+  RawCorrectionResponseSchema,
+  coercePatchOp,
+  coerceSwimlaneOp,
+  findUnknownTargets,
+  type CorrectionResponse,
+  type PatchOp,
+  type SwimlaneOp,
+} from "./schema";
 
 export type CorrectionError =
   | { kind: "no_input"; message: string }
@@ -34,6 +42,8 @@ function validate(
   raw: unknown,
   knownIds: ReadonlySet<string>,
   knownLaneIds: ReadonlySet<string>,
+  knownSwimlaneIds: ReadonlySet<string>,
+  knownTopLevelIds: ReadonlySet<string>,
 ): { ok: true; response: CorrectionResponse } | { ok: false; error: CorrectionError } {
   const parsed = RawCorrectionResponseSchema.safeParse(raw);
   if (!parsed.success) {
@@ -58,6 +68,13 @@ function validate(
     if (result.ok) ops.push(result.op);
     else coercionIssues.push(result.issue);
   }
+  // Same coerce-from-a-flat-shape split for swimlaneOps (wayframe#58) — see coerceSwimlaneOp's doc.
+  const swimlaneOps: SwimlaneOp[] = [];
+  for (const rawOp of parsed.data.swimlaneOps) {
+    const result = coerceSwimlaneOp(rawOp);
+    if (result.ok) swimlaneOps.push(result.op);
+    else coercionIssues.push(result.issue);
+  }
   if (coercionIssues.length > 0) {
     return {
       ok: false,
@@ -68,17 +85,19 @@ function validate(
   const response: CorrectionResponse = {
     ops,
     addMilestones: parsed.data.addMilestones,
+    deletes: parsed.data.deletes,
+    swimlaneOps,
     skipped: parsed.data.skipped,
     ambiguous: parsed.data.ambiguous,
   };
 
-  const unknown = findUnknownTargets(response, knownIds, knownLaneIds);
+  const unknown = findUnknownTargets(response, knownIds, knownLaneIds, knownSwimlaneIds, knownTopLevelIds);
   if (unknown.length > 0) {
     return {
       ok: false,
       error: {
         kind: "unknown_target",
-        message: "Correction referenced a milestone or lane id that wasn't in the given list.",
+        message: "Correction referenced an id that wasn't in the given list.",
         issues: unknown,
       },
     };
@@ -133,6 +152,8 @@ export async function proposeCorrection(
 
   const knownIds = new Set(input.milestones.map((m) => m.id));
   const knownLaneIds = new Set(input.lanes.map((l) => l.id));
+  const knownSwimlaneIds = new Set(input.swimlanes.map((l) => l.id));
+  const knownTopLevelIds = new Set(input.topLevelItems.map((t) => t.id));
   const messages = buildCorrectionMessages(input);
 
   let response: Anthropic.Message;
@@ -150,7 +171,7 @@ export async function proposeCorrection(
     return { ok: false, error: { kind: "no_tool_call", message: "Model did not call the correction tool." } };
   }
 
-  let result = validate(raw, knownIds, knownLaneIds);
+  let result = validate(raw, knownIds, knownLaneIds, knownSwimlaneIds, knownTopLevelIds);
 
   if (!result.ok) {
     let retryResponse: Anthropic.Message;
@@ -170,7 +191,7 @@ export async function proposeCorrection(
     if (raw === null) {
       return { ok: false, error: { kind: "no_tool_call", message: "Model did not call the correction tool on retry." } };
     }
-    result = validate(raw, knownIds, knownLaneIds);
+    result = validate(raw, knownIds, knownLaneIds, knownSwimlaneIds, knownTopLevelIds);
     if (!result.ok) {
       // One repair attempt only — fail closed rather than loop.
       return result;

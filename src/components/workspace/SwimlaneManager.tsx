@@ -10,9 +10,16 @@
 // with five controls each doesn't fit a 288px dropdown, and because
 // deleting a lane needs enough room to say what it will take with it.
 import { useState } from "react";
-import type { RoadmapData, Swimlane } from "@/components/timeline/types";
+import type { Rag, RoadmapData, Swimlane } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
 import { laneColorAt } from "@/components/timeline/lane-colors";
+
+const RAG_OPTIONS: { value: Rag | "auto"; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "green", label: "Green" },
+  { value: "amber", label: "Amber" },
+  { value: "red", label: "Red" },
+];
 
 export interface SwimlaneManagerProps {
   data: RoadmapData;
@@ -22,10 +29,12 @@ export interface SwimlaneManagerProps {
   onRemove: (id: string) => void;
   onMove: (id: string, delta: -1 | 1) => void;
   onColor: (id: string, color: string | undefined) => void;
+  /** Manual RAG override (wayframe#55/#58) — mirrors isCriticalPathOverride's pattern; "auto" clears back to the computed worst-status-wins rollup. Lanes only, mirroring onColor. */
+  onRagOverride: (id: string, rag: Rag | "auto") => void;
   onClose: () => void;
 }
 
-export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove, onColor, onClose }: SwimlaneManagerProps) {
+export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove, onColor, onRagOverride, onClose }: SwimlaneManagerProps) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const ordered = [...data.swimlanes].sort((a, b) => a.order - b.order);
@@ -104,6 +113,22 @@ export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove
                   style={{ borderColor: "var(--wf-border)" }}
                   className="min-w-0 flex-1 rounded border bg-transparent px-2 py-1 text-sm"
                 />
+
+                {isLane && (
+                  <select
+                    value={lane.ragOverride ?? "auto"}
+                    onChange={(e) => onRagOverride(lane.id, e.target.value as Rag | "auto")}
+                    aria-label={`RAG override for ${lane.name}`}
+                    style={{ borderColor: "var(--wf-border)" }}
+                    className="shrink-0 rounded border bg-transparent px-1.5 py-1 text-xs"
+                  >
+                    {RAG_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 <span className="w-20 shrink-0 text-right text-[11px] opacity-55">
                   {isLane ? `${count} item${count === 1 ? "" : "s"}` : "group"}

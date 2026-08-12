@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { CORRECTION_TOOL_NAME } from "./prompt";
-import { CORRECTION_FIELDS } from "./schema";
+import { CORRECTION_FIELDS, NAMED_LANE_COLORS } from "./schema";
 
 const STATUS_ENUM = [
   "not-started",
@@ -62,6 +62,37 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
             reason: { type: "string", description: "Short explanation of how the lane (and date, if any) were resolved." },
           },
           required: ["title", "laneId", "reason"],
+        },
+      },
+      deletes: {
+        type: "array",
+        description: "Entities the request asks to delete. Resolve targetId against whichever list matches entityType.",
+        items: {
+          type: "object",
+          properties: {
+            targetId: { type: "string", description: "Real id of the milestone, top-level item, or swimlane to delete." },
+            entityType: { type: "string", enum: ["milestone", "topLevelItem", "swimlane"] },
+            reason: { type: "string", description: "Short explanation of what matched and why." },
+          },
+          required: ["targetId", "entityType", "reason"],
+        },
+      },
+      swimlaneOps: {
+        type: "array",
+        description: "Swimlane management: add, rename, reorder, recolor, or set a RAG override. One flat shape covers every kind — only the fields that kind needs should be set.",
+        items: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: ["add", "rename", "reorder", "recolor", "ragOverride"] },
+            targetId: { type: "string", description: "Real id of the swimlane this op applies to. Omit for kind=add (it doesn't exist yet)." },
+            swimlaneType: { type: "string", enum: ["lane", "separator"], description: "Required for kind=add: a lane holds milestones, a separator is a group-header band." },
+            name: { type: "string", description: "Required for kind=add or kind=rename: the swimlane's new name." },
+            delta: { type: "number", enum: [-1, 1], description: "Required for kind=reorder: -1 moves the row up one, 1 moves it down one." },
+            color: { type: "string", enum: [...NAMED_LANE_COLORS], description: "Required for kind=recolor. A named color only — never a hex value. Target must be a lane, not a separator." },
+            rag: { type: "string", enum: ["green", "amber", "red", "auto"], description: "Required for kind=ragOverride. 'auto' clears the manual override. Target must be a lane, not a separator." },
+            reason: { type: "string", description: "Short explanation of what matched and why." },
+          },
+          required: ["kind", "reason"],
         },
       },
       skipped: {

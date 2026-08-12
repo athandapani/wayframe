@@ -343,6 +343,14 @@ export function RoadmapWorkspace({
     if (trace?.rootId === id) setTrace(null);
   }
 
+  // Mirrors handleDeleteMilestone (wayframe#58) — clears the selection so
+  // the modal (already closing itself via onClose) doesn't briefly try to
+  // re-render against a deleted id.
+  function handleDeleteTopLevelItem(id: string) {
+    box.removeTopLevelItem(id);
+    setSelectedTopLevelItemId(null);
+  }
+
   async function handleExport() {
     if (exporting) return;
     setExporting(true);
@@ -811,7 +819,12 @@ export function RoadmapWorkspace({
           setSelectedMilestoneId(null);
         }}
       />
-      <TopLevelItemEditorModal item={selectedTopLevelItem} onSave={box.editTopLevelItem} onClose={() => setSelectedTopLevelItemId(null)} />
+      <TopLevelItemEditorModal
+        item={selectedTopLevelItem}
+        onSave={box.editTopLevelItem}
+        onClose={() => setSelectedTopLevelItemId(null)}
+        onDelete={handleDeleteTopLevelItem}
+      />
       {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
       {helpOpen && <HelpPanel theme={theme} onClose={() => setHelpOpen(false)} />}
       {lanesOpen && (
@@ -823,6 +836,7 @@ export function RoadmapWorkspace({
           onRemove={box.removeSwimlane}
           onMove={box.moveSwimlane}
           onColor={box.setLaneColor}
+          onRagOverride={box.setRagOverride}
           onClose={() => setLanesOpen(false)}
         />
       )}

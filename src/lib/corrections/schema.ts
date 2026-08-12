@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { StatusSchema } from "@/lib/extraction/schema";
+import { RagSchema, StatusSchema } from "@/lib/extraction/schema";
 
 /**
  * The patch shape settled in issue #9: targeted ops against the *existing*
@@ -166,6 +166,104 @@ export const AddMilestoneOpSchema = z.object({
 export type AddMilestoneOp = z.infer<typeof AddMilestoneOpSchema>;
 
 /**
+ * Generic entity delete (wayframe#55/#56/#58) — one op shape covers all
+ * three deletable entity kinds rather than three separate op families,
+ * since the only thing that varies per kind is which id set the target is
+ * checked against (see findUnknownTargets) and which reducer action it
+ * routes to (see use-correction-box.ts's "apply" case).
+ */
+export const EntityTypeSchema = z.enum(["milestone", "topLevelItem", "swimlane"]);
+export type EntityType = z.infer<typeof EntityTypeSchema>;
+
+export const DeleteOpSchema = z.object({
+  targetId: z.string().min(1),
+  entityType: EntityTypeSchema,
+  reason: z.string().min(1),
+});
+export type DeleteOp = z.infer<typeof DeleteOpSchema>;
+
+/**
+ * Curated recolor palette (wayframe#58) — the model emits a name, never a
+ * hex value; resolveNamedLaneColor (apply.ts) resolves it server-side. This
+ * keeps an AI-driven recolor from producing an arbitrary, possibly
+ * inaccessible or off-theme hex.
+ */
+export const NAMED_LANE_COLORS = ["red", "amber", "green", "blue", "purple", "gray"] as const;
+export type NamedLaneColor = (typeof NAMED_LANE_COLORS)[number];
+const NamedLaneColorEnum = z.enum(NAMED_LANE_COLORS);
+
+/** Swimlane.ragOverride's four states as the AI-facing op sees them — "auto" clears the override, mirroring the manual dropdown (SwimlaneManager.tsx). */
+const RagOverrideValueSchema = z.union([RagSchema, z.literal("auto")]);
+export type RagOverrideValue = z.infer<typeof RagOverrideValueSchema>;
+
+/**
+ * Swimlane management (wayframe#55/#58) — mirrors the existing manual
+ * reducer actions (addSwimlane/renameSwimlane/moveSwimlane/setLaneColor)
+ * one-for-one, plus ragOverride (new). `kind` is the discriminant, same
+ * pattern as PatchOpSchema's `field`.
+ */
+export const SwimlaneOpSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("add"), swimlaneType: z.enum(["lane", "separator"]), name: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ kind: z.literal("rename"), targetId: z.string().min(1), name: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ kind: z.literal("reorder"), targetId: z.string().min(1), delta: z.union([z.literal(-1), z.literal(1)]), reason: z.string().min(1) }),
+  z.object({ kind: z.literal("recolor"), targetId: z.string().min(1), color: NamedLaneColorEnum, reason: z.string().min(1) }),
+  z.object({ kind: z.literal("ragOverride"), targetId: z.string().min(1), rag: RagOverrideValueSchema, reason: z.string().min(1) }),
+]);
+export type SwimlaneOp = z.infer<typeof SwimlaneOpSchema>;
+
+/**
+ * What the model's tool call actually emits per swimlaneOp: one flat shape
+ * with every kind's fields optional except kind/reason — same uniform-
+ * shape-then-coerce split as RawPatchOpSchema/coercePatchOp above, since a
+ * JSON-schema discriminated union isn't how the hand-authored tool-schema.ts
+ * expresses this either.
+ */
+export const RawSwimlaneOpSchema = z.object({
+  kind: z.enum(["add", "rename", "reorder", "recolor", "ragOverride"]),
+  targetId: z.string().optional(),
+  swimlaneType: z.enum(["lane", "separator"]).optional(),
+  name: z.string().optional(),
+  delta: z.number().optional(),
+  color: z.string().optional(),
+  rag: z.string().optional(),
+  reason: z.string().min(1),
+});
+export type RawSwimlaneOp = z.infer<typeof RawSwimlaneOpSchema>;
+
+export function coerceSwimlaneOp(raw: RawSwimlaneOp): { ok: true; op: SwimlaneOp } | { ok: false; issue: string } {
+  switch (raw.kind) {
+    case "add": {
+      const parsed = SwimlaneOpSchema.safeParse({ kind: "add", swimlaneType: raw.swimlaneType, name: raw.name, reason: raw.reason });
+      if (!parsed.success) return { ok: false, issue: `swimlaneOp "add": needs swimlaneType (lane|separator) and a name` };
+      return { ok: true, op: parsed.data };
+    }
+    case "rename": {
+      const parsed = SwimlaneOpSchema.safeParse({ kind: "rename", targetId: raw.targetId, name: raw.name, reason: raw.reason });
+      if (!parsed.success) return { ok: false, issue: `swimlaneOp "rename" for "${raw.targetId}": needs targetId and a name` };
+      return { ok: true, op: parsed.data };
+    }
+    case "reorder": {
+      if (raw.delta !== -1 && raw.delta !== 1) {
+        return { ok: false, issue: `swimlaneOp "reorder" for "${raw.targetId}": delta must be -1 or 1, got "${raw.delta}"` };
+      }
+      const parsed = SwimlaneOpSchema.safeParse({ kind: "reorder", targetId: raw.targetId, delta: raw.delta, reason: raw.reason });
+      if (!parsed.success) return { ok: false, issue: `swimlaneOp "reorder" for "${raw.targetId}": needs a targetId` };
+      return { ok: true, op: parsed.data };
+    }
+    case "recolor": {
+      const parsed = SwimlaneOpSchema.safeParse({ kind: "recolor", targetId: raw.targetId, color: raw.color, reason: raw.reason });
+      if (!parsed.success) return { ok: false, issue: `swimlaneOp "recolor" for "${raw.targetId}": color must be one of ${NAMED_LANE_COLORS.join("/")}, got "${raw.color}"` };
+      return { ok: true, op: parsed.data };
+    }
+    case "ragOverride": {
+      const parsed = SwimlaneOpSchema.safeParse({ kind: "ragOverride", targetId: raw.targetId, rag: raw.rag, reason: raw.reason });
+      if (!parsed.success) return { ok: false, issue: `swimlaneOp "ragOverride" for "${raw.targetId}": rag must be one of green/amber/red/auto, got "${raw.rag}"` };
+      return { ok: true, op: parsed.data };
+    }
+  }
+}
+
+/**
  * A tied match the model couldn't confidently break on its own — the
  * refuse-ambiguous policy (scope-widening prototype's verdict) surfaces the
  * tie as resolvable candidates instead of silently skipping all of them, so
@@ -189,6 +287,8 @@ export type AmbiguousChoice = z.infer<typeof AmbiguousChoiceSchema>;
 export const RawCorrectionResponseSchema = z.object({
   ops: z.array(RawPatchOpSchema).default([]),
   addMilestones: z.array(AddMilestoneOpSchema).default([]),
+  deletes: z.array(DeleteOpSchema).default([]),
+  swimlaneOps: z.array(RawSwimlaneOpSchema).default([]),
   skipped: z.array(SkippedSchema).default([]),
   ambiguous: AmbiguousChoiceSchema.nullable().default(null),
 });
@@ -197,6 +297,8 @@ export type RawCorrectionResponse = z.infer<typeof RawCorrectionResponseSchema>;
 export const CorrectionResponseSchema = z.object({
   ops: z.array(PatchOpSchema).default([]),
   addMilestones: z.array(AddMilestoneOpSchema).default([]),
+  deletes: z.array(DeleteOpSchema).default([]),
+  swimlaneOps: z.array(SwimlaneOpSchema).default([]),
   skipped: z.array(SkippedSchema).default([]),
   ambiguous: AmbiguousChoiceSchema.nullable().default(null),
 });
@@ -206,16 +308,25 @@ export type Skipped = z.infer<typeof SkippedSchema>;
 export type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;
 
 /**
- * Referential integrity against the milestone/lane list actually sent to the
- * model — same pattern as findDanglingReferences in extraction/schema.ts:
- * checked separately from the zod shape so a hallucinated id produces the
- * same actionable, field-pinpointed error rather than a downstream crash
- * when the client tries to apply an op to a milestone that doesn't exist.
+ * Referential integrity against the milestone/lane/top-level-item list
+ * actually sent to the model — same pattern as findDanglingReferences in
+ * extraction/schema.ts: checked separately from the zod shape so a
+ * hallucinated id produces the same actionable, field-pinpointed error
+ * rather than a downstream crash when the client tries to apply an op to
+ * something that doesn't exist.
+ *
+ * `knownLaneIds` covers lane-type swimlanes only (what addMilestones and
+ * the lane-only swimlaneOps kinds — recolor, ragOverride — can target);
+ * `knownSwimlaneIds` covers every swimlane row including separators (what
+ * deletes/rename/reorder can target, since those apply to either type,
+ * mirroring removeSwimlane/renameSwimlane/moveSwimlane's reducer actions).
  */
 export function findUnknownTargets(
   response: CorrectionResponse,
   knownIds: ReadonlySet<string>,
   knownLaneIds: ReadonlySet<string> = new Set(),
+  knownSwimlaneIds: ReadonlySet<string> = new Set(),
+  knownTopLevelIds: ReadonlySet<string> = new Set(),
 ): string[] {
   const problems: string[] = [];
   for (const op of response.ops) {
@@ -231,6 +342,19 @@ export function findUnknownTargets(
   for (const a of response.addMilestones) {
     if (!knownLaneIds.has(a.laneId)) {
       problems.push(`addMilestones entry references unknown laneId "${a.laneId}"`);
+    }
+  }
+  for (const d of response.deletes) {
+    const known = d.entityType === "milestone" ? knownIds : d.entityType === "topLevelItem" ? knownTopLevelIds : knownSwimlaneIds;
+    if (!known.has(d.targetId)) {
+      problems.push(`delete entry references unknown ${d.entityType} targetId "${d.targetId}"`);
+    }
+  }
+  for (const op of response.swimlaneOps) {
+    if (op.kind === "add") continue;
+    const known = op.kind === "recolor" || op.kind === "ragOverride" ? knownLaneIds : knownSwimlaneIds;
+    if (!known.has(op.targetId)) {
+      problems.push(`swimlaneOp "${op.kind}" references unknown targetId "${op.targetId}"`);
     }
   }
   if (response.ambiguous) {

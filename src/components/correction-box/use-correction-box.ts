@@ -1,10 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { Milestone, RoadmapData, RollupSnapshot, Swimlane, TopLevelItem } from "@/components/timeline/types";
-import { coercePatchOp, type AddMilestoneOp, type AmbiguousChoice, type PatchOp, type Skipped } from "@/lib/corrections/schema";
+import type { Rag, Milestone, RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
+import { coercePatchOp, type AddMilestoneOp, type AmbiguousChoice, type DeleteOp, type PatchOp, type Skipped, type SwimlaneOp } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { applyAddMilestoneOps, applyOps } from "@/lib/corrections/apply";
+import {
+  addSwimlaneOp,
+  applyDeletes,
+  applySwimlaneOps,
+  moveSwimlaneOp,
+  removeMilestoneOp,
+  removeSwimlaneOp,
+  removeTopLevelItemOp,
+  renameSwimlaneOp,
+  setLaneColorOp,
+  setRagOverrideOp,
+} from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
 import { withComputedCriticalPath } from "@/lib/critical-path/compute";
 import { nanoid } from "nanoid";
@@ -37,6 +49,10 @@ export interface PendingPatch {
   skipped: Skipped[];
   /** Resolved add-milestone proposals (wayframe#38 item 1 / #39) — real lane, optional date. */
   adds: AddMilestoneOp[];
+  /** Generic entity deletes (wayframe#55/#58) — milestone/topLevelItem/swimlane, one op shape. */
+  deletes: DeleteOp[];
+  /** Swimlane management ops (wayframe#55/#58) — add/rename/reorder/recolor/ragOverride. */
+  swimlaneOps: SwimlaneOp[];
   /** A tied match needing a clarifying answer before it can become an op — see resolveAmbiguous. */
   ambiguous: AmbiguousChoice | null;
 }
@@ -53,7 +69,7 @@ export type CorrectionBoxAction =
   | { type: "requestStarted" }
   | { type: "requestFailed"; error: string }
   | { type: "proposed"; pending: PendingPatch }
-  | { type: "apply"; adds: { op: AddMilestoneOp; id: string; date: string }[] }
+  | { type: "apply"; adds: { op: AddMilestoneOp; id: string; date: string }[]; resolvedSwimlaneOps: { op: SwimlaneOp; newId: string }[] }
   | { type: "discard" }
   | { type: "undo" }
   | { type: "resolveAmbiguous"; targetId: string }
@@ -66,12 +82,14 @@ export type CorrectionBoxAction =
   | { type: "addMilestone"; laneId: string; date: string; endDate?: string; newId: string }
   | { type: "addTopLevelItem"; kind: "milestone" | "phase"; date: string; newId: string }
   | { type: "removeMilestone"; id: string }
+  | { type: "removeTopLevelItem"; id: string }
   | { type: "setMilestoneDate"; id: string; date: string }
   | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean }
   | { type: "addSwimlane"; swimlaneType: "lane" | "separator"; newId: string }
   | { type: "renameSwimlane"; id: string; name: string }
   | { type: "removeSwimlane"; id: string }
   | { type: "moveSwimlane"; id: string; delta: -1 | 1 }
+  | { type: "setRagOverride"; id: string; rag: Rag | "auto" }
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "snapshotRollups"; today: Date };
@@ -105,9 +123,12 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       if (!state.pending) return state;
       const edited = applyOps(state.data.milestones, state.pending.ops);
       const added = applyAddMilestoneOps(action.adds);
+      const withMilestoneOps = { ...state.data, milestones: [...edited, ...added] };
+      const withDeletes = applyDeletes(withMilestoneOps, state.pending.deletes);
+      const withSwimlaneOps = applySwimlaneOps(withDeletes, action.resolvedSwimlaneOps);
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: [...edited, ...added] })),
+        data: stampUpdated(withComputedCriticalPath(withSwimlaneOps)),
         history: [...state.history, state.data],
         pending: null,
         error: null,
@@ -213,10 +234,18 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // it's a normal undoable edit, unlike the theme itself.
       return {
         ...state,
-        data: stampUpdated({
-          ...state.data,
-          swimlanes: state.data.swimlanes.map((l) => (l.id === action.laneId ? { ...l, color: action.color } : l)),
-        }),
+        data: stampUpdated(setLaneColorOp(state.data, action.laneId, action.color)),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "setRagOverride": {
+      // Mirrors setLaneColor's placement/pattern (wayframe#55/#58) — a
+      // manual RAG dropdown in SwimlaneManager.tsx, "auto" clears the
+      // override back to the computed worst-status-wins rollup.
+      return {
+        ...state,
+        data: stampUpdated(setRagOverrideOp(state.data, action.id, action.rag)),
         history: [...state.history, state.data],
         error: null,
       };
@@ -262,15 +291,20 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
     }
     case "removeMilestone": {
-      // Mirrors removeSwimlane's dependsOn cleanup: a milestone that other
-      // milestones depend on can't just vanish and leave those edges
-      // pointing at an id that no longer exists (wayframe#38 item 3 / #39).
-      const milestones = state.data.milestones
-        .filter((m) => m.id !== action.id)
-        .map((m) => (m.dependsOn.some((d) => d.id === action.id) ? { ...m, dependsOn: m.dependsOn.filter((d) => d.id !== action.id) } : m));
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
+        data: stampUpdated(withComputedCriticalPath(removeMilestoneOp(state.data, action.id))),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "removeTopLevelItem": {
+      // Mirrors removeMilestone's cleanup pattern: a lane milestone can link
+      // to a top-level milestone (linksToTopLevelMilestone), so that
+      // reference is cleared rather than left dangling (wayframe#58).
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath(removeTopLevelItemOp(state.data, action.id))),
         history: [...state.history, state.data],
         error: null,
       };
@@ -309,17 +343,13 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "addSwimlane": {
       // Appended at the end and renumbered from scratch — `order` is the
       // only thing that positions a row, and letting gaps accumulate makes
-      // the move-up/down maths fragile.
-      const nextOrder = state.data.swimlanes.reduce((max, l) => Math.max(max, l.order), -1) + 1;
-      const swimlane: Swimlane = {
-        id: action.newId,
-        order: nextOrder,
-        type: action.swimlaneType,
-        name: action.swimlaneType === "lane" ? "New lane" : "New group",
-      };
+      // the move-up/down maths fragile. Name defaults per type since the
+      // manual "+" affordance creates blank, immediately-editable rows;
+      // an AI-driven add (swimlaneOps) always supplies a real name instead.
+      const name = action.swimlaneType === "lane" ? "New lane" : "New group";
       return {
         ...state,
-        data: stampUpdated({ ...state.data, swimlanes: [...state.data.swimlanes, swimlane] }),
+        data: stampUpdated(addSwimlaneOp(state.data, action.swimlaneType, name, action.newId)),
         history: [...state.history, state.data],
         error: null,
       };
@@ -327,10 +357,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "renameSwimlane": {
       return {
         ...state,
-        data: stampUpdated({
-          ...state.data,
-          swimlanes: state.data.swimlanes.map((l) => (l.id === action.id ? { ...l, name: action.name } : l)),
-        }),
+        data: stampUpdated(renameSwimlaneOp(state.data, action.id, action.name)),
         history: [...state.history, state.data],
         error: null,
       };
@@ -341,30 +368,19 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // pointing at an id that no longer exists. That's exactly the broken
       // reference the file loader refuses to open, so the edge is stripped
       // here rather than left for a save/reload to discover.
-      const doomed = new Set(state.data.milestones.filter((m) => m.laneId === action.id).map((m) => m.id));
-      const milestones = state.data.milestones
-        .filter((m) => m.laneId !== action.id)
-        .map((m) => (m.dependsOn.some((d) => doomed.has(d.id)) ? { ...m, dependsOn: m.dependsOn.filter((d) => !doomed.has(d.id)) } : m));
-      const swimlanes = state.data.swimlanes
-        .filter((l) => l.id !== action.id)
-        .sort((a, b) => a.order - b.order)
-        .map((l, i) => ({ ...l, order: i }));
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, swimlanes, milestones })),
+        data: stampUpdated(withComputedCriticalPath(removeSwimlaneOp(state.data, action.id))),
         history: [...state.history, state.data],
         error: null,
       };
     }
     case "moveSwimlane": {
-      const ordered = [...state.data.swimlanes].sort((a, b) => a.order - b.order);
-      const i = ordered.findIndex((l) => l.id === action.id);
-      const j = i + action.delta;
-      if (i === -1 || j < 0 || j >= ordered.length) return state;
-      [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+      const moved = moveSwimlaneOp(state.data, action.id, action.delta);
+      if (moved === state.data) return state;
       return {
         ...state,
-        data: stampUpdated({ ...state.data, swimlanes: ordered.map((l, k) => ({ ...l, order: k })) }),
+        data: stampUpdated(moved),
         history: [...state.history, state.data],
         error: null,
       };
@@ -432,12 +448,14 @@ export interface UseCorrectionBoxResult {
   /** Creates an empty top-level milestone or phase in the PROGRAM band and returns its id so the caller can open it. */
   addTopLevelItem: (kind: "milestone" | "phase", date: string) => string;
   removeMilestone: (id: string) => void;
+  removeTopLevelItem: (id: string) => void;
   setMilestoneDate: (id: string, date: string) => void;
   toggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   addSwimlane: (swimlaneType: "lane" | "separator") => void;
   renameSwimlane: (id: string, name: string) => void;
   removeSwimlane: (id: string) => void;
   moveSwimlane: (id: string, delta: -1 | 1) => void;
+  setRagOverride: (id: string, rag: Rag | "auto") => void;
   loadDocument: (data: RoadmapData) => void;
   setCompanyLogo: (dataUrl: string) => void;
   clearCompanyLogo: () => void;
@@ -535,6 +553,12 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
               status: m.status,
             })),
             lanes: state.data.swimlanes.filter((l) => l.type === "lane").map((l) => ({ id: l.id, name: l.name })),
+            // Full swimlane list, including separators — deletes and the
+            // rename/reorder swimlaneOps kinds can target either type
+            // (wayframe#58), unlike `lanes` above which addMilestones
+            // still needs restricted to real lanes.
+            swimlanes: state.data.swimlanes.map((l) => ({ id: l.id, name: l.name, type: l.type })),
+            topLevelItems: state.data.topLevelItems.map((t) => ({ id: t.id, title: t.title })),
           }),
         });
         const body = await res.json().catch(() => null);
@@ -547,15 +571,17 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const directOps: PatchOp[] = body.patch.ops;
         const skipped: Skipped[] = body.patch.skipped;
         const adds: AddMilestoneOp[] = body.patch.addMilestones ?? [];
+        const deletes: DeleteOp[] = body.patch.deletes ?? [];
+        const swimlaneOps: SwimlaneOp[] = body.patch.swimlaneOps ?? [];
         const ambiguous: AmbiguousChoice | null = body.patch.ambiguous ?? null;
 
-        if (directOps.length === 0 && skipped.length === 0 && adds.length === 0 && !ambiguous) {
+        if (directOps.length === 0 && skipped.length === 0 && adds.length === 0 && deletes.length === 0 && swimlaneOps.length === 0 && !ambiguous) {
           dispatch({ type: "requestFailed", error: `No milestones matched "${text}"` });
           return;
         }
 
         const ops = applyCascade(state.data.milestones, directOps);
-        dispatch({ type: "proposed", pending: { inputText: text, ops, skipped, adds, ambiguous } });
+        dispatch({ type: "proposed", pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, ambiguous } });
       } catch (err) {
         dispatch({ type: "requestFailed", error: err instanceof Error ? err.message : "Correction request failed." });
       }
@@ -572,7 +598,11 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
       if (!op.date) needsEditorIds.push(id);
       return { op, id, date };
     });
-    dispatch({ type: "apply", adds });
+    // Id resolution stays at this boundary (mirrors `adds` above) rather
+    // than inside applySwimlaneOps — only the "add" kind needs one, every
+    // other kind already carries its own targetId.
+    const resolvedSwimlaneOps = state.pending.swimlaneOps.map((op) => ({ op, newId: op.kind === "add" ? nanoid() : "" }));
+    dispatch({ type: "apply", adds, resolvedSwimlaneOps });
     return needsEditorIds;
   }, [state.pending, today]);
   const discard = useCallback(() => dispatch({ type: "discard" }), []);
@@ -593,6 +623,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     return newId;
   }, []);
   const removeMilestone = useCallback((id: string) => dispatch({ type: "removeMilestone", id }), []);
+  const removeTopLevelItem = useCallback((id: string) => dispatch({ type: "removeTopLevelItem", id }), []);
   const setMilestoneDate = useCallback((id: string, date: string) => dispatch({ type: "setMilestoneDate", id, date }), []);
   const toggleDependency = useCallback(
     (dependentId: string, dependencyId: string, add: boolean) => dispatch({ type: "toggleDependency", dependentId, dependencyId, add }),
@@ -602,6 +633,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const renameSwimlane = useCallback((id: string, name: string) => dispatch({ type: "renameSwimlane", id, name }), []);
   const removeSwimlane = useCallback((id: string) => dispatch({ type: "removeSwimlane", id }), []);
   const moveSwimlane = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlane", id, delta }), []);
+  const setRagOverride = useCallback((id: string, rag: Rag | "auto") => dispatch({ type: "setRagOverride", id, rag }), []);
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
   const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
   const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
@@ -624,12 +656,14 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     addMilestone,
     addTopLevelItem,
     removeMilestone,
+    removeTopLevelItem,
     setMilestoneDate,
     toggleDependency,
     addSwimlane,
     renameSwimlane,
     removeSwimlane,
     moveSwimlane,
+    setRagOverride,
     loadDocument,
     setCompanyLogo,
     clearCompanyLogo,

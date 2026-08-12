@@ -19,6 +19,8 @@ const input: CorrectionInput = {
     { id: "m2", title: "Pilot Fleet Uptime", laneName: "Field Pilot Deployments", date: "2027-01-05", status: "not-started" },
   ],
   lanes: [{ id: "lane-pilot", name: "Field Pilot Deployments" }],
+  swimlanes: [{ id: "lane-pilot", name: "Field Pilot Deployments", type: "lane" }],
+  topLevelItems: [],
   correctionText: "mark pilot site 3 go-live complete",
 };
 
@@ -103,5 +105,52 @@ describe("proposeCorrection", () => {
       expect(result.response.ops).toEqual([]);
       expect(result.response.skipped).toEqual([]);
     }
+  });
+});
+
+describe("proposeCorrection deletes/swimlaneOps (wayframe#58)", () => {
+  it("validates a delete against the swimlane it targets", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], deletes: [{ targetId: "lane-pilot", entityType: "swimlane", reason: "delete the pilot lane" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.deletes).toEqual([{ targetId: "lane-pilot", entityType: "swimlane", reason: "delete the pilot lane" }]);
+  });
+
+  it("fails closed with unknown_target when a delete references an id outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], deletes: [{ targetId: "does-not-exist", entityType: "milestone", reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("coerces a recolor swimlaneOp from the model's flat raw shape", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], swimlaneOps: [{ kind: "recolor", targetId: "lane-pilot", color: "blue", reason: "recolor it blue" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.swimlaneOps).toEqual([{ kind: "recolor", targetId: "lane-pilot", color: "blue", reason: "recolor it blue" }]);
+  });
+
+  it("rejects a recolor swimlaneOp with a color outside the curated named list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], swimlaneOps: [{ kind: "recolor", targetId: "lane-pilot", color: "#ff0000", reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("schema_validation_failed");
+  });
+
+  it("coerces an add swimlaneOp, which needs no targetId", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], swimlaneOps: [{ kind: "add", swimlaneType: "lane", name: "Regulatory Affairs", reason: "add a new lane" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.swimlaneOps).toEqual([{ kind: "add", swimlaneType: "lane", name: "Regulatory Affairs", reason: "add a new lane" }]);
   });
 });
