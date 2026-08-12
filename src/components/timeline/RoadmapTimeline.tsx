@@ -304,7 +304,7 @@ function AddLanePicker({
 // centering under it — centered clipped off the right edge of the chart at
 // realistic widths, since the button itself sits close to that edge.
 
-/** "tint" style — single "+" that pops a Milestone/Phase picker. */
+/** "tint" style — single "+" that pops a Milestone/Phase/Annotation picker. */
 function TopBandAddPicker({
   x,
   y,
@@ -315,7 +315,7 @@ function TopBandAddPicker({
   x: number;
   y: number;
   theme: Theme;
-  onPick: (kind: "milestone" | "phase") => void;
+  onPick: (kind: "milestone" | "phase" | "annotation") => void;
   fontScale?: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -342,7 +342,7 @@ function TopBandAddPicker({
       </g>
       {open && (
         <g>
-          <rect x={popX} y={y + r + 4} width={popW} height={54} rx={6} fill={theme.panelBg} stroke={theme.panelBorder} />
+          <rect x={popX} y={y + r + 4} width={popW} height={74} rx={6} fill={theme.panelBg} stroke={theme.panelBorder} />
           <text
             x={popCenter}
             y={y + r + 22}
@@ -375,13 +375,29 @@ function TopBandAddPicker({
           >
             + Phase
           </text>
+          <text
+            x={popCenter}
+            y={y + r + 62}
+            textAnchor="middle"
+            fontSize={11 * fontScale}
+            fontWeight={600}
+            fill={theme.panelInk}
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick("annotation");
+            }}
+          >
+            + Annotation
+          </text>
         </g>
       )}
     </g>
   );
 }
 
-/** "border" style — two explicit labeled buttons under the header column, no picker. */
+/** "border" style — explicit labeled buttons under the header column, no picker. */
 function TopBandLabeledButton({
   x,
   y,
@@ -771,7 +787,7 @@ export interface RoadmapTimelineProps {
   today?: Date;
   /** Opens the manual milestone editor (wayframe#19) — omit to keep markers non-interactive. */
   onMilestoneClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
-  /** Opens the lighter phase/top-level-milestone editor (wayframe#19) — not offered for annotations. */
+  /** Opens the lighter phase/top-level-milestone/annotation editor (wayframe#19, annotation added in wayframe#59). */
   onTopLevelItemClick?: (t: TopLevelItem, evt: React.MouseEvent<SVGGElement>) => void;
   /** Ghost-render slipped milestones (wayframe#29/#30) — off by default; callers opt in. */
   ghostMode?: GhostMode;
@@ -805,8 +821,8 @@ export interface RoadmapTimelineProps {
   labelDensity?: LabelDensity;
   /** PROGRAM-band highlight treatment (wayframe#41) — a viewer preference, see use-top-band-style.ts. */
   topBandStyle?: TopBandStyle;
-  /** Renders the PROGRAM band's manual "+" (in whichever shape topBandStyle calls for) when provided. */
-  onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
+  /** Renders the PROGRAM band's manual "+" (in whichever shape topBandStyle calls for) when provided. Annotation is only offered by the "tint"/"border" pickers — "chip" stays milestone-only, an accepted tradeoff from wayframe#41 unchanged by wayframe#59. */
+  onAddTopLevelItem?: (kind: "milestone" | "phase" | "annotation") => void;
   // --- Font-scale system (wayframe#42/#50) ---
   /** Multiplies every rendered text `fontSize`. Defaults to 1. */
   fontScale?: number;
@@ -1303,12 +1319,24 @@ export function RoadmapTimeline({
               </g>
             );
           }
-          // Annotations draw nothing here. Their full-height line used to be
-          // emitted in this block, which runs before the swimlane rows, so
-          // every lane wash and separator band painted straight over it —
-          // the Board Review line disappeared behind the Commercialization
-          // header. It's drawn in the vertical-marker layer below instead,
-          // with the other full-height lines.
+          // An annotation's full-height reference line is drawn separately,
+          // in the vertical-marker layer below (running after the swimlane
+          // rows, so a lane wash/separator band can't paint over it the way
+          // it did when this used to be emitted here — see wayframe#47's
+          // history). This is just its click target: a small flag at the
+          // top-band row, mirroring the milestone/phase markers above so
+          // "click a PROGRAM-band item to edit it" holds for every kind
+          // (wayframe#59 — annotations were the one kind with no manual
+          // click-to-edit affordance at all).
+          if (t.type === "annotation") {
+            const cx = x(t.date);
+            return (
+              <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
+                <path d={`M${cx - 6},${y - 8} L${cx + 6},${y - 8} L${cx},${y} Z`} fill={theme.accent} stroke="#fff" strokeWidth={1} />
+                <title>{t.title}</title>
+              </g>
+            );
+          }
           return null;
         })}
 
@@ -1320,6 +1348,7 @@ export function RoadmapTimeline({
           <>
             <TopBandLabeledButton x={16} y={topBandY + topBandHeight - 22} theme={theme} label="+ Milestone" onAdd={() => onAddTopLevelItem("milestone")} fontScale={fontScale} metricsScale={metricsScale} />
             <TopBandLabeledButton x={104} y={topBandY + topBandHeight - 22} theme={theme} label="+ Phase" onAdd={() => onAddTopLevelItem("phase")} fontScale={fontScale} metricsScale={metricsScale} />
+            <TopBandLabeledButton x={180} y={topBandY + topBandHeight - 22} theme={theme} label="+ Annotation" onAdd={() => onAddTopLevelItem("annotation")} fontScale={fontScale} metricsScale={metricsScale} />
           </>
         )}
         {/* "chip" deliberately reuses the per-lane button verbatim, same corner position as a lane row's —

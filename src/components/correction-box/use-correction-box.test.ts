@@ -38,10 +38,10 @@ describe("correction box reducer", () => {
   it("apply commits pending ops, pushes history, and clears pending", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null },
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null },
     };
 
-    const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [] });
+    const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     expect(next.data.milestones[0].status).toBe("complete");
     expect(next.pending).toBeNull();
     expect(next.history).toHaveLength(1);
@@ -69,14 +69,14 @@ describe("correction box reducer", () => {
   it("supports multi-step undo across two applied patches", () => {
     let state = initialState();
     // Apply patch 1
-    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null } };
-    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [] });
+    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     const afterFirstApply = state.data;
     expect(state.data.milestones[0].status).toBe("at-risk");
 
     // Apply patch 2
-    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null } };
-    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [] });
+    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     expect(state.data.milestones[0].status).toBe("complete");
     expect(state.history).toHaveLength(2);
 
@@ -95,7 +95,7 @@ describe("correction box reducer", () => {
   it("discard clears pending without touching data or history", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "x", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null },
+      pending: { inputText: "x", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null },
     };
     const next = reduce(state, { type: "discard" });
     expect(next.pending).toBeNull();
@@ -106,7 +106,7 @@ describe("correction box reducer", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
       loading: true,
-      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null },
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null },
     };
     const next = reduce(state, { type: "requestFailed", error: "boom" });
     expect(next.loading).toBe(false);
@@ -117,7 +117,7 @@ describe("correction box reducer", () => {
   it("hydrated replaces data without pushing history — a refresh reload isn't an undoable edit", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null },
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null },
       error: "stale error",
     };
     const persisted = { ...baseData(), programName: "Persisted" };
@@ -150,14 +150,116 @@ describe("addMilestone reducer action (wayframe#45)", () => {
   });
 });
 
+describe("addTopLevelItem reducer action (wayframe#41, widened to annotation in wayframe#59)", () => {
+  it("creates an empty annotation titled 'New annotation' with a blank message", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "addTopLevelItem", kind: "annotation", date: "2026-03-03", newId: "new-1" });
+    const created = next.data.topLevelItems.find((t) => t.id === "new-1");
+    expect(created).toEqual({ id: "new-1", type: "annotation", title: "New annotation", date: "2026-03-03", message: "" });
+    expect(next.history).toHaveLength(1);
+  });
+});
+
+describe("toggleDependency reducer action (wayframe#59 widens showConnector)", () => {
+  it("defaults showConnector to true when adding without one specified (unchanged manual behavior)", () => {
+    const state = initialState();
+    const withB = {
+      ...state,
+      data: { ...state.data, milestones: [...state.data.milestones, { ...state.data.milestones[0], id: "m2", title: "M2" }] },
+    };
+    const next = reduce(withB, { type: "toggleDependency", dependentId: "m2", dependencyId: "m1", add: true });
+    expect(next.data.milestones.find((m) => m.id === "m2")!.dependsOn).toEqual([{ id: "m1", showConnector: true }]);
+  });
+
+  it("respects an explicit showConnector: false", () => {
+    const state = initialState();
+    const withB = {
+      ...state,
+      data: { ...state.data, milestones: [...state.data.milestones, { ...state.data.milestones[0], id: "m2", title: "M2" }] },
+    };
+    const next = reduce(withB, { type: "toggleDependency", dependentId: "m2", dependencyId: "m1", add: true, showConnector: false });
+    expect(next.data.milestones.find((m) => m.id === "m2")!.dependsOn).toEqual([{ id: "m1", showConnector: false }]);
+  });
+
+  it("ignores a self-referencing edge", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "toggleDependency", dependentId: "m1", dependencyId: "m1", add: true });
+    expect(next).toBe(state);
+  });
+});
+
+describe("apply with topLevelItemOps/addTopLevelItems/dependencyOps (wayframe#59)", () => {
+  it("applies an edit, a create, and a dependency add in one Apply", () => {
+    const withTopLevel: CorrectionBoxState = {
+      ...initialState(),
+      data: { ...initialState().data, topLevelItems: [{ id: "t1", type: "milestone", title: "GA", date: "2026-01-01", status: "not-started" }] },
+    };
+    const withPending: CorrectionBoxState = {
+      ...withTopLevel,
+      pending: {
+        inputText: "rename GA, add an annotation, and link m1 to it",
+        ops: [],
+        skipped: [],
+        adds: [],
+        deletes: [],
+        swimlaneOps: [],
+        topLevelItemOps: [{ targetId: "t1", field: "title", newValue: "General Availability", reason: "r" }],
+        addTopLevelItems: [{ kind: "annotation", title: "Board Review", date: "2026-03-03", message: "funding decision", reason: "r" }],
+        dependencyOps: [],
+        ambiguous: null,
+      },
+    };
+    const next = reduce(withPending, {
+      type: "apply",
+      adds: [],
+      resolvedSwimlaneOps: [],
+      resolvedTopLevelAdds: [{ op: withPending.pending!.addTopLevelItems[0], id: "new-1", date: "2026-03-03" }],
+    });
+    expect(next.data.topLevelItems.find((t) => t.id === "t1")).toMatchObject({ title: "General Availability" });
+    expect(next.data.topLevelItems.find((t) => t.id === "new-1")).toEqual({
+      id: "new-1",
+      type: "annotation",
+      title: "Board Review",
+      date: "2026-03-03",
+      message: "funding decision",
+    });
+    expect(next.pending).toBeNull();
+  });
+
+  it("applies a dependencyOp alongside a milestone add", () => {
+    const withPending: CorrectionBoxState = {
+      ...initialState(),
+      pending: {
+        inputText: "add a milestone that m1 depends on",
+        ops: [],
+        skipped: [],
+        adds: [{ title: "Predecessor", laneId: "lane-1", date: "2025-12-01", reason: "r" }],
+        deletes: [],
+        swimlaneOps: [],
+        topLevelItemOps: [],
+        addTopLevelItems: [],
+        dependencyOps: [{ dependentId: "m1", dependencyId: "new-1", add: true, showConnector: false, reason: "r" }],
+        ambiguous: null,
+      },
+    };
+    const next = reduce(withPending, {
+      type: "apply",
+      adds: [{ op: withPending.pending!.adds[0], id: "new-1", date: "2025-12-01" }],
+      resolvedSwimlaneOps: [],
+      resolvedTopLevelAdds: [],
+    });
+    expect(next.data.milestones.find((m) => m.id === "m1")!.dependsOn).toEqual([{ id: "new-1", showConnector: false }]);
+  });
+});
+
 describe("lastUpdatedAt stamping (wayframe#40/#49)", () => {
   it("apply stamps lastUpdatedAt with the current time — distinct from generatedAt, which never changes", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], ambiguous: null },
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], ambiguous: null },
     };
     const before = Date.now();
-    const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [] });
+    const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     expect(next.data.lastUpdatedAt).toBeDefined();
     const stamped = new Date(next.data.lastUpdatedAt!).getTime();
     expect(stamped).toBeGreaterThanOrEqual(before);

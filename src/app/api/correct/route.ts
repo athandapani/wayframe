@@ -41,7 +41,10 @@ function isSwimlaneRef(v: unknown): v is CorrectionSwimlaneRef {
 function isTopLevelItemRef(v: unknown): v is CorrectionTopLevelItemRef {
   if (!v || typeof v !== "object") return false;
   const r = v as Record<string, unknown>;
-  return typeof r.id === "string" && typeof r.title === "string";
+  if (typeof r.id !== "string" || typeof r.title !== "string") return false;
+  if (r.type === "phase") return typeof r.startDate === "string" && typeof r.endDate === "string" && typeof r.status === "string";
+  if (r.type === "annotation") return typeof r.date === "string" && typeof r.message === "string";
+  return r.type === "milestone" && typeof r.date === "string" && typeof r.status === "string";
 }
 
 export async function POST(request: NextRequest) {
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest) {
 
   if (!Array.isArray(topLevelItems) || !topLevelItems.every(isTopLevelItemRef)) {
     return NextResponse.json(
-      { error: { kind: "no_input", message: "topLevelItems must be an array of {id, title}." } },
+      { error: { kind: "no_input", message: "topLevelItems must be an array of milestone/phase/annotation-shaped PROGRAM-band items." } },
       { status: 400 },
     );
   }

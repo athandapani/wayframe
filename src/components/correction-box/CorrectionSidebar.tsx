@@ -9,8 +9,18 @@
 // treatment CorrectionBox.tsx uses, scaled to the sidebar's width — the
 // clarify-prototype's verdict applies regardless of which variant is active.
 import { useState } from "react";
-import { buildAddPreview, buildAmbiguousPreview, buildOpPreview, buildSkippedPreview } from "@/lib/corrections/preview";
-import type { UseCorrectionBoxResult } from "./use-correction-box";
+import {
+  buildAddPreview,
+  buildAddTopLevelItemPreview,
+  buildAmbiguousPreview,
+  buildDeletePreview,
+  buildDependencyOpPreview,
+  buildOpPreview,
+  buildSkippedPreview,
+  buildSwimlaneOpPreview,
+  buildTopLevelItemOpPreview,
+} from "@/lib/corrections/preview";
+import type { AppliedIds, UseCorrectionBoxResult } from "./use-correction-box";
 
 interface LogEntry {
   text: string;
@@ -18,19 +28,32 @@ interface LogEntry {
   opCount: number;
 }
 
-export function CorrectionSidebar({ box, onMilestonesNeedEditor }: { box: UseCorrectionBoxResult; onMilestonesNeedEditor?: (ids: string[]) => void }) {
+export function CorrectionSidebar({ box, onNeedsEditor }: { box: UseCorrectionBoxResult; onNeedsEditor?: (ids: AppliedIds) => void }) {
   const [text, setText] = useState("");
   const [log, setLog] = useState<LogEntry[]>([]);
   const opRows = box.pending ? buildOpPreview(box.data.milestones, box.pending.ops) : [];
   const skippedRows = box.pending ? buildSkippedPreview(box.data.milestones, box.pending.skipped) : [];
   const addRows = box.pending ? buildAddPreview(box.data.swimlanes, box.pending.adds) : [];
+  const deleteRows = box.pending ? buildDeletePreview(box.data.milestones, box.data.topLevelItems, box.data.swimlanes, box.pending.deletes) : [];
+  const swimlaneOpRows = box.pending ? buildSwimlaneOpPreview(box.data.swimlanes, box.pending.swimlaneOps) : [];
+  const topLevelOpRows = box.pending ? buildTopLevelItemOpPreview(box.data.topLevelItems, box.pending.topLevelItemOps) : [];
+  const addTopLevelRows = box.pending ? buildAddTopLevelItemPreview(box.pending.addTopLevelItems) : [];
+  const dependencyRows = box.pending ? buildDependencyOpPreview(box.data.milestones, box.pending.dependencyOps) : [];
   const ambiguous = box.pending?.ambiguous ? buildAmbiguousPreview(box.data.milestones, box.data.swimlanes, box.pending.ambiguous) : null;
-  const hasCleanResolution = opRows.length > 0 || addRows.length > 0 || skippedRows.length > 0;
+  const hasCleanResolution =
+    opRows.length > 0 ||
+    addRows.length > 0 ||
+    skippedRows.length > 0 ||
+    deleteRows.length > 0 ||
+    swimlaneOpRows.length > 0 ||
+    topLevelOpRows.length > 0 ||
+    addTopLevelRows.length > 0 ||
+    dependencyRows.length > 0;
 
   function handleApply() {
     const ids = box.apply();
     setLog((l) => [...l, { text: box.pending!.inputText, status: "applied", opCount: box.pending!.ops.length + box.pending!.adds.length }]);
-    onMilestonesNeedEditor?.(ids);
+    onNeedsEditor?.(ids);
   }
 
   return (
@@ -97,6 +120,32 @@ export function CorrectionSidebar({ box, onMilestonesNeedEditor }: { box: UseCor
                 <li key={`add-${i}`}>
                   <span className="font-semibold">+ {a.title}</span> in {a.laneName}
                   {a.date ? ` on ${a.date}` : " (date TBD)"}
+                </li>
+              ))}
+              {deleteRows.map((d, i) => (
+                <li key={`delete-${i}`}>
+                  <span className="font-semibold">− Delete {d.targetTitle}</span> ({d.entityType})
+                </li>
+              ))}
+              {swimlaneOpRows.map((s, i) => (
+                <li key={`swimlane-${i}`}>
+                  Swimlane {s.targetTitle}: {s.detail}
+                </li>
+              ))}
+              {topLevelOpRows.map((t, i) => (
+                <li key={`toplevel-op-${i}`}>
+                  {t.targetTitle}: {t.field} → <span className="font-semibold">{t.newValue}</span>
+                </li>
+              ))}
+              {addTopLevelRows.map((a, i) => (
+                <li key={`add-toplevel-${i}`}>
+                  <span className="font-semibold">+ New {a.kind}</span> {a.title}
+                  {a.date ? ` on ${a.date}` : " (date TBD)"}
+                </li>
+              ))}
+              {dependencyRows.map((d, i) => (
+                <li key={`dependency-${i}`}>
+                  {d.add ? "+ Link" : "− Unlink"} {d.dependentTitle} {d.add ? "to depend on" : "from"} {d.dependencyTitle}
                 </li>
               ))}
               {skippedRows.map((s) => (

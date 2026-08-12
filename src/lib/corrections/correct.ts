@@ -3,12 +3,16 @@ import { buildCorrectionMessages, systemPrompt, type CorrectionInput } from "./p
 import { CORRECTION_TOOL } from "./tool-schema";
 import {
   RawCorrectionResponseSchema,
+  coerceAddTopLevelItemOp,
   coercePatchOp,
   coerceSwimlaneOp,
+  coerceTopLevelItemOp,
   findUnknownTargets,
+  type AddTopLevelItemOp,
   type CorrectionResponse,
   type PatchOp,
   type SwimlaneOp,
+  type TopLevelItemOp,
 } from "./schema";
 
 export type CorrectionError =
@@ -75,6 +79,19 @@ function validate(
     if (result.ok) swimlaneOps.push(result.op);
     else coercionIssues.push(result.issue);
   }
+  // Same pattern again for the PROGRAM-band op families (wayframe#59).
+  const topLevelItemOps: TopLevelItemOp[] = [];
+  for (const rawOp of parsed.data.topLevelItemOps) {
+    const result = coerceTopLevelItemOp(rawOp);
+    if (result.ok) topLevelItemOps.push(result.op);
+    else coercionIssues.push(result.issue);
+  }
+  const addTopLevelItems: AddTopLevelItemOp[] = [];
+  for (const rawOp of parsed.data.addTopLevelItems) {
+    const result = coerceAddTopLevelItemOp(rawOp);
+    if (result.ok) addTopLevelItems.push(result.op);
+    else coercionIssues.push(result.issue);
+  }
   if (coercionIssues.length > 0) {
     return {
       ok: false,
@@ -87,6 +104,9 @@ function validate(
     addMilestones: parsed.data.addMilestones,
     deletes: parsed.data.deletes,
     swimlaneOps,
+    topLevelItemOps,
+    addTopLevelItems,
+    dependencyOps: parsed.data.dependencyOps,
     skipped: parsed.data.skipped,
     ambiguous: parsed.data.ambiguous,
   };

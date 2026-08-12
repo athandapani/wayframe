@@ -7,23 +7,23 @@
 // of truth.
 import { CorrectionBox } from "./CorrectionBox";
 import { CorrectionSidebar } from "./CorrectionSidebar";
-import type { UseCorrectionBoxResult } from "./use-correction-box";
+import type { AppliedIds, UseCorrectionBoxResult } from "./use-correction-box";
 
 export type CorrectionBoxMode = "bar" | "sidebar";
 
 export function CorrectionBoxSwitcher({
   box,
   mode,
-  onMilestonesNeedEditor,
+  onNeedsEditor,
 }: {
   box: UseCorrectionBoxResult;
   mode: CorrectionBoxMode;
-  /** Ids of milestones the AI added without a resolved date — open the editor for them, mirroring the manual "+" button. */
-  onMilestonesNeedEditor?: (ids: string[]) => void;
+  /** Ids of entities the AI added without a resolved date — open the right editor for them, mirroring the manual "+" buttons (wayframe#41/#59). */
+  onNeedsEditor?: (ids: AppliedIds) => void;
 }) {
   return mode === "sidebar" ? (
-    <CorrectionSidebar box={box} onMilestonesNeedEditor={onMilestonesNeedEditor} />
+    <CorrectionSidebar box={box} onNeedsEditor={onNeedsEditor} />
   ) : (
-    <CorrectionBox box={box} onMilestonesNeedEditor={onMilestonesNeedEditor} />
+    <CorrectionBox box={box} onNeedsEditor={onNeedsEditor} />
   );
 }

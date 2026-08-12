@@ -84,6 +84,100 @@ export const PatchOpSchema = z.discriminatedUnion("field", [
   }),
 ]);
 
+/** PROGRAM-band item fields a correction (AI or manual) can target — mirrors PatchOpSchema's discriminated-by-field shape, scoped to TopLevelItem's fields (wayframe#59). Not every field applies to every kind (e.g. "date" is milestone/annotation-only, "startDate"/"endDate" phase-only) — same "apply whichever fields are relevant" merge as the existing editTopLevelItem reducer action, not enforced by this schema. */
+export const TOP_LEVEL_ITEM_FIELDS = ["title", "status", "date", "startDate", "endDate", "showReferenceLine", "message"] as const;
+const TopLevelItemFieldEnum = z.enum(TOP_LEVEL_ITEM_FIELDS);
+
+export const TopLevelItemOpSchema = z.discriminatedUnion("field", [
+  z.object({ targetId: z.string().min(1), field: z.literal("title"), newValue: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), field: z.literal("status"), newValue: StatusSchema, reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), field: z.literal("date"), newValue: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), field: z.literal("startDate"), newValue: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), field: z.literal("endDate"), newValue: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), field: z.literal("showReferenceLine"), newValue: z.boolean(), reason: z.string().min(1) }),
+  z.object({ targetId: z.string().min(1), field: z.literal("message"), newValue: z.string(), reason: z.string().min(1) }), // "" clears the message
+]);
+export type TopLevelItemOp = z.infer<typeof TopLevelItemOpSchema>;
+
+/** Uniform-string tool-call shape, coerced below — same split as RawPatchOpSchema/coercePatchOp. */
+export const RawTopLevelItemOpSchema = z.object({
+  targetId: z.string().min(1),
+  field: TopLevelItemFieldEnum,
+  newValue: z.string(),
+  reason: z.string().min(1),
+});
+export type RawTopLevelItemOp = z.infer<typeof RawTopLevelItemOpSchema>;
+
+export function coerceTopLevelItemOp(raw: RawTopLevelItemOp): { ok: true; op: TopLevelItemOp } | { ok: false; issue: string } {
+  if (raw.field === "showReferenceLine") {
+    const v = raw.newValue.trim().toLowerCase();
+    if (v !== "true" && v !== "false") {
+      return { ok: false, issue: `topLevelItemOp for "${raw.targetId}": showReferenceLine newValue "${raw.newValue}" isn't true/false` };
+    }
+    return { ok: true, op: { targetId: raw.targetId, field: "showReferenceLine", newValue: v === "true", reason: raw.reason } };
+  }
+  const parsed = TopLevelItemOpSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, issue: `topLevelItemOp for "${raw.targetId}": ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  return { ok: true, op: parsed.data };
+}
+
+/**
+ * New PROGRAM-band item (wayframe#59) — mirrors AddMilestoneOpSchema but
+ * discriminated by `kind` since TopLevelItem (unlike Milestone) is itself a
+ * discriminated union of three shapes. `date` is nullable like
+ * AddMilestoneOpSchema's (the client falls back to today and opens the
+ * editor, same "create empty, open for editing" behavior); `endDate` lets a
+ * phase come in as a real span instead of always landing zero-length.
+ */
+export const AddTopLevelItemOpSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("milestone"), title: z.string().min(1), date: z.string().nullable(), reason: z.string().min(1) }),
+  z.object({ kind: z.literal("phase"), title: z.string().min(1), date: z.string().nullable(), endDate: z.string().nullable(), reason: z.string().min(1) }),
+  z.object({ kind: z.literal("annotation"), title: z.string().min(1), date: z.string().nullable(), message: z.string().min(1), reason: z.string().min(1) }),
+]);
+export type AddTopLevelItemOp = z.infer<typeof AddTopLevelItemOpSchema>;
+
+/** Flat tool-call shape (every kind's fields optional except kind/title/reason), coerced below — same split as RawSwimlaneOpSchema/coerceSwimlaneOp. */
+export const RawAddTopLevelItemOpSchema = z.object({
+  kind: z.enum(["milestone", "phase", "annotation"]),
+  title: z.string().min(1),
+  date: z.string().nullable(),
+  endDate: z.string().nullable().optional(),
+  message: z.string().optional(),
+  reason: z.string().min(1),
+});
+export type RawAddTopLevelItemOp = z.infer<typeof RawAddTopLevelItemOpSchema>;
+
+export function coerceAddTopLevelItemOp(raw: RawAddTopLevelItemOp): { ok: true; op: AddTopLevelItemOp } | { ok: false; issue: string } {
+  switch (raw.kind) {
+    case "milestone":
+      return { ok: true, op: { kind: "milestone", title: raw.title, date: raw.date, reason: raw.reason } };
+    case "phase":
+      return { ok: true, op: { kind: "phase", title: raw.title, date: raw.date, endDate: raw.endDate ?? null, reason: raw.reason } };
+    case "annotation": {
+      if (!raw.message) return { ok: false, issue: `addTopLevelItems entry "${raw.title}": kind "annotation" needs a message` };
+      return { ok: true, op: { kind: "annotation", title: raw.title, date: raw.date, message: raw.message, reason: raw.reason } };
+    }
+  }
+}
+
+/**
+ * Dependency-edge management (wayframe#59) — mirrors the existing
+ * toggleDependency reducer action one-for-one, widened to also set
+ * `showConnector` (which edges draw as a visible connector line vs. just
+ * feeding the cascade/critical-path graph silently). `dependentId` is the
+ * milestone that depends on `dependencyId`, same direction as
+ * DependencyEdge — a "successor" request just swaps which id goes where,
+ * exactly like the manual EdgeEditor does.
+ */
+export const DependencyOpSchema = z.object({
+  dependentId: z.string().min(1),
+  dependencyId: z.string().min(1),
+  add: z.boolean(),
+  showConnector: z.boolean().optional(),
+  reason: z.string().min(1),
+});
+export type DependencyOp = z.infer<typeof DependencyOpSchema>;
+
 export const SkippedSchema = z.object({
   targetId: z.string().min(1),
   reason: z.string().min(1),
@@ -161,6 +255,11 @@ export const AddMilestoneOpSchema = z.object({
   title: z.string().min(1),
   laneId: z.string().min(1),
   date: z.string().nullable(),
+  // Duration-pill creation via AI (wayframe#45/#59): a lane milestone with an
+  // endDate renders as a span instead of a point marker, same field the
+  // manual editor already exposes (Milestone.endDate). Optional/nullable —
+  // omitting it still creates a plain point milestone.
+  endDate: z.string().nullable().optional(),
   reason: z.string().min(1),
 });
 export type AddMilestoneOp = z.infer<typeof AddMilestoneOpSchema>;
@@ -289,6 +388,9 @@ export const RawCorrectionResponseSchema = z.object({
   addMilestones: z.array(AddMilestoneOpSchema).default([]),
   deletes: z.array(DeleteOpSchema).default([]),
   swimlaneOps: z.array(RawSwimlaneOpSchema).default([]),
+  topLevelItemOps: z.array(RawTopLevelItemOpSchema).default([]),
+  addTopLevelItems: z.array(RawAddTopLevelItemOpSchema).default([]),
+  dependencyOps: z.array(DependencyOpSchema).default([]),
   skipped: z.array(SkippedSchema).default([]),
   ambiguous: AmbiguousChoiceSchema.nullable().default(null),
 });
@@ -299,6 +401,9 @@ export const CorrectionResponseSchema = z.object({
   addMilestones: z.array(AddMilestoneOpSchema).default([]),
   deletes: z.array(DeleteOpSchema).default([]),
   swimlaneOps: z.array(SwimlaneOpSchema).default([]),
+  topLevelItemOps: z.array(TopLevelItemOpSchema).default([]),
+  addTopLevelItems: z.array(AddTopLevelItemOpSchema).default([]),
+  dependencyOps: z.array(DependencyOpSchema).default([]),
   skipped: z.array(SkippedSchema).default([]),
   ambiguous: AmbiguousChoiceSchema.nullable().default(null),
 });
@@ -355,6 +460,19 @@ export function findUnknownTargets(
     const known = op.kind === "recolor" || op.kind === "ragOverride" ? knownLaneIds : knownSwimlaneIds;
     if (!known.has(op.targetId)) {
       problems.push(`swimlaneOp "${op.kind}" references unknown targetId "${op.targetId}"`);
+    }
+  }
+  for (const op of response.topLevelItemOps) {
+    if (!knownTopLevelIds.has(op.targetId)) {
+      problems.push(`topLevelItemOp "${op.field}" references unknown targetId "${op.targetId}"`);
+    }
+  }
+  for (const op of response.dependencyOps) {
+    if (!knownIds.has(op.dependentId)) {
+      problems.push(`dependencyOp references unknown dependentId "${op.dependentId}"`);
+    }
+    if (!knownIds.has(op.dependencyId)) {
+      problems.push(`dependencyOp references unknown dependencyId "${op.dependencyId}"`);
     }
   }
   if (response.ambiguous) {

@@ -142,10 +142,13 @@ describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
         adds: [],
         deletes: [{ targetId: "lane-a", entityType: "swimlane", reason: "r" }],
         swimlaneOps: [],
+        topLevelItemOps: [],
+        addTopLevelItems: [],
+        dependencyOps: [],
         ambiguous: null,
       },
     };
-    const next = reduce(withPending, { type: "apply", adds: [], resolvedSwimlaneOps: [] });
+    const next = reduce(withPending, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     expect(next.data.swimlanes.find((l) => l.id === "lane-a")).toBeUndefined();
     expect(next.data.milestones.find((m) => m.id === "a1")).toBeUndefined();
     expect(next.pending).toBeNull();
@@ -164,6 +167,9 @@ describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
           { kind: "add", swimlaneType: "lane", name: "Delta", reason: "r" },
           { kind: "recolor", targetId: "lane-a", color: "blue", reason: "r" },
         ],
+        topLevelItemOps: [],
+        addTopLevelItems: [],
+        dependencyOps: [],
         ambiguous: null,
       },
     };
@@ -174,6 +180,7 @@ describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
         { op: { kind: "add", swimlaneType: "lane", name: "Delta", reason: "r" }, newId: "new-lane" },
         { op: { kind: "recolor", targetId: "lane-a", color: "blue", reason: "r" }, newId: "" },
       ],
+      resolvedTopLevelAdds: [],
     });
     expect(next.data.swimlanes.find((l) => l.id === "new-lane")).toMatchObject({ name: "Delta", type: "lane" });
     expect(next.data.swimlanes.find((l) => l.id === "lane-a")!.color).toBeDefined();

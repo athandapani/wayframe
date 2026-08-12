@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { CORRECTION_TOOL_NAME } from "./prompt";
-import { CORRECTION_FIELDS, NAMED_LANE_COLORS } from "./schema";
+import { CORRECTION_FIELDS, NAMED_LANE_COLORS, TOP_LEVEL_ITEM_FIELDS } from "./schema";
 
 const STATUS_ENUM = [
   "not-started",
@@ -93,6 +93,57 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
             reason: { type: "string", description: "Short explanation of what matched and why." },
           },
           required: ["kind", "reason"],
+        },
+      },
+      topLevelItemOps: {
+        type: "array",
+        description: "Edits to PROGRAM-band top-level items (milestone/phase/annotation) — mirrors ops but scoped to that item's own fields.",
+        items: {
+          type: "object",
+          properties: {
+            targetId: { type: "string", description: "Real id of the top-level item this op applies to — must be one of the given top-level-item ids." },
+            field: { type: "string", enum: [...TOP_LEVEL_ITEM_FIELDS], description: "Only use a field that applies to that item's type: date/showReferenceLine (milestone), startDate/endDate (phase), message (annotation), title/status apply broadly (status doesn't exist on annotation)." },
+            newValue: {
+              type: "string",
+              description:
+                "Always a string: for field=date/startDate/endDate, an ISO date (YYYY-MM-DD); for field=status, one of " +
+                STATUS_ENUM.join("|") +
+                "; for field=showReferenceLine, the literal string \"true\" or \"false\"; for title/message, the literal new text.",
+            },
+            reason: { type: "string", description: "Short explanation of why this item matched the request." },
+          },
+          required: ["targetId", "field", "newValue", "reason"],
+        },
+      },
+      addTopLevelItems: {
+        type: "array",
+        description: "New PROGRAM-band items the request asks to create.",
+        items: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: ["milestone", "phase", "annotation"] },
+            title: { type: "string", description: "The new item's title." },
+            date: { type: ["string", "null"], description: "ISO date (YYYY-MM-DD) if the request specifies or implies one, otherwise null. For kind=phase, this is the start date." },
+            endDate: { type: ["string", "null"], description: "For kind=phase only: the end date, if given/implied, otherwise null. Ignored for other kinds." },
+            message: { type: "string", description: "Required for kind=annotation: its short note. Ignored for other kinds." },
+            reason: { type: "string", description: "Short explanation of how the kind/dates were resolved." },
+          },
+          required: ["kind", "title", "date", "reason"],
+        },
+      },
+      dependencyOps: {
+        type: "array",
+        description: "Adds or removes a dependency edge between two milestones.",
+        items: {
+          type: "object",
+          properties: {
+            dependentId: { type: "string", description: "Real id of the milestone that depends on dependencyId (the successor)." },
+            dependencyId: { type: "string", description: "Real id of the milestone dependentId depends on (the predecessor)." },
+            add: { type: "boolean", description: "true to create the edge, false to remove it." },
+            showConnector: { type: "boolean", description: "Optional. Set true only if the request also asks for a visible connector line; omit for a plain dependency request (defaults to drawing the connector)." },
+            reason: { type: "string", description: "Short explanation of what matched and why." },
+          },
+          required: ["dependentId", "dependencyId", "add", "reason"],
         },
       },
       skipped: {

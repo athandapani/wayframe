@@ -2,9 +2,20 @@
 
 import { useCallback, useEffect, useReducer, useState } from "react";
 import type { Rag, Milestone, RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
-import { coercePatchOp, type AddMilestoneOp, type AmbiguousChoice, type DeleteOp, type PatchOp, type Skipped, type SwimlaneOp } from "@/lib/corrections/schema";
+import {
+  coercePatchOp,
+  type AddMilestoneOp,
+  type AddTopLevelItemOp,
+  type AmbiguousChoice,
+  type DeleteOp,
+  type DependencyOp,
+  type PatchOp,
+  type Skipped,
+  type SwimlaneOp,
+  type TopLevelItemOp,
+} from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
-import { applyAddMilestoneOps, applyOps } from "@/lib/corrections/apply";
+import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
 import {
   addSwimlaneOp,
   applyDeletes,
@@ -39,9 +50,10 @@ export function loadPersistedDocument(): RoadmapData | null {
   }
 }
 
-/** Fields the lighter phase/top-level-milestone editor can touch (wayframe#19, widened to showReferenceLine in wayframe#48) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
+/** Fields the lighter phase/top-level-milestone/annotation editor can touch (wayframe#19, widened to showReferenceLine in wayframe#48, to annotation's fields in wayframe#59) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
 export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate">> &
-  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date" | "showReferenceLine">>;
+  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date" | "showReferenceLine">> &
+  Partial<Pick<Extract<TopLevelItem, { type: "annotation" }>, "message">>;
 
 export interface PendingPatch {
   inputText: string;
@@ -53,6 +65,12 @@ export interface PendingPatch {
   deletes: DeleteOp[];
   /** Swimlane management ops (wayframe#55/#58) — add/rename/reorder/recolor/ragOverride. */
   swimlaneOps: SwimlaneOp[];
+  /** PROGRAM-band item edits (wayframe#59) — mirrors ops but scoped to TopLevelItem's fields. */
+  topLevelItemOps: TopLevelItemOp[];
+  /** New PROGRAM-band items (wayframe#59) — mirrors adds, discriminated by kind (milestone/phase/annotation). */
+  addTopLevelItems: AddTopLevelItemOp[];
+  /** Dependency-edge add/remove, optionally setting showConnector (wayframe#59). */
+  dependencyOps: DependencyOp[];
   /** A tied match needing a clarifying answer before it can become an op — see resolveAmbiguous. */
   ambiguous: AmbiguousChoice | null;
 }
@@ -69,7 +87,12 @@ export type CorrectionBoxAction =
   | { type: "requestStarted" }
   | { type: "requestFailed"; error: string }
   | { type: "proposed"; pending: PendingPatch }
-  | { type: "apply"; adds: { op: AddMilestoneOp; id: string; date: string }[]; resolvedSwimlaneOps: { op: SwimlaneOp; newId: string }[] }
+  | {
+      type: "apply";
+      adds: { op: AddMilestoneOp; id: string; date: string }[];
+      resolvedSwimlaneOps: { op: SwimlaneOp; newId: string }[];
+      resolvedTopLevelAdds: { op: AddTopLevelItemOp; id: string; date: string; endDate?: string }[];
+    }
   | { type: "discard" }
   | { type: "undo" }
   | { type: "resolveAmbiguous"; targetId: string }
@@ -80,11 +103,11 @@ export type CorrectionBoxAction =
   | { type: "hydrated"; data: RoadmapData }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
   | { type: "addMilestone"; laneId: string; date: string; endDate?: string; newId: string }
-  | { type: "addTopLevelItem"; kind: "milestone" | "phase"; date: string; newId: string }
+  | { type: "addTopLevelItem"; kind: "milestone" | "phase" | "annotation"; date: string; newId: string }
   | { type: "removeMilestone"; id: string }
   | { type: "removeTopLevelItem"; id: string }
   | { type: "setMilestoneDate"; id: string; date: string }
-  | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean }
+  | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean; showConnector?: boolean }
   | { type: "addSwimlane"; swimlaneType: "lane" | "separator"; newId: string }
   | { type: "renameSwimlane"; id: string; name: string }
   | { type: "removeSwimlane"; id: string }
@@ -123,12 +146,16 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       if (!state.pending) return state;
       const edited = applyOps(state.data.milestones, state.pending.ops);
       const added = applyAddMilestoneOps(action.adds);
-      const withMilestoneOps = { ...state.data, milestones: [...edited, ...added] };
+      const withDependencyOps = applyDependencyOps([...edited, ...added], state.pending.dependencyOps);
+      const withMilestoneOps = { ...state.data, milestones: withDependencyOps };
       const withDeletes = applyDeletes(withMilestoneOps, state.pending.deletes);
       const withSwimlaneOps = applySwimlaneOps(withDeletes, action.resolvedSwimlaneOps);
+      const editedTopLevel = applyTopLevelItemOps(withSwimlaneOps.topLevelItems, state.pending.topLevelItemOps);
+      const addedTopLevel = applyAddTopLevelItemOps(action.resolvedTopLevelAdds);
+      const withTopLevelOps = { ...withSwimlaneOps, topLevelItems: [...editedTopLevel, ...addedTopLevel] };
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(withSwimlaneOps)),
+        data: stampUpdated(withComputedCriticalPath(withTopLevelOps)),
         history: [...state.history, state.data],
         pending: null,
         error: null,
@@ -277,12 +304,14 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     }
     case "addTopLevelItem": {
       // The PROGRAM band's own "create empty, open for editing" affordance
-      // (wayframe#41) — mirrors addMilestone above; the AI-facing addMilestones
-      // op can't reach the top band (it requires laneId), so this is manual-only.
+      // (wayframe#41, widened to annotation in wayframe#59) — mirrors
+      // addMilestone above.
       const item: TopLevelItem =
         action.kind === "milestone"
           ? { id: action.newId, type: "milestone", title: "New milestone", date: action.date, status: "not-started" }
-          : { id: action.newId, type: "phase", title: "New phase", status: "not-started", startDate: action.date, endDate: action.date };
+          : action.kind === "annotation"
+            ? { id: action.newId, type: "annotation", title: "New annotation", date: action.date, message: "" }
+            : { id: action.newId, type: "phase", title: "New phase", status: "not-started", startDate: action.date, endDate: action.date };
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, topLevelItems: [...state.data.topLevelItems, item] })),
@@ -326,13 +355,16 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // Predecessors and successors are the same edge seen from either end,
       // so one action serves both: the editor flips which id it passes as
       // dependent vs dependency. Self-edges are refused outright; a cycle
-      // would make the critical-path walk meaningless.
+      // would make the critical-path walk meaningless. `showConnector`
+      // defaults to true when adding (unchanged manual behavior) — widened
+      // (wayframe#59) so the AI-driven dependencyOps path can set it
+      // explicitly too. Shares apply.ts's applyDependencyOps with that path
+      // rather than reimplementing the edge upsert, per the standing rule
+      // adopted in #55/#56.
       if (action.dependentId === action.dependencyId) return state;
-      const milestones = state.data.milestones.map((m) => {
-        if (m.id !== action.dependentId) return m;
-        const without = m.dependsOn.filter((d) => d.id !== action.dependencyId);
-        return action.add ? { ...m, dependsOn: [...without, { id: action.dependencyId, showConnector: true }] } : { ...m, dependsOn: without };
-      });
+      const milestones = applyDependencyOps(state.data.milestones, [
+        { dependentId: action.dependentId, dependencyId: action.dependencyId, add: action.add, showConnector: action.showConnector },
+      ]);
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
@@ -426,6 +458,12 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
   }
 }
 
+/** Ids of newly-applied entities that had no resolved date and need the editor opened for them (wayframe#59 splits this by kind — a milestone add and a PROGRAM-band add open different modals). */
+export interface AppliedIds {
+  milestoneIds: string[];
+  topLevelItemIds: string[];
+}
+
 export interface UseCorrectionBoxResult {
   data: RoadmapData;
   pending: PendingPatch | null;
@@ -433,8 +471,8 @@ export interface UseCorrectionBoxResult {
   loading: boolean;
   historyLength: number;
   submit: (text: string) => Promise<void>;
-  /** Applies the pending patch's ops and adds. Returns the ids of any added milestones that had no resolved date, so the caller can open the editor for them (mirrors addMilestone's manual "create empty, open for editing" behavior). */
-  apply: () => string[];
+  /** Applies the pending patch's ops/adds/etc. Returns the ids of any added milestones/top-level items that had no resolved date, so the caller can open the right editor for them (mirrors addMilestone's manual "create empty, open for editing" behavior). */
+  apply: () => AppliedIds;
   discard: () => void;
   undo: () => void;
   /** Turns one of the pending patch's ambiguous candidates into a real op — the clarifying-question answer. */
@@ -445,12 +483,12 @@ export interface UseCorrectionBoxResult {
   setLaneColor: (laneId: string, color: string | undefined) => void;
   /** Creates a milestone (or, with endDate, a phase) in the lane and returns its id so the caller can open it. */
   addMilestone: (laneId: string, date: string, endDate?: string) => string;
-  /** Creates an empty top-level milestone or phase in the PROGRAM band and returns its id so the caller can open it. */
-  addTopLevelItem: (kind: "milestone" | "phase", date: string) => string;
+  /** Creates an empty top-level milestone, phase, or annotation in the PROGRAM band and returns its id so the caller can open it. */
+  addTopLevelItem: (kind: "milestone" | "phase" | "annotation", date: string) => string;
   removeMilestone: (id: string) => void;
   removeTopLevelItem: (id: string) => void;
   setMilestoneDate: (id: string, date: string) => void;
-  toggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
+  toggleDependency: (dependentId: string, dependencyId: string, add: boolean, showConnector?: boolean) => void;
   addSwimlane: (swimlaneType: "lane" | "separator") => void;
   renameSwimlane: (id: string, name: string) => void;
   removeSwimlane: (id: string) => void;
@@ -558,7 +596,17 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
             // (wayframe#58), unlike `lanes` above which addMilestones
             // still needs restricted to real lanes.
             swimlanes: state.data.swimlanes.map((l) => ({ id: l.id, name: l.name, type: l.type })),
-            topLevelItems: state.data.topLevelItems.map((t) => ({ id: t.id, title: t.title })),
+            // Full item shape, not just {id, title} (wayframe#59) — the model
+            // needs each item's own date fields/status/message to resolve
+            // edit (topLevelItemOps) and create (addTopLevelItems) requests,
+            // not just delete ones.
+            topLevelItems: state.data.topLevelItems.map((t) =>
+              t.type === "phase"
+                ? { id: t.id, type: "phase", title: t.title, startDate: t.startDate, endDate: t.endDate, status: t.status }
+                : t.type === "annotation"
+                  ? { id: t.id, type: "annotation", title: t.title, date: t.date, message: t.message }
+                  : { id: t.id, type: "milestone", title: t.title, date: t.date, status: t.status },
+            ),
           }),
         });
         const body = await res.json().catch(() => null);
@@ -573,15 +621,31 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const adds: AddMilestoneOp[] = body.patch.addMilestones ?? [];
         const deletes: DeleteOp[] = body.patch.deletes ?? [];
         const swimlaneOps: SwimlaneOp[] = body.patch.swimlaneOps ?? [];
+        const topLevelItemOps: TopLevelItemOp[] = body.patch.topLevelItemOps ?? [];
+        const addTopLevelItems: AddTopLevelItemOp[] = body.patch.addTopLevelItems ?? [];
+        const dependencyOps: DependencyOp[] = body.patch.dependencyOps ?? [];
         const ambiguous: AmbiguousChoice | null = body.patch.ambiguous ?? null;
 
-        if (directOps.length === 0 && skipped.length === 0 && adds.length === 0 && deletes.length === 0 && swimlaneOps.length === 0 && !ambiguous) {
+        if (
+          directOps.length === 0 &&
+          skipped.length === 0 &&
+          adds.length === 0 &&
+          deletes.length === 0 &&
+          swimlaneOps.length === 0 &&
+          topLevelItemOps.length === 0 &&
+          addTopLevelItems.length === 0 &&
+          dependencyOps.length === 0 &&
+          !ambiguous
+        ) {
           dispatch({ type: "requestFailed", error: `No milestones matched "${text}"` });
           return;
         }
 
         const ops = applyCascade(state.data.milestones, directOps);
-        dispatch({ type: "proposed", pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, ambiguous } });
+        dispatch({
+          type: "proposed",
+          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps, addTopLevelItems, dependencyOps, ambiguous },
+        });
       } catch (err) {
         dispatch({ type: "requestFailed", error: err instanceof Error ? err.message : "Correction request failed." });
       }
@@ -589,21 +653,32 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     [state.data],
   );
 
-  const apply = useCallback((): string[] => {
-    if (!state.pending) return [];
-    const needsEditorIds: string[] = [];
+  const apply = useCallback((): AppliedIds => {
+    if (!state.pending) return { milestoneIds: [], topLevelItemIds: [] };
+    const milestoneIds: string[] = [];
+    const topLevelItemIds: string[] = [];
     const adds = state.pending.adds.map((op) => {
       const id = nanoid();
       const date = op.date ?? today.toISOString().slice(0, 10);
-      if (!op.date) needsEditorIds.push(id);
+      if (!op.date) milestoneIds.push(id);
       return { op, id, date };
     });
     // Id resolution stays at this boundary (mirrors `adds` above) rather
     // than inside applySwimlaneOps — only the "add" kind needs one, every
     // other kind already carries its own targetId.
     const resolvedSwimlaneOps = state.pending.swimlaneOps.map((op) => ({ op, newId: op.kind === "add" ? nanoid() : "" }));
-    dispatch({ type: "apply", adds, resolvedSwimlaneOps });
-    return needsEditorIds;
+    // Same "no resolved date -> flag for the editor" pattern as `adds` above
+    // (wayframe#59) — a phase missing its date resolves both date and
+    // endDate to today, still flagged since neither is real either.
+    const resolvedTopLevelAdds = state.pending.addTopLevelItems.map((op) => {
+      const id = nanoid();
+      const date = op.date ?? today.toISOString().slice(0, 10);
+      const endDate = op.kind === "phase" ? (op.endDate ?? date) : undefined;
+      if (!op.date) topLevelItemIds.push(id);
+      return { op, id, date, endDate };
+    });
+    dispatch({ type: "apply", adds, resolvedSwimlaneOps, resolvedTopLevelAdds });
+    return { milestoneIds, topLevelItemIds };
   }, [state.pending, today]);
   const discard = useCallback(() => dispatch({ type: "discard" }), []);
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
@@ -617,7 +692,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     dispatch({ type: "addMilestone", laneId, date, endDate, newId });
     return newId;
   }, []);
-  const addTopLevelItem = useCallback((kind: "milestone" | "phase", date: string) => {
+  const addTopLevelItem = useCallback((kind: "milestone" | "phase" | "annotation", date: string) => {
     const newId = nanoid();
     dispatch({ type: "addTopLevelItem", kind, date, newId });
     return newId;
@@ -626,7 +701,8 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const removeTopLevelItem = useCallback((id: string) => dispatch({ type: "removeTopLevelItem", id }), []);
   const setMilestoneDate = useCallback((id: string, date: string) => dispatch({ type: "setMilestoneDate", id, date }), []);
   const toggleDependency = useCallback(
-    (dependentId: string, dependencyId: string, add: boolean) => dispatch({ type: "toggleDependency", dependentId, dependencyId, add }),
+    (dependentId: string, dependencyId: string, add: boolean, showConnector?: boolean) =>
+      dispatch({ type: "toggleDependency", dependentId, dependencyId, add, showConnector }),
     [],
   );
   const addSwimlane = useCallback((swimlaneType: "lane" | "separator") => dispatch({ type: "addSwimlane", swimlaneType, newId: nanoid() }), []);

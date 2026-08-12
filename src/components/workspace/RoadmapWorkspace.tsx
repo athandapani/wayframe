@@ -15,7 +15,7 @@ import { ChartLegend } from "@/components/timeline/ChartLegend";
 import { WayframeLogo } from "@/components/brand/WayframeLogo";
 import { HelpPanel } from "./HelpPanel";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
-import { useCorrectionBox } from "@/components/correction-box/use-correction-box";
+import { useCorrectionBox, type AppliedIds } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
 import { useFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "@/components/timeline/use-font-scale";
 import { useFontFamily, FONT_FAMILY_CHOICES } from "@/components/timeline/use-font-family";
@@ -120,7 +120,7 @@ function RoadmapView({
   onAddMilestone?: (laneId: string, date: string, endDate?: string) => void;
   onPickShape?: (laneId: string, shape: "milestone" | "phase") => void;
   placementMode?: { laneId: string; shape: "milestone" | "phase" } | null;
-  onAddTopLevelItem?: (kind: "milestone" | "phase") => void;
+  onAddTopLevelItem?: (kind: "milestone" | "phase" | "annotation") => void;
   topBandStyle?: TopBandStyle;
   periodGridlineStyle?: PeriodGridlineStyle;
   onMilestoneDateChange?: (id: string, date: string) => void;
@@ -321,17 +321,20 @@ export function RoadmapWorkspace({
 
   // Mirrors handleAddMilestone above, for the PROGRAM band's own "+"
   // (wayframe#41) — same "create empty, open for editing" pattern.
-  function handleAddTopLevelItem(kind: "milestone" | "phase") {
+  function handleAddTopLevelItem(kind: "milestone" | "phase" | "annotation") {
     const iso = today.toISOString().slice(0, 10);
     setSelectedTopLevelItemId(box.addTopLevelItem(kind, iso));
   }
 
-  // An AI-proposed add with no resolved date (wayframe#38 item 1 / #39)
-  // falls back to the same "create empty, open for editing" behavior as the
-  // manual "+" button above — this fires after Apply, once the new
-  // milestone actually exists in box.data.
-  function handleMilestonesNeedEditor(ids: string[]) {
-    if (ids.length > 0) setSelectedMilestoneId(ids[ids.length - 1]);
+  // An AI-proposed add with no resolved date (wayframe#38 item 1 / #39,
+  // widened to PROGRAM-band adds in wayframe#59) falls back to the same
+  // "create empty, open for editing" behavior as the manual "+" buttons
+  // above — this fires after Apply, once the new entities actually exist in
+  // box.data. A response can propose both kinds in one go; each opens its
+  // own modal since they're different editors.
+  function handleNeedsEditor(ids: AppliedIds) {
+    if (ids.milestoneIds.length > 0) setSelectedMilestoneId(ids.milestoneIds[ids.milestoneIds.length - 1]);
+    if (ids.topLevelItemIds.length > 0) setSelectedTopLevelItemId(ids.topLevelItemIds[ids.topLevelItemIds.length - 1]);
   }
 
   // Mirrors handleAddMilestone's "close what pointed at it" cleanup in
@@ -806,7 +809,7 @@ export function RoadmapWorkspace({
           </div>
         )}
       </div>
-      <CorrectionBoxSwitcher box={box} mode={correctionMode} onMilestonesNeedEditor={handleMilestonesNeedEditor} />
+      <CorrectionBoxSwitcher box={box} mode={correctionMode} onNeedsEditor={handleNeedsEditor} />
       <MilestoneEditorModal
         data={box.data}
         milestone={selectedMilestone}

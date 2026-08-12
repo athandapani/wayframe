@@ -20,7 +20,7 @@ const input: CorrectionInput = {
   ],
   lanes: [{ id: "lane-pilot", name: "Field Pilot Deployments" }],
   swimlanes: [{ id: "lane-pilot", name: "Field Pilot Deployments", type: "lane" }],
-  topLevelItems: [],
+  topLevelItems: [{ id: "t1", type: "milestone", title: "GA", date: "2027-03-01", status: "not-started" }],
   correctionText: "mark pilot site 3 go-live complete",
 };
 
@@ -152,5 +152,78 @@ describe("proposeCorrection deletes/swimlaneOps (wayframe#58)", () => {
     const result = await proposeCorrection(input, callModel);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.response.swimlaneOps).toEqual([{ kind: "add", swimlaneType: "lane", name: "Regulatory Affairs", reason: "add a new lane" }]);
+  });
+});
+
+describe("proposeCorrection topLevelItemOps/addTopLevelItems/dependencyOps (wayframe#59)", () => {
+  it("coerces a topLevelItemOp from the model's uniform-string raw shape", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], topLevelItemOps: [{ targetId: "t1", field: "title", newValue: "General Availability", reason: "rename GA" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.topLevelItemOps).toEqual([{ targetId: "t1", field: "title", newValue: "General Availability", reason: "rename GA" }]);
+  });
+
+  it("coerces a showReferenceLine topLevelItemOp's string newValue into a real boolean", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], topLevelItemOps: [{ targetId: "t1", field: "showReferenceLine", newValue: "true", reason: "show it" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.topLevelItemOps[0]).toEqual({ targetId: "t1", field: "showReferenceLine", newValue: true, reason: "show it" });
+  });
+
+  it("fails closed with unknown_target when a topLevelItemOp references an id outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], topLevelItemOps: [{ targetId: "does-not-exist", field: "title", newValue: "X", reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("coerces an annotation addTopLevelItems entry, requiring a message", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({
+        ops: [],
+        skipped: [],
+        addTopLevelItems: [{ kind: "annotation", title: "Board Review", date: "2026-03-03", message: "funding decision", reason: "add annotation" }],
+      }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.addTopLevelItems).toEqual([
+        { kind: "annotation", title: "Board Review", date: "2026-03-03", message: "funding decision", reason: "add annotation" },
+      ]);
+    }
+  });
+
+  it("rejects an annotation addTopLevelItems entry with no message", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], addTopLevelItems: [{ kind: "annotation", title: "Board Review", date: "2026-03-03", reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("schema_validation_failed");
+  });
+
+  it("validates a dependencyOp against the milestone list, defaulting showConnector when unset", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], dependencyOps: [{ dependentId: "m2", dependencyId: "m1", add: true, reason: "make m2 depend on m1" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.dependencyOps).toEqual([{ dependentId: "m2", dependencyId: "m1", add: true, reason: "make m2 depend on m1" }]);
+  });
+
+  it("fails closed with unknown_target when a dependencyOp references an id outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], dependencyOps: [{ dependentId: "m2", dependencyId: "does-not-exist", add: true, reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
   });
 });

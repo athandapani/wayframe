@@ -21,11 +21,17 @@ export interface CorrectionSwimlaneRef {
   type: "lane" | "separator";
 }
 
-/** Real top-level (PROGRAM band) item, so a delete request can resolve one (wayframe#58). */
-export interface CorrectionTopLevelItemRef {
-  id: string;
-  title: string;
-}
+/**
+ * Real top-level (PROGRAM band) item — originally just {id, title} so a
+ * delete request could resolve one (wayframe#58), widened to the item's full
+ * shape (wayframe#59) so the model can also resolve edit (topLevelItemOps)
+ * and create (addTopLevelItems) requests against real dates/status/message,
+ * not just titles. Mirrors TopLevelItem's own discriminated union.
+ */
+export type CorrectionTopLevelItemRef =
+  | { id: string; type: "milestone"; title: string; date: string; status: string }
+  | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: string }
+  | { id: string; type: "annotation"; title: string; date: string; message: string };
 
 export interface CorrectionInput {
   milestones: CorrectionMilestoneRef[];
@@ -57,7 +63,7 @@ export const CORRECTION_TOOL_NAME = "propose_correction";
  */
 const SYSTEM_PROMPT = `You are resolving a short free-text correction request against an existing program roadmap, and proposing targeted edits.
 
-You will be given a list of milestones (each with a real id, title, swimlane name, current date, and current status), a list of swimlanes (id, name, and type — lane or separator), a list of PROGRAM-band top-level items (id and title), and a correction request in plain English (e.g. "push certification milestones by two weeks", "mark pilot site 3 go-live complete", "rename new milestone to Manufacturing plan release", "set the owner of UL 3100 Certification to K. Simmons", "add a manufacturing plan release milestone to the Manufacturing lane in Q1 '27", "delete the field pilot deployments lane", "add a new lane called Regulatory Affairs", "move the Safety lane up", "recolor the Manufacturing lane blue", or "flag the Safety lane red").
+You will be given a list of milestones (each with a real id, title, swimlane name, current date, and current status), a list of swimlanes (id, name, and type — lane or separator), a list of PROGRAM-band top-level items (id, type — milestone/phase/annotation — title, and that type's own date fields/status/message), and a correction request in plain English (e.g. "push certification milestones by two weeks", "mark pilot site 3 go-live complete", "rename new milestone to Manufacturing plan release", "set the owner of UL 3100 Certification to K. Simmons", "add a manufacturing plan release milestone to the Manufacturing lane in Q1 '27", "delete the field pilot deployments lane", "add a new lane called Regulatory Affairs", "move the Safety lane up", "recolor the Manufacturing lane blue", "flag the Safety lane red", "rename the PROGRAM band's GA milestone to General Availability", "add a Board Review annotation to the PROGRAM band on March 3rd noting the funding decision", "make UL 3100 Certification depend on the Safety Plan", or "show a connector line from Fleet Coordination to Autonomy Release Candidate").
 
 Your job is to read the request carefully and call the ${CORRECTION_TOOL_NAME} tool exactly once. Rules:
 
@@ -72,11 +78,14 @@ Your job is to read the request carefully and call the ${CORRECTION_TOOL_NAME} t
   - "reorder": needs targetId (any swimlane) and delta: -1 to move it up one row, 1 to move it down one row. Only ever -1 or 1 — for "move it to the top", resolve how many single-row reorders that takes and, if more than one op is needed, emit multiple reorder ops in the same response.
   - "recolor": needs targetId (a real lane, not a separator) and color, which must be one of: ${NAMED_LANE_COLORS.join(", ")}. Never emit a hex value or any other color word — if the request names a color outside this list, pick the closest match from the list, or omit the op if none is close.
   - "ragOverride": needs targetId (a real lane) and rag, one of green/amber/red/auto. "auto" clears the manual override back to the computed rollup (e.g. "let the Manufacturing lane's status compute automatically again").
+- If the request asks to edit a PROGRAM-band top-level item (not a lane milestone), use "topLevelItemOps": { targetId, field, newValue, reason }. targetId must be a real top-level-item id. field is one of: title, status, date (milestone/annotation only), startDate (phase only), endDate (phase only), showReferenceLine (milestone only, "true"/"false"), message (annotation only). Only use a field that actually applies to that item's type — check its type in the given list first.
+- If the request asks to add a new PROGRAM-band item, use "addTopLevelItems": { kind, title, date, endDate, message, reason }. kind is "milestone", "phase", or "annotation". date is the ISO date if given/implied, otherwise null (the client creates it and opens it for a person to fill in, same as addMilestones). endDate only applies to kind="phase" (its end date — also null if unresolved). message is required for kind="annotation" (its short note) and unused otherwise.
+- If the request asks to add or remove a dependency between two milestones, use "dependencyOps": { dependentId, dependencyId, add, showConnector, reason }. dependentId is the milestone that depends on dependencyId (the predecessor) — "X depends on Y" or "X comes after Y" means dependentId=X, dependencyId=Y; "Y blocks X" or "Y must finish before X" means the same thing. add is true to create the edge, false to remove it. showConnector is optional — set it true only when the request also asks for (or clearly implies) a visible connector line on the chart, e.g. "draw a line from X to Y" or "make Y a visible predecessor of X"; omit it for a plain dependency request, which defaults to drawing the connector.
 - Do not compute cascading effects on other, non-matched milestones — that is handled separately, deterministically, from the dependency graph. Only emit ops for milestones the request text is actually about.
 - A milestone already at the target value (e.g. already "complete" when asked to mark it complete) still gets an op if the request is unambiguously about it — the caller decides whether to skip a no-op change.
 - If a milestone is a plausible textual match but you're deliberately excluding it (e.g. it's already complete and a date-shift wouldn't make sense), list it in "skipped" with a short reason instead of silently dropping it.
 - If the request's subject phrase ties equally across multiple milestones — genuinely ambiguous, not just "several plausible candidates" — do not guess and do not emit an op for any of them. Instead set "ambiguous": { field, reason, candidates: [{ targetId, newValue }, ...] } listing every tied milestone with what its newValue would be if it turned out to be the one meant. This lets the person pick the one they meant without retyping the request. Only use this for a genuine tie; a request that clearly names one milestone over several superficially-similar ones should still resolve normally.
-- If you cannot confidently resolve the request to any milestone, lane, swimlane, or top-level item, and it isn't a genuine tie either, return empty "ops", "addMilestones", "deletes", "swimlaneOps", and "skipped" rather than guessing.
+- If you cannot confidently resolve the request to any milestone, lane, swimlane, or top-level item, and it isn't a genuine tie either, return empty "ops", "addMilestones", "deletes", "swimlaneOps", "topLevelItemOps", "addTopLevelItems", "dependencyOps", and "skipped" rather than guessing.
 - Never invent a targetId or laneId that wasn't in the lists you were given.`;
 
 function formatMilestoneList(milestones: CorrectionMilestoneRef[]): string {
@@ -94,7 +103,13 @@ function formatSwimlaneList(swimlanes: CorrectionSwimlaneRef[]): string {
 }
 
 function formatTopLevelItemList(items: CorrectionTopLevelItemRef[]): string {
-  return items.map((t) => `- id=${t.id} | title="${t.title}"`).join("\n");
+  return items
+    .map((t) => {
+      if (t.type === "phase") return `- id=${t.id} | type=phase | title="${t.title}" | startDate=${t.startDate} | endDate=${t.endDate} | status=${t.status}`;
+      if (t.type === "annotation") return `- id=${t.id} | type=annotation | title="${t.title}" | date=${t.date} | message="${t.message}"`;
+      return `- id=${t.id} | type=milestone | title="${t.title}" | date=${t.date} | status=${t.status}`;
+    })
+    .join("\n");
 }
 
 export function buildCorrectionMessages(input: CorrectionInput): Anthropic.MessageParam[] {

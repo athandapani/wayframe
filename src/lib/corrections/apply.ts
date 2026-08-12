@@ -1,5 +1,5 @@
-import type { Milestone } from "@/components/timeline/types";
-import type { AddMilestoneOp, PatchOp } from "./schema";
+import type { Milestone, TopLevelItem } from "@/components/timeline/types";
+import type { AddMilestoneOp, AddTopLevelItemOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
 
 /**
  * Commits a set of ops (direct + cascaded) onto a milestone list. A date op
@@ -31,11 +31,71 @@ export function applyAddMilestoneOps(
     laneId: op.laneId,
     title: op.title,
     date,
+    endDate: op.endDate ?? undefined,
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
     isCriticalPath: false,
   }));
+}
+
+/**
+ * Commits topLevelItemOps onto the PROGRAM-band item list (wayframe#59) —
+ * mirrors applyOps' "reduce every matching op onto that item" shape, but a
+ * blind field merge rather than a typed switch: TopLevelItem's three variants
+ * don't share one field set the way Milestone does, and the caller
+ * (coerceTopLevelItemOp) already only lets through fields the schema knows
+ * about, so a merge is exactly as safe as editTopLevelItem's existing manual
+ * reducer action, which does the same thing.
+ */
+export function applyTopLevelItemOps(items: readonly TopLevelItem[], ops: readonly TopLevelItemOp[]): TopLevelItem[] {
+  return items.map((t) => {
+    const matching = ops.filter((o) => o.targetId === t.id);
+    if (matching.length === 0) return t;
+    const patch: Record<string, unknown> = {};
+    for (const op of matching) patch[op.field] = op.newValue;
+    return { ...t, ...patch } as TopLevelItem;
+  });
+}
+
+/**
+ * Turns proposed add ops into real TopLevelItem records (wayframe#59) —
+ * mirrors applyAddMilestoneOps. `date`/`endDate` are resolved fallbacks
+ * (mirrors the caller's "today, and flag for the editor" pattern for adds
+ * with no date), unlike AddTopLevelItemOp's own nullable fields.
+ */
+export function applyAddTopLevelItemOps(
+  adds: readonly { op: AddTopLevelItemOp; id: string; date: string; endDate?: string }[],
+): TopLevelItem[] {
+  return adds.map(({ op, id, date, endDate }) => {
+    if (op.kind === "phase") return { id, type: "phase", title: op.title, status: "not-started", startDate: date, endDate: endDate ?? date };
+    if (op.kind === "annotation") return { id, type: "annotation", title: op.title, date, message: op.message };
+    return { id, type: "milestone", title: op.title, date, status: "not-started" };
+  });
+}
+
+/**
+ * Commits dependencyOps onto the milestone list (wayframe#59) — mirrors
+ * use-correction-box.ts's toggleDependency reducer action exactly (add
+ * upserts the edge with the given/default showConnector, remove drops it),
+ * factored out here so the AI-correction path and the manual EdgeEditor
+ * share one implementation instead of two that could drift, per the standing
+ * rule adopted in #55/#56. Takes just the executable fields (not the full
+ * DependencyOp, which also carries `reason` — an AI-explanation field the
+ * manual single-edge toggle has no equivalent of).
+ */
+export function applyDependencyOps(
+  milestones: readonly Milestone[],
+  ops: readonly Pick<DependencyOp, "dependentId" | "dependencyId" | "add" | "showConnector">[],
+): Milestone[] {
+  return ops.reduce((acc, op) => {
+    if (op.dependentId === op.dependencyId) return acc;
+    return acc.map((m) => {
+      if (m.id !== op.dependentId) return m;
+      const without = m.dependsOn.filter((d) => d.id !== op.dependencyId);
+      return op.add ? { ...m, dependsOn: [...without, { id: op.dependencyId, showConnector: op.showConnector ?? true }] } : { ...m, dependsOn: without };
+    });
+  }, milestones as Milestone[]);
 }
 
 function applyOp(m: Milestone, op: PatchOp): Milestone {

@@ -11,8 +11,18 @@
 // successful match. A clean resolution (ops/adds with no ambiguity) keeps
 // today's efficient "Proposed correction" card.
 import { useState } from "react";
-import { buildAddPreview, buildAmbiguousPreview, buildOpPreview, buildSkippedPreview } from "@/lib/corrections/preview";
-import type { UseCorrectionBoxResult } from "./use-correction-box";
+import {
+  buildAddPreview,
+  buildAddTopLevelItemPreview,
+  buildAmbiguousPreview,
+  buildDeletePreview,
+  buildDependencyOpPreview,
+  buildOpPreview,
+  buildSkippedPreview,
+  buildSwimlaneOpPreview,
+  buildTopLevelItemOpPreview,
+} from "@/lib/corrections/preview";
+import type { AppliedIds, UseCorrectionBoxResult } from "./use-correction-box";
 
 function AiAvatar() {
   return (
@@ -26,16 +36,29 @@ function AiAvatar() {
   );
 }
 
-export function CorrectionBox({ box, onMilestonesNeedEditor }: { box: UseCorrectionBoxResult; onMilestonesNeedEditor?: (ids: string[]) => void }) {
+export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxResult; onNeedsEditor?: (ids: AppliedIds) => void }) {
   const [text, setText] = useState("");
   const opRows = box.pending ? buildOpPreview(box.data.milestones, box.pending.ops) : [];
   const skippedRows = box.pending ? buildSkippedPreview(box.data.milestones, box.pending.skipped) : [];
   const addRows = box.pending ? buildAddPreview(box.data.swimlanes, box.pending.adds) : [];
+  const deleteRows = box.pending ? buildDeletePreview(box.data.milestones, box.data.topLevelItems, box.data.swimlanes, box.pending.deletes) : [];
+  const swimlaneOpRows = box.pending ? buildSwimlaneOpPreview(box.data.swimlanes, box.pending.swimlaneOps) : [];
+  const topLevelOpRows = box.pending ? buildTopLevelItemOpPreview(box.data.topLevelItems, box.pending.topLevelItemOps) : [];
+  const addTopLevelRows = box.pending ? buildAddTopLevelItemPreview(box.pending.addTopLevelItems) : [];
+  const dependencyRows = box.pending ? buildDependencyOpPreview(box.data.milestones, box.pending.dependencyOps) : [];
   const ambiguous = box.pending?.ambiguous ? buildAmbiguousPreview(box.data.milestones, box.data.swimlanes, box.pending.ambiguous) : null;
-  const hasCleanResolution = opRows.length > 0 || addRows.length > 0 || skippedRows.length > 0;
+  const hasCleanResolution =
+    opRows.length > 0 ||
+    addRows.length > 0 ||
+    skippedRows.length > 0 ||
+    deleteRows.length > 0 ||
+    swimlaneOpRows.length > 0 ||
+    topLevelOpRows.length > 0 ||
+    addTopLevelRows.length > 0 ||
+    dependencyRows.length > 0;
 
   function handleApply() {
-    onMilestonesNeedEditor?.(box.apply());
+    onNeedsEditor?.(box.apply());
   }
 
   return (
@@ -88,6 +111,42 @@ export function CorrectionBox({ box, onMilestonesNeedEditor }: { box: UseCorrect
                 <span className="font-medium">{a.title}</span> in {a.laneName}
                 {a.date ? ` on ${a.date}` : " — date not given, will open for editing"}
                 <span className="text-zinc-400"> ({a.reason})</span>
+              </li>
+            ))}
+            {deleteRows.map((d, i) => (
+              <li key={`delete-${i}`}>
+                <span className="font-semibold text-red-600 dark:text-red-400">− Delete</span>{" "}
+                <span className="font-medium">{d.targetTitle}</span> ({d.entityType})
+                <span className="text-zinc-400"> ({d.reason})</span>
+              </li>
+            ))}
+            {swimlaneOpRows.map((s, i) => (
+              <li key={`swimlane-${i}`}>
+                Swimlane <span className="font-medium">{s.targetTitle}</span>: {s.detail}
+                <span className="text-zinc-400"> ({s.reason})</span>
+              </li>
+            ))}
+            {topLevelOpRows.map((t, i) => (
+              <li key={`toplevel-op-${i}`}>
+                <span className="font-medium">{t.targetTitle}</span>: {t.field} →{" "}
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">{t.newValue}</span>
+                <span className="text-zinc-400"> ({t.reason})</span>
+              </li>
+            ))}
+            {addTopLevelRows.map((a, i) => (
+              <li key={`add-toplevel-${i}`}>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">+ New {a.kind}</span>{" "}
+                <span className="font-medium">{a.title}</span> in the PROGRAM band
+                {a.date ? ` on ${a.date}` : " — date not given, will open for editing"}
+                <span className="text-zinc-400"> ({a.reason})</span>
+              </li>
+            ))}
+            {dependencyRows.map((d, i) => (
+              <li key={`dependency-${i}`}>
+                {d.add ? "+ Link" : "− Unlink"} <span className="font-medium">{d.dependentTitle}</span> {d.add ? "to depend on" : "from"}{" "}
+                <span className="font-medium">{d.dependencyTitle}</span>
+                {d.add && d.showConnector !== undefined ? (d.showConnector ? " (visible connector)" : " (no connector line)") : ""}
+                <span className="text-zinc-400"> ({d.reason})</span>
               </li>
             ))}
             {skippedRows.map((s) => (
