@@ -9,6 +9,7 @@ import {
   type AmbiguousChoice,
   type AttachmentOp,
   type BlufOp,
+  type BulkShiftOp,
   type DeleteOp,
   type DependencyOp,
   type DocumentFieldsOp,
@@ -18,6 +19,7 @@ import {
   type TopLevelItemOp,
 } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
+import { resolveBulkShiftOps } from "@/lib/corrections/bulk-shift";
 import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
 import {
   addSwimlaneOp,
@@ -687,6 +689,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const addTopLevelItems: AddTopLevelItemOp[] = body.patch.addTopLevelItems ?? [];
         const dependencyOps: DependencyOp[] = body.patch.dependencyOps ?? [];
         const attachmentOps: AttachmentOp[] = body.patch.attachmentOps ?? [];
+        const bulkShiftOps: BulkShiftOp[] = body.patch.bulkShiftOps ?? [];
         const blufOp: BlufOp | null = body.patch.blufOp ?? null;
         const documentOp: DocumentFieldsOp | null = body.patch.documentOp ?? null;
         const ambiguous: AmbiguousChoice | null = body.patch.ambiguous ?? null;
@@ -701,6 +704,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
           addTopLevelItems.length === 0 &&
           dependencyOps.length === 0 &&
           attachmentOps.length === 0 &&
+          bulkShiftOps.length === 0 &&
           !blufOp &&
           !documentOp &&
           !ambiguous
@@ -709,10 +713,18 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
           return;
         }
 
-        const ops = applyCascade(state.data.milestones, directOps);
+        // Bulk shift compiles down to ordinary date/startDate/endDate ops
+        // (wayframe#57) *before* cascade runs — folded into the same
+        // directOps/topLevelItemOps batches the rest of this response
+        // already produces, so applyCascade's own visited-set dedup covers
+        // "don't double-shift a dependent that's also in the bulk selection"
+        // for free, and preview/apply/undo need no separate bulk-shift case.
+        const resolvedBulkShift = resolveBulkShiftOps(state.data.milestones, state.data.topLevelItems, bulkShiftOps);
+        const ops = applyCascade(state.data.milestones, [...directOps, ...resolvedBulkShift.patchOps]);
+        const allTopLevelItemOps = [...topLevelItemOps, ...resolvedBulkShift.topLevelItemOps];
         dispatch({
           type: "proposed",
-          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps, addTopLevelItems, dependencyOps, attachmentOps, blufOp, documentOp, ambiguous },
+          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps: allTopLevelItemOps, addTopLevelItems, dependencyOps, attachmentOps, blufOp, documentOp, ambiguous },
         });
       } catch (err) {
         dispatch({ type: "requestFailed", error: err instanceof Error ? err.message : "Correction request failed." });

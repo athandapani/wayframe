@@ -163,6 +163,30 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
           required: ["targetId", "action", "reason"],
         },
       },
+      bulkShiftOps: {
+        type: "array",
+        description:
+          "Shifts many milestones and/or PROGRAM-band items by the same number of days at once — e.g. 'push everything in the Manufacturing lane two weeks later' or 'pull the whole timeline forward from Field Pilot Kickoff by 10 days'. Prefer this over emitting one ops/topLevelItemOps date edit per item when one consistent delta applies to many of them — don't do per-item date arithmetic yourself.",
+        items: {
+          type: "object",
+          properties: {
+            selector: {
+              type: "object",
+              description: "Exactly one of laneId, afterId, or ids — set only the one field kind requires.",
+              properties: {
+                kind: { type: "string", enum: ["lane", "after", "ids"] },
+                laneId: { type: "string", description: "Required for kind=lane: a real lane id, or the literal string \"PROGRAM\" to select the whole PROGRAM band (which has no lane id of its own)." },
+                afterId: { type: "string", description: "Required for kind=after: real id of a milestone or top-level item. Every milestone and top-level item dated on or after that item's own current date shifts — across all lanes and the PROGRAM band together, including the referenced item itself." },
+                ids: { type: "array", items: { type: "string" }, description: "Required for kind=ids: real ids of the specific milestones and/or top-level items to shift, mixed freely." },
+              },
+              required: ["kind"],
+            },
+            deltaDays: { type: "integer", description: "Days to shift by — positive is later, negative is earlier. Convert any unit the request uses: 1 week = 7, 1 month = 30, 1 quarter = 90, 1 year = 365." },
+            reason: { type: "string", description: "Short explanation of what matched and why." },
+          },
+          required: ["selector", "deltaDays", "reason"],
+        },
+      },
       blufOp: {
         type: ["object", "null"],
         description: "Edits the roadmap's single BLUF (\"so what\") panel — its statement, bullet list, or label. Not targetId-addressed; there's exactly one per document. Omit any field the request doesn't touch. Set to null if the request isn't about the BLUF panel.",

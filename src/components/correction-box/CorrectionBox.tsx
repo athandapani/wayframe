@@ -108,7 +108,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Proposed correction</p>
           <ul className="mb-3 space-y-1 text-sm">
             {opRows.map((op) => (
-              <li key={op.targetId}>
+              <li key={`${op.targetId}-${op.field}`}>
                 <span className="font-medium">{op.targetTitle}</span>: {op.field} {op.previousValue} →{" "}
                 <span className="font-semibold text-emerald-600 dark:text-emerald-400">{op.newValue}</span>
                 <span className="text-zinc-400"> ({op.reason})</span>

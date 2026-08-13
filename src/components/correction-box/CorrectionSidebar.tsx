@@ -121,7 +121,7 @@ export function CorrectionSidebar({ box, onNeedsEditor }: { box: UseCorrectionBo
             <p className="mb-1 font-medium">&quot;{box.pending.inputText}&quot;</p>
             <ul className="mb-2 space-y-0.5">
               {opRows.map((op) => (
-                <li key={op.targetId}>
+                <li key={`${op.targetId}-${op.field}`}>
                   {op.targetTitle}: {op.field} {op.previousValue} → <span className="font-semibold">{op.newValue}</span>
                 </li>
               ))}

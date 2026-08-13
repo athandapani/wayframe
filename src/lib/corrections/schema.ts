@@ -178,6 +178,38 @@ export const DependencyOpSchema = z.object({
 });
 export type DependencyOp = z.infer<typeof DependencyOpSchema>;
 
+/**
+ * Bulk relative-date shift across many milestones/PROGRAM-band items at
+ * once (wayframe#57) — the model names a selector and one deltaDays, never
+ * enumerates per-item absolute dates itself (fragile arithmetic with no
+ * consistency guarantee, degrading as the item count grows against the
+ * response token budget). Resolved deterministically client-side
+ * (src/lib/corrections/bulk-shift.ts), mirroring how cascade.ts is already
+ * a deterministic client-side walk rather than model-computed arithmetic —
+ * the resolver compiles a bulkShiftOp down into ordinary
+ * date/startDate/endDate PatchOp/TopLevelItemOp entries *before* they reach
+ * applyCascade/apply.ts/preview.ts, so none of that downstream code needs
+ * to know this op kind exists. No Raw/coerce split needed (unlike
+ * PatchOpSchema): every field here is already the type the model should
+ * emit directly, same as DependencyOpSchema/BlufOpSchema below.
+ */
+export const BulkShiftSelectorSchema = z.discriminatedUnion("kind", [
+  // laneId, or the reserved "PROGRAM" pseudo-lane selecting the whole PROGRAM band (which has no real laneId of its own).
+  z.object({ kind: z.literal("lane"), laneId: z.string().min(1) }),
+  // Cutoff is afterId's own current date, inclusive (the referenced item itself also shifts) — sweeps milestones + PROGRAM-band items together, not lane-scoped.
+  z.object({ kind: z.literal("after"), afterId: z.string().min(1) }),
+  // Explicit picks — real milestone and/or top-level-item ids, mixed freely.
+  z.object({ kind: z.literal("ids"), ids: z.array(z.string().min(1)).min(1) }),
+]);
+export type BulkShiftSelector = z.infer<typeof BulkShiftSelectorSchema>;
+
+export const BulkShiftOpSchema = z.object({
+  selector: BulkShiftSelectorSchema,
+  deltaDays: z.number().int(),
+  reason: z.string().min(1),
+});
+export type BulkShiftOp = z.infer<typeof BulkShiftOpSchema>;
+
 export const SkippedSchema = z.object({
   targetId: z.string().min(1),
   reason: z.string().min(1),
@@ -489,6 +521,7 @@ export const RawCorrectionResponseSchema = z.object({
   addTopLevelItems: z.array(RawAddTopLevelItemOpSchema).default([]),
   dependencyOps: z.array(DependencyOpSchema).default([]),
   attachmentOps: z.array(RawAttachmentOpSchema).default([]),
+  bulkShiftOps: z.array(BulkShiftOpSchema).default([]),
   blufOp: BlufOpSchema.nullable().default(null),
   documentOp: DocumentFieldsOpSchema.nullable().default(null),
   skipped: z.array(SkippedSchema).default([]),
@@ -505,6 +538,7 @@ export const CorrectionResponseSchema = z.object({
   addTopLevelItems: z.array(AddTopLevelItemOpSchema).default([]),
   dependencyOps: z.array(DependencyOpSchema).default([]),
   attachmentOps: z.array(AttachmentOpSchema).default([]),
+  bulkShiftOps: z.array(BulkShiftOpSchema).default([]),
   blufOp: BlufOpSchema.nullable().default(null),
   documentOp: DocumentFieldsOpSchema.nullable().default(null),
   skipped: z.array(SkippedSchema).default([]),
@@ -581,6 +615,23 @@ export function findUnknownTargets(
   for (const op of response.attachmentOps) {
     if (!knownIds.has(op.targetId)) {
       problems.push(`attachmentOp references unknown targetId "${op.targetId}"`);
+    }
+  }
+  for (const op of response.bulkShiftOps) {
+    if (op.selector.kind === "lane") {
+      if (op.selector.laneId !== "PROGRAM" && !knownLaneIds.has(op.selector.laneId)) {
+        problems.push(`bulkShiftOp references unknown laneId "${op.selector.laneId}"`);
+      }
+    } else if (op.selector.kind === "after") {
+      if (!knownIds.has(op.selector.afterId) && !knownTopLevelIds.has(op.selector.afterId)) {
+        problems.push(`bulkShiftOp references unknown afterId "${op.selector.afterId}"`);
+      }
+    } else {
+      for (const id of op.selector.ids) {
+        if (!knownIds.has(id) && !knownTopLevelIds.has(id)) {
+          problems.push(`bulkShiftOp references unknown id "${id}" in an ids selector`);
+        }
+      }
     }
   }
   if (response.ambiguous) {

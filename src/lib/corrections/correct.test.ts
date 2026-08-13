@@ -289,3 +289,74 @@ describe("proposeCorrection attachmentOps/blufOp/documentOp (wayframe#55/#60)", 
     }
   });
 });
+
+describe("proposeCorrection bulkShiftOps (wayframe#57)", () => {
+  it("passes through a well-formed lane-selector bulkShiftOp", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "lane", laneId: "lane-pilot" }, deltaDays: 14, reason: "push the whole lane out two weeks" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.bulkShiftOps).toEqual([{ selector: { kind: "lane", laneId: "lane-pilot" }, deltaDays: 14, reason: "push the whole lane out two weeks" }]);
+    }
+  });
+
+  it("accepts the reserved PROGRAM pseudo-lane even though it isn't a real lane id", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "lane", laneId: "PROGRAM" }, deltaDays: 3, reason: "shift the band" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+  });
+
+  it("passes through an after-selector bulkShiftOp referencing a milestone id", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "after", afterId: "m1" }, deltaDays: -5, reason: "pull the back half in" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+  });
+
+  it("passes through an ids-selector bulkShiftOp referencing a top-level-item id", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "ids", ids: ["m1", "t1"] }, deltaDays: 7, reason: "delay both" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails closed with unknown_target when a lane-selector bulkShiftOp names a non-PROGRAM lane outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "lane", laneId: "does-not-exist" }, deltaDays: 5, reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("fails closed with unknown_target when an after-selector bulkShiftOp references an id outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "after", afterId: "does-not-exist" }, deltaDays: 5, reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("fails closed with unknown_target when an ids-selector bulkShiftOp includes even one id outside the given lists", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], bulkShiftOps: [{ selector: { kind: "ids", ids: ["m1", "does-not-exist"] }, deltaDays: 5, reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("defaults bulkShiftOps to an empty array when the model omits it", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(toolUseResponse({ ops: [], skipped: [] }));
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.bulkShiftOps).toEqual([]);
+  });
+});

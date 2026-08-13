@@ -117,6 +117,7 @@ function validate(
     addTopLevelItems,
     dependencyOps: parsed.data.dependencyOps,
     attachmentOps,
+    bulkShiftOps: parsed.data.bulkShiftOps,
     blufOp: parsed.data.blufOp,
     documentOp: parsed.data.documentOp,
     skipped: parsed.data.skipped,
