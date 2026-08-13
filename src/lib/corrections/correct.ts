@@ -118,6 +118,7 @@ function validate(
     dependencyOps: parsed.data.dependencyOps,
     attachmentOps,
     bulkShiftOps: parsed.data.bulkShiftOps,
+    acceptBaselineOps: parsed.data.acceptBaselineOps,
     blufOp: parsed.data.blufOp,
     documentOp: parsed.data.documentOp,
     skipped: parsed.data.skipped,

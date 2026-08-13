@@ -187,6 +187,20 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
           required: ["selector", "deltaDays", "reason"],
         },
       },
+      acceptBaselineOps: {
+        type: "array",
+        description:
+          "Accepts a slip, clearing a milestone's drift baseline so it stops reading as ghosted/slipped — e.g. 'accept the slip on UL 3100 Certification' or 'accept all the slips'. Never use field=date/ops for this — that moves the committed date and stamps a *new* baseline, the opposite of accepting one.",
+        items: {
+          type: "object",
+          properties: {
+            scope: { type: "string", enum: ["one", "all"], description: "'one' accepts a single named milestone (needs targetId). 'all' accepts every currently-slipped milestone at once — never enumerate them yourself, just emit one scope=all entry." },
+            targetId: { type: "string", description: "Required for scope=one: real id of the milestone to accept. Omit for scope=all." },
+            reason: { type: "string", description: "Short explanation of what matched and why." },
+          },
+          required: ["scope", "reason"],
+        },
+      },
       blufOp: {
         type: ["object", "null"],
         description: "Edits the roadmap's single BLUF (\"so what\") panel — its statement, bullet list, or label. Not targetId-addressed; there's exactly one per document. Omit any field the request doesn't touch. Set to null if the request isn't about the BLUF panel.",

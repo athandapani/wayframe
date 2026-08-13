@@ -223,6 +223,25 @@ export const SkippedSchema = z.object({
 });
 
 /**
+ * Clears Milestone.originalDate — "accepting" a slip so its ghost badge/
+ * outline stops rendering, making the milestone's current date the new
+ * baseline (wayframe#29/#30's ghost mechanism, decided in wayframe#62).
+ * Doesn't reuse BulkShiftSelectorSchema (wayframe#57): that selector earns
+ * its complexity by letting the model reference a computed set instead of
+ * enumerating it, in service of a shared parameter (deltaDays) applied
+ * across that set. Accept-baseline has no shared parameter — it's a bare
+ * "clear it" — so "all" is simply every milestone with an originalDate,
+ * resolved by scanning live state rather than needing a selector at all.
+ * No Raw/coerce split needed, same reasoning as DependencyOpSchema/
+ * BlufOpSchema: every field here is already the type the model emits.
+ */
+export const AcceptBaselineOpSchema = z.discriminatedUnion("scope", [
+  z.object({ scope: z.literal("one"), targetId: z.string().min(1), reason: z.string().min(1) }),
+  z.object({ scope: z.literal("all"), reason: z.string().min(1) }),
+]);
+export type AcceptBaselineOp = z.infer<typeof AcceptBaselineOpSchema>;
+
+/**
  * The field literals a free-text correction can target — mirrors
  * PatchOpSchema's discriminant. `showReferenceLine`/`endDate` were already
  * real PatchOpSchema variants (wayframe#15/#48, plumbed for the manual
@@ -530,6 +549,7 @@ export const RawCorrectionResponseSchema = z.object({
   dependencyOps: z.array(DependencyOpSchema).default([]),
   attachmentOps: z.array(RawAttachmentOpSchema).default([]),
   bulkShiftOps: z.array(BulkShiftOpSchema).default([]),
+  acceptBaselineOps: z.array(AcceptBaselineOpSchema).default([]),
   blufOp: BlufOpSchema.nullable().default(null),
   documentOp: DocumentFieldsOpSchema.nullable().default(null),
   skipped: z.array(SkippedSchema).default([]),
@@ -547,6 +567,7 @@ export const CorrectionResponseSchema = z.object({
   dependencyOps: z.array(DependencyOpSchema).default([]),
   attachmentOps: z.array(AttachmentOpSchema).default([]),
   bulkShiftOps: z.array(BulkShiftOpSchema).default([]),
+  acceptBaselineOps: z.array(AcceptBaselineOpSchema).default([]),
   blufOp: BlufOpSchema.nullable().default(null),
   documentOp: DocumentFieldsOpSchema.nullable().default(null),
   skipped: z.array(SkippedSchema).default([]),
@@ -640,6 +661,11 @@ export function findUnknownTargets(
           problems.push(`bulkShiftOp references unknown id "${id}" in an ids selector`);
         }
       }
+    }
+  }
+  for (const op of response.acceptBaselineOps) {
+    if (op.scope === "one" && !knownIds.has(op.targetId)) {
+      problems.push(`acceptBaselineOp references unknown targetId "${op.targetId}"`);
     }
   }
   if (response.ambiguous) {

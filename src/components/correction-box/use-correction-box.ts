@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useState } from "react";
 import type { Rag, Milestone, RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
 import {
   coercePatchOp,
+  type AcceptBaselineOp,
   type AddMilestoneOp,
   type AddTopLevelItemOp,
   type AmbiguousChoice,
@@ -20,7 +21,7 @@ import {
 } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
 import { resolveBulkShiftOps } from "@/lib/corrections/bulk-shift";
-import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
+import { applyAcceptBaselineOps, applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
 import {
   addSwimlaneOp,
   applyDeletes,
@@ -78,6 +79,8 @@ export interface PendingPatch {
   dependencyOps: DependencyOp[];
   /** Milestone attachment add/remove, one op per attachment (wayframe#55/#60). */
   attachmentOps: AttachmentOp[];
+  /** Accept-baseline ops — clears originalDate for named or all ghosted milestones (wayframe#62). */
+  acceptBaselineOps: AcceptBaselineOp[];
   /** BLUF panel edit — statement/bullets/label — not targetId-addressed (wayframe#55/#60). */
   blufOp: BlufOp | null;
   /** Document-header edit — programName/owner/reportsTo/nextReviewDate — not targetId-addressed (wayframe#55/#60). */
@@ -108,6 +111,8 @@ export type CorrectionBoxAction =
   | { type: "undo" }
   | { type: "resolveAmbiguous"; targetId: string }
   | { type: "editMilestone"; ops: PatchOp[] }
+  | { type: "acceptBaseline"; id: string }
+  | { type: "acceptAllBaselines" }
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
   | { type: "editBluf"; patch: Partial<RoadmapData["bluf"]> }
   | { type: "editDocument"; patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">> }
@@ -161,7 +166,8 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const added = applyAddMilestoneOps(action.adds);
       const withDependencyOps = applyDependencyOps([...edited, ...added], state.pending.dependencyOps);
       const withAttachmentOps = applyAttachmentOps(withDependencyOps, state.pending.attachmentOps);
-      const withMilestoneOps = { ...state.data, milestones: withAttachmentOps };
+      const withAcceptedBaselines = applyAcceptBaselineOps(withAttachmentOps, state.pending.acceptBaselineOps);
+      const withMilestoneOps = { ...state.data, milestones: withAcceptedBaselines };
       const withDeletes = applyDeletes(withMilestoneOps, state.pending.deletes);
       const withSwimlaneOps = applySwimlaneOps(withDeletes, action.resolvedSwimlaneOps);
       const editedTopLevel = applyTopLevelItemOps(withSwimlaneOps.topLevelItems, state.pending.topLevelItemOps);
@@ -233,6 +239,34 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "acceptBaseline": {
+      // Clears one milestone's drift baseline — "this is the new normal,
+      // stop showing me the ghost" (wayframe#62). Instant apply, same
+      // shared undo stack as editMilestone. No cascade/critical-path
+      // recompute: clearing originalDate never touches `date`.
+      return {
+        ...state,
+        data: stampUpdated({
+          ...state.data,
+          milestones: applyAcceptBaselineOps(state.data.milestones, [{ scope: "one", targetId: action.id, reason: "Accepted baseline" }]),
+        }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "acceptAllBaselines": {
+      // Bulk counterpart (wayframe#62) — the Options-menu "Accept all"
+      // action, confirmed inline by the caller before dispatching.
+      return {
+        ...state,
+        data: stampUpdated({
+          ...state.data,
+          milestones: applyAcceptBaselineOps(state.data.milestones, [{ scope: "all", reason: "Accepted all baselines" }]),
+        }),
         history: [...state.history, state.data],
         error: null,
       };
@@ -529,6 +563,10 @@ export interface UseCorrectionBoxResult {
   /** Turns one of the pending patch's ambiguous candidates into a real op — the clarifying-question answer. */
   resolveAmbiguous: (targetId: string) => void;
   editMilestone: (ops: PatchOp[]) => void;
+  /** Clears one milestone's drift baseline, per the milestone editor's "Accept" button (wayframe#62). */
+  acceptBaseline: (id: string) => void;
+  /** Clears every currently-ghosted milestone's baseline, per the Options menu's "Accept all" action (wayframe#62). */
+  acceptAllBaselines: () => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
   editBluf: (patch: Partial<RoadmapData["bluf"]>) => void;
   editDocument: (patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => void;
@@ -690,6 +728,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const dependencyOps: DependencyOp[] = body.patch.dependencyOps ?? [];
         const attachmentOps: AttachmentOp[] = body.patch.attachmentOps ?? [];
         const bulkShiftOps: BulkShiftOp[] = body.patch.bulkShiftOps ?? [];
+        const acceptBaselineOps: AcceptBaselineOp[] = body.patch.acceptBaselineOps ?? [];
         const blufOp: BlufOp | null = body.patch.blufOp ?? null;
         const documentOp: DocumentFieldsOp | null = body.patch.documentOp ?? null;
         const ambiguous: AmbiguousChoice | null = body.patch.ambiguous ?? null;
@@ -705,6 +744,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
           dependencyOps.length === 0 &&
           attachmentOps.length === 0 &&
           bulkShiftOps.length === 0 &&
+          acceptBaselineOps.length === 0 &&
           !blufOp &&
           !documentOp &&
           !ambiguous
@@ -724,7 +764,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
         const allTopLevelItemOps = [...topLevelItemOps, ...resolvedBulkShift.topLevelItemOps];
         dispatch({
           type: "proposed",
-          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps: allTopLevelItemOps, addTopLevelItems, dependencyOps, attachmentOps, blufOp, documentOp, ambiguous },
+          pending: { inputText: text, ops, skipped, adds, deletes, swimlaneOps, topLevelItemOps: allTopLevelItemOps, addTopLevelItems, dependencyOps, attachmentOps, acceptBaselineOps, blufOp, documentOp, ambiguous },
         });
       } catch (err) {
         dispatch({ type: "requestFailed", error: err instanceof Error ? err.message : "Correction request failed." });
@@ -764,6 +804,8 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
   const resolveAmbiguous = useCallback((targetId: string) => dispatch({ type: "resolveAmbiguous", targetId }), []);
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
+  const acceptBaseline = useCallback((id: string) => dispatch({ type: "acceptBaseline", id }), []);
+  const acceptAllBaselines = useCallback(() => dispatch({ type: "acceptAllBaselines" }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
   const editBluf = useCallback((patch: Partial<RoadmapData["bluf"]>) => dispatch({ type: "editBluf", patch }), []);
   const editDocument = useCallback(
@@ -811,6 +853,8 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     undo,
     resolveAmbiguous,
     editMilestone,
+    acceptBaseline,
+    acceptAllBaselines,
     editTopLevelItem,
     editBluf,
     editDocument,

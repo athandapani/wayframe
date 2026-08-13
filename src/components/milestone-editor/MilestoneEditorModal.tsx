@@ -11,7 +11,7 @@ import type { Attachment, Milestone, RoadmapData, Status } from "@/components/ti
 import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMilestoneFields } from "@/lib/corrections/build-milestone-ops";
 import type { AttachmentOp, PatchOp } from "@/lib/corrections/schema";
 import type { TraceDirection } from "@/lib/critical-path/trace";
-import { addDays } from "@/components/timeline/date-utils";
+import { addDays, formatDateShort } from "@/components/timeline/date-utils";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
@@ -170,6 +170,7 @@ function ModalForm({
   onDelete,
   onToggleDependency,
   onEditAttachments,
+  onAcceptBaseline,
   onTrace,
 }: {
   data: RoadmapData;
@@ -179,6 +180,7 @@ function ModalForm({
   onDelete: (id: string) => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   onEditAttachments: (ops: AttachmentOp[]) => void;
+  onAcceptBaseline: (id: string) => void;
   onTrace: (direction: TraceDirection) => void;
 }) {
   const [draft, setDraft] = useState<EditableMilestoneFields>(() => milestoneToEditableFields(milestone));
@@ -221,6 +223,21 @@ function ModalForm({
               value={draft.date}
               onChange={(e) => setDraft({ ...draft, date: e.target.value })}
             />
+            {/* The ghost mechanism's baseline (wayframe#29/#30) — "Accept"
+                clears it so this milestone stops reading as slipped, making
+                the current date the new normal (wayframe#62). */}
+            {milestone.originalDate && (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
+                Original: {formatDateShort(milestone.originalDate)}
+                <button
+                  type="button"
+                  onClick={() => onAcceptBaseline(milestone.id)}
+                  className="rounded border border-zinc-300 px-1.5 py-0.5 text-[10px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
+                >
+                  Accept
+                </button>
+              </p>
+            )}
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-zinc-500">End date</span>
@@ -414,6 +431,7 @@ export function MilestoneEditorModal({
   onDelete,
   onToggleDependency,
   onEditAttachments,
+  onAcceptBaseline,
   onTrace,
 }: {
   data: RoadmapData;
@@ -423,6 +441,7 @@ export function MilestoneEditorModal({
   onDelete: (id: string) => void;
   onToggleDependency: (dependentId: string, dependencyId: string, add: boolean) => void;
   onEditAttachments: (ops: AttachmentOp[]) => void;
+  onAcceptBaseline: (id: string) => void;
   onTrace: (direction: TraceDirection) => void;
 }) {
   if (!milestone) return null;
@@ -436,6 +455,7 @@ export function MilestoneEditorModal({
       onDelete={onDelete}
       onToggleDependency={onToggleDependency}
       onEditAttachments={onEditAttachments}
+      onAcceptBaseline={onAcceptBaseline}
       onTrace={onTrace}
     />
   );

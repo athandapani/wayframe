@@ -1,5 +1,5 @@
 import type { Milestone, TopLevelItem } from "@/components/timeline/types";
-import type { AddMilestoneOp, AddTopLevelItemOp, AttachmentOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
+import type { AcceptBaselineOp, AddMilestoneOp, AddTopLevelItemOp, AttachmentOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
 
 /**
  * Commits a set of ops (direct + cascaded) onto a milestone list. A date op
@@ -118,6 +118,26 @@ export function applyAttachmentOps(milestones: readonly Milestone[], ops: readon
       return { ...m, attachments: next };
     });
   }, milestones as Milestone[]);
+}
+
+/**
+ * Clears originalDate on every matched milestone — "accepting" a slip
+ * (wayframe#62). A "one" op matches its targetId; an "all" op matches every
+ * currently-ghosted milestone. Resolved against live state (not something
+ * the model enumerates), so a milestone with no originalDate is always left
+ * untouched, whether or not it's named — mirrors the manual "Accept all"
+ * button's own scan (use-correction-box.ts).
+ */
+export function applyAcceptBaselineOps(milestones: readonly Milestone[], ops: readonly AcceptBaselineOp[]): Milestone[] {
+  if (ops.length === 0) return milestones as Milestone[];
+  const acceptAll = ops.some((o) => o.scope === "all");
+  const targetIds = new Set(ops.filter((o): o is Extract<AcceptBaselineOp, { scope: "one" }> => o.scope === "one").map((o) => o.targetId));
+  return milestones.map((m) => {
+    if (!m.originalDate || !(acceptAll || targetIds.has(m.id))) return m;
+    const rest = { ...m };
+    delete rest.originalDate;
+    return rest;
+  });
 }
 
 function applyOp(m: Milestone, op: PatchOp): Milestone {

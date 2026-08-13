@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Milestone, TopLevelItem } from "@/components/timeline/types";
-import { applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "./apply";
-import type { AddTopLevelItemOp, AttachmentOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
+import { applyAcceptBaselineOps, applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "./apply";
+import type { AcceptBaselineOp, AddTopLevelItemOp, AttachmentOp, DependencyOp, PatchOp, TopLevelItemOp } from "./schema";
 
 function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date">): Milestone {
   return {
@@ -250,5 +250,49 @@ describe("applyAttachmentOps (wayframe#55/#60)", () => {
     const ops: AttachmentOp[] = [{ targetId: "m1", action: "add", attachment: { type: "link", url: "https://a" }, reason: "r" }];
     const result = applyAttachmentOps(milestones, ops);
     expect(result[1]).toBe(milestones[1]);
+  });
+});
+
+describe("applyAcceptBaselineOps", () => {
+  it("clears originalDate for a single named target (scope=one)", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-08", originalDate: "2026-01-01" })];
+    const ops: AcceptBaselineOp[] = [{ scope: "one", targetId: "m1", reason: "r" }];
+    const result = applyAcceptBaselineOps(milestones, ops);
+    expect(result[0].originalDate).toBeUndefined();
+    expect(result[0].date).toBe("2026-01-08");
+  });
+
+  it("leaves other milestones untouched when accepting one by name", () => {
+    const milestones = [
+      milestone({ id: "m1", date: "2026-01-08", originalDate: "2026-01-01" }),
+      milestone({ id: "m2", date: "2026-02-08", originalDate: "2026-02-01" }),
+    ];
+    const result = applyAcceptBaselineOps(milestones, [{ scope: "one", targetId: "m1", reason: "r" }]);
+    expect(result[0].originalDate).toBeUndefined();
+    expect(result[1]).toBe(milestones[1]);
+  });
+
+  it("clears originalDate on every ghosted milestone for scope=all", () => {
+    const milestones = [
+      milestone({ id: "m1", date: "2026-01-08", originalDate: "2026-01-01" }),
+      milestone({ id: "m2", date: "2026-02-08", originalDate: "2026-02-01" }),
+      milestone({ id: "m3", date: "2026-03-01" }),
+    ];
+    const result = applyAcceptBaselineOps(milestones, [{ scope: "all", reason: "r" }]);
+    expect(result[0].originalDate).toBeUndefined();
+    expect(result[1].originalDate).toBeUndefined();
+    expect(result[2]).toBe(milestones[2]);
+  });
+
+  it("is a no-op on a milestone with no originalDate, even if named", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01" })];
+    const result = applyAcceptBaselineOps(milestones, [{ scope: "one", targetId: "m1", reason: "r" }]);
+    expect(result[0]).toBe(milestones[0]);
+  });
+
+  it("leaves the milestone list untouched when given no ops", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-08", originalDate: "2026-01-01" })];
+    const result = applyAcceptBaselineOps(milestones, []);
+    expect(result).toBe(milestones);
   });
 });

@@ -278,6 +278,7 @@ export function RoadmapWorkspace({
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [lanesOpen, setLanesOpen] = useState(false);
+  const [confirmingAcceptAll, setConfirmingAcceptAll] = useState(false);
   const openFileRef = useRef<HTMLInputElement>(null);
   const logoFileRef = useRef<HTMLInputElement>(null);
 
@@ -680,6 +681,39 @@ export function RoadmapWorkspace({
                 </div>
               </OptionsMenuRow>
             )}
+            {(() => {
+              const ghostedCount = box.data.milestones.filter((m) => m.originalDate).length;
+              if (ghostedCount === 0) return null;
+              // Inline count-based confirm (wayframe#62) — mirrors
+              // SwimlaneManager's confirmingId pattern for lane delete: a
+              // single click mutating many milestones at once gets a named
+              // warning, not a silent bulk action.
+              return (
+                <OptionsMenuRow label="Slipped milestones">
+                  {confirmingAcceptAll ? (
+                    <span className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          box.acceptAllBaselines();
+                          setConfirmingAcceptAll(false);
+                        }}
+                        style={PILL_STYLE}
+                        className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                      >
+                        {`Accept ${ghostedCount}?`}
+                      </button>
+                      <button onClick={() => setConfirmingAcceptAll(false)} className="text-[11px] opacity-60 hover:opacity-100">
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setConfirmingAcceptAll(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                      {`Accept all (${ghostedCount})`}
+                    </button>
+                  )}
+                </OptionsMenuRow>
+              );
+            })()}
             <OptionsMenuRow label="At-risk projection">
               <button
                 onClick={() => atRisk.setEnabled(!atRisk.enabled)}
@@ -887,6 +921,7 @@ export function RoadmapWorkspace({
         onDelete={handleDeleteMilestone}
         onToggleDependency={box.toggleDependency}
         onEditAttachments={box.editAttachments}
+        onAcceptBaseline={box.acceptBaseline}
         onTrace={(direction) => {
           if (selectedMilestoneId) setTrace({ rootId: selectedMilestoneId, direction });
           setSelectedMilestoneId(null);

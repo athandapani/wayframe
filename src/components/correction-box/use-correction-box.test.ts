@@ -38,7 +38,7 @@ describe("correction box reducer", () => {
   it("apply commits pending ops, pushes history, and clears pending", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null },
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
     };
 
     const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
@@ -69,13 +69,13 @@ describe("correction box reducer", () => {
   it("supports multi-step undo across two applied patches", () => {
     let state = initialState();
     // Apply patch 1
-    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
     state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     const afterFirstApply = state.data;
     expect(state.data.milestones[0].status).toBe("at-risk");
 
     // Apply patch 2
-    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
     state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     expect(state.data.milestones[0].status).toBe("complete");
     expect(state.history).toHaveLength(2);
@@ -95,7 +95,7 @@ describe("correction box reducer", () => {
   it("discard clears pending without touching data or history", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "x", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null },
+      pending: { inputText: "x", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
     };
     const next = reduce(state, { type: "discard" });
     expect(next.pending).toBeNull();
@@ -106,7 +106,7 @@ describe("correction box reducer", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
       loading: true,
-      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null },
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
     };
     const next = reduce(state, { type: "requestFailed", error: "boom" });
     expect(next.loading).toBe(false);
@@ -117,7 +117,7 @@ describe("correction box reducer", () => {
   it("hydrated replaces data without pushing history — a refresh reload isn't an undoable edit", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null },
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
       error: "stale error",
     };
     const persisted = { ...baseData(), programName: "Persisted" };
@@ -180,6 +180,49 @@ describe("editAttachments reducer action (wayframe#55/#60)", () => {
   });
 });
 
+describe("acceptBaseline/acceptAllBaselines reducer actions (wayframe#62)", () => {
+  it("clears the targeted milestone's originalDate, instant apply", () => {
+    const state = initialState();
+    state.data.milestones[0].date = "2026-01-08";
+    state.data.milestones[0].originalDate = "2026-01-01";
+    const next = reduce(state, { type: "acceptBaseline", id: "m1" });
+    expect(next.data.milestones[0].originalDate).toBeUndefined();
+    expect(next.data.milestones[0].date).toBe("2026-01-08");
+    expect(next.history).toHaveLength(1);
+    expect(next.data.lastUpdatedAt).toBeDefined();
+  });
+
+  it("acceptAllBaselines clears originalDate across every ghosted milestone", () => {
+    const state = initialState();
+    state.data.milestones[0].date = "2026-01-08";
+    state.data.milestones[0].originalDate = "2026-01-01";
+    state.data.milestones.push({
+      id: "m2",
+      laneId: "lane-1",
+      title: "Milestone 2",
+      date: "2026-02-08",
+      originalDate: "2026-02-01",
+      status: "not-started",
+      dependsOn: [],
+      linksToTopLevelMilestone: null,
+      isCriticalPath: false,
+    });
+    const next = reduce(state, { type: "acceptAllBaselines" });
+    expect(next.data.milestones[0].originalDate).toBeUndefined();
+    expect(next.data.milestones[1].originalDate).toBeUndefined();
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("is undoable", () => {
+    const state = initialState();
+    state.data.milestones[0].date = "2026-01-08";
+    state.data.milestones[0].originalDate = "2026-01-01";
+    const accepted = reduce(state, { type: "acceptBaseline", id: "m1" });
+    const undone = reduce(accepted, { type: "undo" });
+    expect(undone.data.milestones[0].originalDate).toBe("2026-01-01");
+  });
+});
+
 describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
   it("merges a blufOp touching only the statement, leaving bullets/label untouched", () => {
     const withPending: CorrectionBoxState = {
@@ -195,6 +238,7 @@ describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
         addTopLevelItems: [],
         dependencyOps: [],
         attachmentOps: [],
+        acceptBaselineOps: [],
         blufOp: { statement: "On track for GA", reason: "r" },
         documentOp: null,
         ambiguous: null,
@@ -219,6 +263,7 @@ describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
         addTopLevelItems: [],
         dependencyOps: [],
         attachmentOps: [],
+        acceptBaselineOps: [],
         blufOp: null,
         documentOp: { programName: "Atlas v2", owner: "K. Simmons", reason: "r" },
         ambiguous: null,
@@ -243,6 +288,7 @@ describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
         addTopLevelItems: [],
         dependencyOps: [],
         attachmentOps: [{ targetId: "m1", action: "add", attachment: { type: "link", url: "https://survey" }, reason: "r" }],
+        acceptBaselineOps: [],
         blufOp: null,
         documentOp: null,
         ambiguous: null,
@@ -250,6 +296,33 @@ describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
     };
     const next = reduce(withPending, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
     expect(next.data.milestones[0].attachments).toEqual([{ type: "link", url: "https://survey" }]);
+  });
+
+  it("applies a pending acceptBaselineOps entry from the AI-correction path (wayframe#62)", () => {
+    const withPending: CorrectionBoxState = {
+      ...initialState(),
+      pending: {
+        inputText: "accept the slip on m1",
+        ops: [],
+        skipped: [],
+        adds: [],
+        deletes: [],
+        swimlaneOps: [],
+        topLevelItemOps: [],
+        addTopLevelItems: [],
+        dependencyOps: [],
+        attachmentOps: [],
+        acceptBaselineOps: [{ scope: "one", targetId: "m1", reason: "r" }],
+        blufOp: null,
+        documentOp: null,
+        ambiguous: null,
+      },
+    };
+    withPending.data.milestones[0].date = "2026-01-08";
+    withPending.data.milestones[0].originalDate = "2026-01-01";
+    const next = reduce(withPending, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    expect(next.data.milestones[0].originalDate).toBeUndefined();
+    expect(next.pending).toBeNull();
   });
 });
 
@@ -327,6 +400,7 @@ describe("apply with topLevelItemOps/addTopLevelItems/dependencyOps (wayframe#59
         addTopLevelItems: [{ kind: "annotation", title: "Board Review", date: "2026-03-03", message: "funding decision", reason: "r" }],
         dependencyOps: [],
         attachmentOps: [],
+        acceptBaselineOps: [],
         blufOp: null,
         documentOp: null,
         ambiguous: null,
@@ -363,6 +437,7 @@ describe("apply with topLevelItemOps/addTopLevelItems/dependencyOps (wayframe#59
         addTopLevelItems: [],
         dependencyOps: [{ dependentId: "m1", dependencyId: "new-1", add: true, showConnector: false, reason: "r" }],
         attachmentOps: [],
+        acceptBaselineOps: [],
         blufOp: null,
         documentOp: null,
         ambiguous: null,
@@ -382,7 +457,7 @@ describe("lastUpdatedAt stamping (wayframe#40/#49)", () => {
   it("apply stamps lastUpdatedAt with the current time — distinct from generatedAt, which never changes", () => {
     const state: CorrectionBoxState = {
       ...initialState(),
-      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], blufOp: null, documentOp: null, ambiguous: null },
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
     };
     const before = Date.now();
     const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });

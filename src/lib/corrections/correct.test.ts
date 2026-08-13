@@ -360,3 +360,41 @@ describe("proposeCorrection bulkShiftOps (wayframe#57)", () => {
     if (result.ok) expect(result.response.bulkShiftOps).toEqual([]);
   });
 });
+
+describe("proposeCorrection acceptBaselineOps (wayframe#62)", () => {
+  it("passes through a well-formed scope=one acceptBaselineOp", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], acceptBaselineOps: [{ scope: "one", targetId: "m1", reason: "accept the slip on m1" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.acceptBaselineOps).toEqual([{ scope: "one", targetId: "m1", reason: "accept the slip on m1" }]);
+    }
+  });
+
+  it("passes through a scope=all acceptBaselineOp with no targetId", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], acceptBaselineOps: [{ scope: "all", reason: "accept every slip" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.acceptBaselineOps).toEqual([{ scope: "all", reason: "accept every slip" }]);
+  });
+
+  it("fails closed with unknown_target when a scope=one acceptBaselineOp names an id outside the given list", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(
+      toolUseResponse({ ops: [], skipped: [], acceptBaselineOps: [{ scope: "one", targetId: "does-not-exist", reason: "bad" }] }),
+    );
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unknown_target");
+  });
+
+  it("defaults acceptBaselineOps to an empty array when the model omits it", async () => {
+    const callModel: CallModel = vi.fn().mockResolvedValue(toolUseResponse({ ops: [], skipped: [] }));
+    const result = await proposeCorrection(input, callModel);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.response.acceptBaselineOps).toEqual([]);
+  });
+});
