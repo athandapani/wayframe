@@ -86,6 +86,11 @@ export function setRagOverrideOp(data: RoadmapData, id: string, rag: Rag | "auto
   };
 }
 
+/** Mirrors setLaneColorOp's placement/pattern — "normal vs lean" row-height toggle. */
+export function setLaneDensityOp(data: RoadmapData, id: string, density: "normal" | "lean"): RoadmapData {
+  return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, density } : l)) };
+}
+
 export function applyDeletes(data: RoadmapData, deletes: readonly DeleteOp[]): RoadmapData {
   return deletes.reduce((acc, d) => {
     if (d.entityType === "milestone") return removeMilestoneOp(acc, d.targetId);

@@ -28,8 +28,12 @@ import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
 import { RichTextEditableLine } from "./RichTextEditableLine";
 
 const STORAGE_KEY = "wayframe:bluf-position";
-const DEFAULT_WIDTH = 384;
-const MIN_WIDTH = 220;
+// Was 384/max-w-md (448px rendered) — read as oversized for a callout meant
+// to float over the chart without covering it; shrunk down so it reads as a
+// compact annotation by default. A document that's explicitly resized its
+// box (bluf.size.width) always overrides this.
+const DEFAULT_WIDTH = 280;
+const MIN_WIDTH = 200;
 const MIN_HEIGHT = 90;
 
 interface Position {
@@ -60,6 +64,23 @@ const DEFAULT_POSITION: Position = { x: 0, y: 0 };
 
 function isPosition(v: unknown): v is Position {
   return typeof v === "object" && v !== null && typeof (v as Position).x === "number" && typeof (v as Position).y === "number";
+}
+
+/**
+ * Purely decorative — the whole header row is already the drag target (see
+ * onPointerDown/Move/Up below). Without a visible affordance the only cue
+ * was a `cursor-grab` on hover, which nobody notices before they've already
+ * tried clicking around for a drag handle. A grip icon gives the eye
+ * somewhere to land first.
+ */
+function DragHandleGlyph() {
+  return (
+    <svg viewBox="0 0 10 16" aria-hidden="true" className="mt-0.5 h-4 w-2.5 shrink-0 opacity-50">
+      {[2, 8].map((cx) =>
+        [2, 8, 14].map((cy) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={1.3} fill="currentColor" />),
+      )}
+    </svg>
+  );
 }
 
 function ResizeHandle({ onPointerDown }: { onPointerDown: (e: React.PointerEvent) => void }) {
@@ -230,18 +251,15 @@ export function BlufCallout({
     borderWidth: 1,
     width: bluf.size?.width,
     height: bluf.size?.height ?? undefined,
+    // Caps it at a compact default so it reads as an annotation, not a
+    // second panel — inline rather than a Tailwind max-w-* class since the
+    // cap needs to track DEFAULT_WIDTH. Dropped once the document has an
+    // explicit width (a resized box overrides it deliberately).
+    maxWidth: bluf.size?.width ? undefined : DEFAULT_WIDTH,
   };
 
   return (
-    // max-w-md keeps it clear of the centred correction bar, which is fixed
-    // to the viewport — page padding can't separate them when the content
-    // already fits on screen. Only applied when the document hasn't set an
-    // explicit width yet (a resized box overrides it deliberately).
-    <div
-      ref={boxRef}
-      style={boxStyle}
-      className={"relative mt-3 w-full rounded-lg border p-3 text-xs shadow-lg " + (bluf.size?.width ? "" : "max-w-md")}
-    >
+    <div ref={boxRef} style={boxStyle} className="relative mt-3 w-full rounded-lg border p-3 text-xs shadow-lg">
       <div
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -250,13 +268,14 @@ export function BlufCallout({
         className={"mb-1 flex items-start justify-between gap-2 " + (dragging ? "cursor-grabbing" : "cursor-grab")}
         title="Drag to move"
       >
+        <DragHandleGlyph />
         {onEdit ? (
           <div onPointerDown={(e) => e.stopPropagation()} className="min-w-0 flex-1 font-bold tracking-wide uppercase" style={{ color: theme.accent }}>
             <RichTextEditableLine html={label} onChange={(html) => onEdit({ label: html })} sizePx={11} ariaLabel="So-what label" />
           </div>
         ) : (
           <span
-            className="font-bold tracking-wide uppercase select-none"
+            className="min-w-0 flex-1 font-bold tracking-wide uppercase select-none"
             style={{ color: theme.accent }}
             dangerouslySetInnerHTML={{ __html: sanitizeBlufHtml(label) }}
           />

@@ -252,6 +252,36 @@ describe("font-scale system (wayframe#42/#50)", () => {
   });
 });
 
+describe("swimlane density (\"normal vs lean\" row height)", () => {
+  it("shrinks the chart's total height when a lane is marked lean", () => {
+    const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const baseHeight = Number(base.querySelector("svg")!.getAttribute("height"));
+
+    const leanRoadmap: RoadmapData = {
+      ...sampleRoadmap,
+      swimlanes: sampleRoadmap.swimlanes.map((l) => (l.id === "lane-a" ? { ...l, density: "lean" as const } : l)),
+    };
+    const { container: leaned } = render(<RoadmapTimeline data={leanRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const leanedHeight = Number(leaned.querySelector("svg")!.getAttribute("height"));
+
+    expect(leanedHeight).toBeLessThan(baseHeight);
+  });
+
+  it("leaves height unchanged for lanes explicitly marked normal", () => {
+    const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const baseHeight = Number(base.querySelector("svg")!.getAttribute("height"));
+
+    const normalRoadmap: RoadmapData = {
+      ...sampleRoadmap,
+      swimlanes: sampleRoadmap.swimlanes.map((l) => ({ ...l, density: "normal" as const })),
+    };
+    const { container: normal } = render(<RoadmapTimeline data={normalRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const normalHeight = Number(normal.querySelector("svg")!.getAttribute("height"));
+
+    expect(normalHeight).toBe(baseHeight);
+  });
+});
+
 describe("deriveShortLabel", () => {
   it("takes initials of significant words", () => {
     expect(deriveShortLabel("Chassis design freeze")).toBe("CDF");

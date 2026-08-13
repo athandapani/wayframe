@@ -11,6 +11,7 @@ import {
   renameSwimlaneOp,
   resolveNamedLaneColor,
   setLaneColorOp,
+  setLaneDensityOp,
   setRagOverrideOp,
 } from "./apply-document";
 import type { DeleteOp, SwimlaneOp } from "./schema";
@@ -125,6 +126,18 @@ describe("setLaneColorOp / setRagOverrideOp", () => {
     const withOverride = setRagOverrideOp(baseData(), "lane-a", "red");
     const next = setRagOverrideOp(withOverride, "lane-a", "auto");
     expect(next.swimlanes.find((l) => l.id === "lane-a")!.ragOverride).toBeUndefined();
+  });
+
+  it("sets a lane's density", () => {
+    const next = setLaneDensityOp(baseData(), "lane-a", "lean");
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.density).toBe("lean");
+    expect(next.swimlanes.find((l) => l.id === "lane-b")!.density).toBeUndefined();
+  });
+
+  it("switches a lane back to normal", () => {
+    const lean = setLaneDensityOp(baseData(), "lane-a", "lean");
+    const next = setLaneDensityOp(lean, "lane-a", "normal");
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.density).toBe("normal");
   });
 });
 

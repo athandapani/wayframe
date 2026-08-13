@@ -38,7 +38,7 @@ export default function Home() {
   if (!checked) return null;
 
   if (roadmap) {
-    return <RoadmapWorkspace initialData={roadmap} today={today} />;
+    return <RoadmapWorkspace initialData={roadmap} today={today} onStartNew={() => setStorageCheck({ checked: true, roadmap: null })} />;
   }
 
   return <EntryForm onExtracted={setRoadmap} />;

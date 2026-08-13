@@ -245,10 +245,13 @@ export function RoadmapWorkspace({
   initialData,
   today,
   persist = true,
+  onStartNew,
 }: {
   initialData: RoadmapData;
   today: Date;
   persist?: boolean;
+  /** Routes back to the entry form (wayframe#63) — omitted by the `/dev/demo-roadmap` QA route, which has no entry form to return to. */
+  onStartNew?: () => void;
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, persist, today);
@@ -281,6 +284,20 @@ export function RoadmapWorkspace({
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  // "Start new roadmap" confirm (wayframe#63) — Undo doesn't survive the
+  // round-trip to the entry form (this whole component unmounts), so the
+  // confirm step is a forced save rather than a discard dialog. Mirrors
+  // SwimlaneManager's lane-delete inline-expand idiom, same precedent #62 cited.
+  const [confirmingNew, setConfirmingNew] = useState(false);
+
+  function handleStartNew() {
+    if (!onStartNew) return;
+    if (box.historyLength === 0) {
+      onStartNew();
+      return;
+    }
+    setConfirmingNew(true);
+  }
   const [lanesOpen, setLanesOpen] = useState(false);
   const [confirmingAcceptAll, setConfirmingAcceptAll] = useState(false);
   const openFileRef = useRef<HTMLInputElement>(null);
@@ -495,23 +512,48 @@ export function RoadmapWorkspace({
               </button>
             </OptionsMenuRow>
             <OptionsMenuRow label="File">
-              <button onClick={() => saveDocumentFile(box.data)} style={PILL_STYLE} className={pillToggle(true)}>
-                Save
-              </button>
-              <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
-                Open
-              </button>
-              <input
-                ref={openFileRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleOpenFile(f);
-                  e.target.value = "";
-                }}
-              />
+              {confirmingNew ? (
+                <>
+                  <button
+                    onClick={() => {
+                      saveDocumentFile(box.data);
+                      onStartNew?.();
+                    }}
+                    style={PILL_STYLE}
+                    className={pillToggle(true)}
+                  >
+                    Save &amp; Start New
+                  </button>
+                  <button onClick={() => setConfirmingNew(false)} className="text-[11px] opacity-60 hover:opacity-100">
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => saveDocumentFile(box.data)} style={PILL_STYLE} className={pillToggle(true)}>
+                    Save
+                  </button>
+                  <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
+                    Open
+                  </button>
+                  {onStartNew && (
+                    <button onClick={handleStartNew} style={PILL_STYLE} className={pillToggle(true)}>
+                      New
+                    </button>
+                  )}
+                  <input
+                    ref={openFileRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleOpenFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </>
+              )}
             </OptionsMenuRow>
             <OptionsMenuRow label="Export">
               <button onClick={handleExport} disabled={exporting} style={PILL_STYLE} className={pillToggle(true) + " disabled:opacity-50"}>
@@ -955,6 +997,7 @@ export function RoadmapWorkspace({
           onMove={box.moveSwimlane}
           onColor={box.setLaneColor}
           onRagOverride={box.setRagOverride}
+          onDensity={box.setLaneDensity}
           onClose={() => setLanesOpen(false)}
         />
       )}

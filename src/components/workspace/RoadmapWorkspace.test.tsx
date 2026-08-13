@@ -3,10 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoadmapData } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "./RoadmapWorkspace";
 import { exportToDeck } from "@/lib/export/export-to-deck";
+import { saveDocumentFile } from "@/lib/document-file/document-file";
 
 vi.mock("@/lib/export/export-to-deck", () => ({
   exportToDeck: vi.fn(() => Promise.resolve()),
 }));
+
+vi.mock("@/lib/document-file/document-file", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/document-file/document-file")>("@/lib/document-file/document-file");
+  return { ...actual, saveDocumentFile: vi.fn() };
+});
 
 function baseData(): RoadmapData {
   return {
@@ -172,5 +178,88 @@ describe("RoadmapWorkspace export to deck", () => {
     expect(sources.map((s) => s.label)).toEqual(["Program", "Executive"]);
     expect(sources[0].element).not.toBe(sources[1].element);
     expect(fileName).toBe("atlas-program-deck.pptx");
+  });
+});
+
+describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.mocked(saveDocumentFile).mockClear();
+  });
+
+  it("omits the New pill entirely when onStartNew isn't provided (the /dev/demo-roadmap QA route)", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
+  });
+
+  it("skips the confirm step and calls onStartNew directly when nothing's been edited (historyLength === 0)", async () => {
+    const onStartNew = vi.fn();
+    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+
+    expect(onStartNew).toHaveBeenCalledTimes(1);
+    expect(saveDocumentFile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Save & Start New" })).not.toBeInTheDocument();
+  });
+
+  it("expands into 'Save & Start New' / 'Cancel' in place of Save/Open/New once the document's been edited", async () => {
+    const onStartNew = vi.fn();
+    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
+
+    // A plain manual edit (setLaneColor) is enough to push undo history —
+    // mirrors how the other suites here trigger edits via the Options menu.
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add / edit lanes" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Add / edit lanes" }));
+    await waitFor(() => expect(screen.getByLabelText("Colour for Lane 1")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Colour for Lane 1"), { target: { value: "#123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    // The Options menu never actually closed (SwimlaneManager's own overlay
+    // click and the color/Close interactions above are all fireEvent calls
+    // with no real pointerdown reaching OptionsMenu's document-level
+    // outside-click listener in jsdom) — no second openOptionsMenu() call.
+    await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+
+    expect(onStartNew).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save & Start New" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
+  });
+
+  it("'Save & Start New' saves the document before routing back to the entry form", async () => {
+    const onStartNew = vi.fn();
+    const data = baseData();
+    render(<RoadmapWorkspace initialData={data} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
+
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add / edit lanes" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Add / edit lanes" }));
+    await waitFor(() => expect(screen.getByLabelText("Colour for Lane 1")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Colour for Lane 1"), { target: { value: "#123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    // The Options menu never actually closed (SwimlaneManager's own overlay
+    // click and the color/Close interactions above are all fireEvent calls
+    // with no real pointerdown reaching OptionsMenu's document-level
+    // outside-click listener in jsdom) — no second openOptionsMenu() call.
+    await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save & Start New" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save & Start New" }));
+
+    expect(saveDocumentFile).toHaveBeenCalledTimes(1);
+    expect(onStartNew).toHaveBeenCalledTimes(1);
   });
 });

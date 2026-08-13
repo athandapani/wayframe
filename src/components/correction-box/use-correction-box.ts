@@ -32,6 +32,7 @@ import {
   removeTopLevelItemOp,
   renameSwimlaneOp,
   setLaneColorOp,
+  setLaneDensityOp,
   setRagOverrideOp,
 } from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
@@ -131,6 +132,7 @@ export type CorrectionBoxAction =
   | { type: "removeSwimlane"; id: string }
   | { type: "moveSwimlane"; id: string; delta: -1 | 1 }
   | { type: "setRagOverride"; id: string; rag: Rag | "auto" }
+  | { type: "setLaneDensity"; id: string; density: "normal" | "lean" }
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
@@ -359,6 +361,16 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(setRagOverrideOp(state.data, action.id, action.rag)),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "setLaneDensity": {
+      // "Normal vs lean" row-height toggle — a manual dropdown in
+      // SwimlaneManager.tsx, same undo-tracked treatment as setRagOverride.
+      return {
+        ...state,
+        data: stampUpdated(setLaneDensityOp(state.data, action.id, action.density)),
         history: [...state.history, state.data],
         error: null,
       };
@@ -602,6 +614,8 @@ export interface UseCorrectionBoxResult {
   removeSwimlane: (id: string) => void;
   moveSwimlane: (id: string, delta: -1 | 1) => void;
   setRagOverride: (id: string, rag: Rag | "auto") => void;
+  /** "Normal vs lean" row-height toggle, per the SwimlaneManager dropdown. */
+  setLaneDensity: (id: string, density: "normal" | "lean") => void;
   loadDocument: (data: RoadmapData) => void;
   setCompanyLogo: (dataUrl: string) => void;
   clearCompanyLogo: () => void;
@@ -856,6 +870,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const removeSwimlane = useCallback((id: string) => dispatch({ type: "removeSwimlane", id }), []);
   const moveSwimlane = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlane", id, delta }), []);
   const setRagOverride = useCallback((id: string, rag: Rag | "auto") => dispatch({ type: "setRagOverride", id, rag }), []);
+  const setLaneDensity = useCallback((id: string, density: "normal" | "lean") => dispatch({ type: "setLaneDensity", id, density }), []);
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
   const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
   const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
@@ -891,6 +906,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     removeSwimlane,
     moveSwimlane,
     setRagOverride,
+    setLaneDensity,
     loadDocument,
     setCompanyLogo,
     clearCompanyLogo,

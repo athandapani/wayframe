@@ -28,6 +28,7 @@ const SwimlaneSchema = z.object({
   rollupHistory: z
     .array(z.object({ date: IsoDate, rag: RagSchema, atRiskCount: z.number(), delayedCount: z.number() }))
     .optional(),
+  density: z.enum(["normal", "lean"]).optional(),
 });
 
 const MilestoneSchema = z.object({

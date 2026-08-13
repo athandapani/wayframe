@@ -76,12 +76,15 @@ interface RowInfo {
   laneIndex: number; // -1 for separators; cycles only across "lane" rows, for tint color assignment
 }
 
+/** "lean" lanes (Swimlane.density) render at this fraction of the normal lane height. */
+const LEAN_LANE_FACTOR = 0.75;
+
 function computeRows(swimlanes: Swimlane[], laneHeight = LANE_HEIGHT, separatorHeight = SEPARATOR_HEIGHT): RowInfo[] {
   let y = 0;
   let laneIndex = 0;
   const out: RowInfo[] = [];
   for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
-    const height = sl.type === "separator" ? separatorHeight : laneHeight;
+    const height = sl.type === "separator" ? separatorHeight : sl.density === "lean" ? laneHeight * LEAN_LANE_FACTOR : laneHeight;
     out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
     if (sl.type === "lane") laneIndex += 1;
     y += height;
@@ -1174,6 +1177,11 @@ export function RoadmapTimeline({
     dy: number;
     scale: number;
   } | null>(null);
+  // Resize-handle visibility — hidden by default so it doesn't clutter a
+  // chart nobody's actively adjusting, revealed on hover (which a click has
+  // to pass through anyway) and while a drag/resize is in flight, hidden
+  // again once a resize gesture completes or the pointer leaves.
+  const [logoHovered, setLogoHovered] = useState(false);
 
   // Measured from the container, not from the window: the chart sits inside
   // a padded, max-width wrapper, so window width would overshoot by exactly
@@ -1474,6 +1482,9 @@ export function RoadmapTimeline({
   function endLogoDrag() {
     if (!logoDrag) return;
     onCompanyLogoChange?.({ dx: logoDrag.dx, dy: logoDrag.dy, scale: logoDrag.scale });
+    // Hide the handle immediately once a resize completes, rather than
+    // waiting for a pointerleave that pointer capture may have suppressed.
+    if (logoDrag.mode === "resize") setLogoHovered(false);
     setLogoDrag(null);
   }
 
@@ -1658,7 +1669,10 @@ export function RoadmapTimeline({
             preserveAspectRatio keeps an arbitrary uploaded image from
             distorting as it's resized. */}
         {data.companyLogo && (
-          <>
+          <g
+            onPointerEnter={onCompanyLogoChange ? () => setLogoHovered(true) : undefined}
+            onPointerLeave={onCompanyLogoChange && !logoDrag ? () => setLogoHovered(false) : undefined}
+          >
             <image
               href={data.companyLogo.dataUrl}
               x={logoX}
@@ -1671,10 +1685,13 @@ export function RoadmapTimeline({
               onPointerDown={onCompanyLogoChange ? (e) => beginLogoDrag("move", e) : undefined}
             />
             {/* Direct-manipulation resize handle (wayframe#64) — bottom-right
-                corner, uniform scale from horizontal drag distance. Omitted
-                whenever the logo itself is (dev preview / off-screen export
-                capture), same onCompanyLogoChange gate as the drag above. */}
-            {onCompanyLogoChange && (
+                corner, uniform scale from horizontal drag distance. Hidden
+                until the logo is hovered/clicked, hidden again once a resize
+                ends or the pointer leaves — a permanently-visible handle
+                cluttered the chart for every viewer, not just the one
+                editing it. Omitted entirely (like the drag above) whenever
+                the logo itself is (dev preview / off-screen export capture). */}
+            {onCompanyLogoChange && (logoHovered || !!logoDrag) && (
               <rect
                 x={logoX + logoW - 6}
                 y={logoY + logoH - 6}
@@ -1688,7 +1705,7 @@ export function RoadmapTimeline({
                 onPointerDown={(e) => beginLogoDrag("resize", e)}
               />
             )}
-          </>
+          </g>
         )}
 
         {/* "chip" — a small "PROGRAM" chip ahead of the programme name, no band fill. Its box

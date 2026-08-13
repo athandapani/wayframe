@@ -21,6 +21,11 @@ const RAG_OPTIONS: { value: Rag | "auto"; label: string }[] = [
   { value: "red", label: "Red" },
 ];
 
+const DENSITY_OPTIONS: { value: "normal" | "lean"; label: string }[] = [
+  { value: "normal", label: "Normal" },
+  { value: "lean", label: "Lean" },
+];
+
 export interface SwimlaneManagerProps {
   data: RoadmapData;
   theme: Theme;
@@ -31,10 +36,12 @@ export interface SwimlaneManagerProps {
   onColor: (id: string, color: string | undefined) => void;
   /** Manual RAG override (wayframe#55/#58) — mirrors isCriticalPathOverride's pattern; "auto" clears back to the computed worst-status-wins rollup. Lanes only, mirroring onColor. */
   onRagOverride: (id: string, rag: Rag | "auto") => void;
+  /** "Normal vs lean" row-height toggle — lanes only, mirrors onColor/onRagOverride's placement. */
+  onDensity: (id: string, density: "normal" | "lean") => void;
   onClose: () => void;
 }
 
-export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove, onColor, onRagOverride, onClose }: SwimlaneManagerProps) {
+export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove, onColor, onRagOverride, onDensity, onClose }: SwimlaneManagerProps) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const ordered = [...data.swimlanes].sort((a, b) => a.order - b.order);
@@ -123,6 +130,23 @@ export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove
                     className="shrink-0 rounded border bg-transparent px-1.5 py-1 text-xs"
                   >
                     {RAG_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {isLane && (
+                  <select
+                    value={lane.density ?? "normal"}
+                    onChange={(e) => onDensity(lane.id, e.target.value as "normal" | "lean")}
+                    aria-label={`Row height for ${lane.name}`}
+                    title="Row height — Lean is 75% of Normal"
+                    style={{ borderColor: "var(--wf-border)" }}
+                    className="shrink-0 rounded border bg-transparent px-1.5 py-1 text-xs"
+                  >
+                    {DENSITY_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>

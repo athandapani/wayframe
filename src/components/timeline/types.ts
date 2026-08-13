@@ -52,6 +52,17 @@ export interface Swimlane {
    * src/components/executive-view/rag.ts.
    */
   rollupHistory?: RollupSnapshot[];
+  /**
+   * Row-height variant — "lean" renders at 75% of the normal lane height
+   * (see LANE_HEIGHT in RoadmapTimeline.tsx), for lanes with few milestones
+   * that don't need the full vertical tier budget. Document content like
+   * `color`, not a viewer preference: a program owner choosing which lanes
+   * are lean is an editorial layout call everyone opening the file should
+   * see. Undefined/"normal" is the original fixed-height behavior; only
+   * "lane" type rows read this (separators keep their own fixed
+   * SEPARATOR_HEIGHT regardless).
+   */
+  density?: "normal" | "lean";
 }
 
 export type TopLevelItem =
