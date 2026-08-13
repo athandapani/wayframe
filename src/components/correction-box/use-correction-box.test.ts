@@ -223,6 +223,31 @@ describe("acceptBaseline/acceptAllBaselines reducer actions (wayframe#62)", () =
   });
 });
 
+describe("setCompanyLogoGeometry reducer action (wayframe#64)", () => {
+  it("commits dx/dy/scale onto the existing companyLogo, instant apply", () => {
+    const state = initialState();
+    state.data.companyLogo = { dataUrl: "data:image/png;base64,x" };
+    const next = reduce(state, { type: "setCompanyLogoGeometry", dx: 12, dy: -4, scale: 1.5 });
+    expect(next.data.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 });
+    expect(next.history).toHaveLength(1);
+    expect(next.data.lastUpdatedAt).toBeDefined();
+  });
+
+  it("is a no-op when there's no logo to move", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setCompanyLogoGeometry", dx: 12, dy: -4, scale: 1.5 });
+    expect(next).toBe(state);
+  });
+
+  it("is undoable", () => {
+    const state = initialState();
+    state.data.companyLogo = { dataUrl: "data:image/png;base64,x" };
+    const moved = reduce(state, { type: "setCompanyLogoGeometry", dx: 12, dy: -4, scale: 1.5 });
+    const undone = reduce(moved, { type: "undo" });
+    expect(undone.data.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x" });
+  });
+});
+
 describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
   it("merges a blufOp touching only the statement, leaving bullets/label untouched", () => {
     const withPending: CorrectionBoxState = {

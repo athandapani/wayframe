@@ -210,6 +210,13 @@ export interface RoadmapData {
    * drew for milestone attachments. Rendered inside RoadmapTimeline's SVG
    * chart header, alongside (not replacing) the fixed WayframeLogo mark in
    * the page chrome.
+   *
+   * `dx`/`dy`/`scale` (wayframe#64) are the freeform drag/resize offset from
+   * the default top-left placement — undefined/1 means "hasn't been moved."
+   * Document-persisted like `dataUrl` itself, not viewer-local: unlike every
+   * other drag override in use-label-overrides.ts, the logo's placement is
+   * something the document owner sets once and expects to travel with the
+   * file, same reasoning as lane color.
    */
-  companyLogo?: { dataUrl: string };
+  companyLogo?: { dataUrl: string; dx?: number; dy?: number; scale?: number };
 }

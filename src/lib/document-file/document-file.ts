@@ -74,6 +74,10 @@ const RoadmapDataSchema = z.object({
   swimlanes: z.array(SwimlaneSchema),
   topLevelItems: z.array(TopLevelItemSchema),
   milestones: z.array(MilestoneSchema),
+  // Was missing entirely until wayframe#64 — z.object() silently strips
+  // unrecognized keys rather than erroring, so a saved file's companyLogo
+  // was dropped on every Open, without a schema-validation error to catch it.
+  companyLogo: z.object({ dataUrl: z.string(), dx: z.number().optional(), dy: z.number().optional(), scale: z.number().optional() }).optional(),
 });
 
 export type LoadResult = { ok: true; document: RoadmapData } | { ok: false; message: string; issues: string[] };

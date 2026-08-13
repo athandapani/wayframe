@@ -17,6 +17,15 @@ describe("parseDocumentFile", () => {
     }
   });
 
+  it("round-trips companyLogo including its drag/resize geometry (wayframe#64) — previously silently stripped, RoadmapDataSchema had no field for it at all", () => {
+    const withLogo = { ...demoRoadmap, companyLogo: { dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 } };
+    const result = parseDocumentFile(JSON.stringify(withLogo));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.document.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 });
+    }
+  });
+
   it("rejects non-JSON with a readable message", () => {
     const result = parseDocumentFile("this is not json");
     expect(result.ok).toBe(false);

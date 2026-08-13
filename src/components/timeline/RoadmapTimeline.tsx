@@ -54,6 +54,9 @@ const TOP_BAND_HEIGHT = 90;
 const COMPANY_LOGO_HEIGHT = 26;
 const COMPANY_LOGO_MAX_WIDTH = 140;
 const COMPANY_LOGO_GAP = 6;
+/** Freeform drag/resize bounds (wayframe#64) — keeps the logo from shrinking to nothing or growing enough to overlap the PROGRAM chip/programName row it sits above. */
+const COMPANY_LOGO_MIN_SCALE = 0.5;
+const COMPANY_LOGO_MAX_SCALE = 2.2;
 const AXIS_ROW_HEIGHT = 22;
 const PILL_HEIGHT_LG = 20;
 const PILL_HEIGHT_SM = 14; // in-lane duration pills (wayframe#15)
@@ -1079,6 +1082,8 @@ export interface RoadmapTimelineProps {
   onEditDocument?: (patch: { programName?: string; owner?: string }) => void;
   /** Forward-looking slip-risk projection display (wayframe#61/#72) — off by default; callers opt in. */
   atRiskMode?: AtRiskMode;
+  /** Fired once a logo drag or resize gesture ends (wayframe#64) — omit to keep the logo fixed/non-interactive (dev preview / off-screen export capture). */
+  onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
 }
 
 export function RoadmapTimeline({
@@ -1109,6 +1114,7 @@ export function RoadmapTimeline({
   periodGridlineStyle = "year-line",
   onEditDocument,
   atRiskMode = "off",
+  onCompanyLogoChange,
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -1150,6 +1156,24 @@ export function RoadmapTimeline({
   // equivalent state never survived a reload).
   const [labelDrag, setLabelDrag] = useState<{ id: string; startX: number; startY: number; dx: number; dy: number } | null>(null);
   const { overrides: labelOverrides, addOverride: addLabelOverride } = useLabelOverrides();
+
+  // Freeform logo drag/resize (wayframe#64) — unlike labelDrag above, this
+  // commits to the document (onCompanyLogoChange), not use-label-overrides.ts,
+  // per the ticket's resolution: the logo's placement travels with the file.
+  // `mode` distinguishes a move-gesture (both axes, from the image body) from
+  // a resize-gesture (uniform scale, from the corner handle) sharing one
+  // piece of state so only one can be in flight at a time.
+  const [logoDrag, setLogoDrag] = useState<{
+    mode: "move" | "resize";
+    startX: number;
+    startY: number;
+    baseDx: number;
+    baseDy: number;
+    baseScale: number;
+    dx: number;
+    dy: number;
+    scale: number;
+  } | null>(null);
 
   // Measured from the container, not from the window: the chart sits inside
   // a padded, max-width wrapper, so window width would overshoot by exactly
@@ -1236,8 +1260,13 @@ export function RoadmapTimeline({
 
   const axisRowHeight = AXIS_ROW_HEIGHT * boxScale;
   const axisHeight = axisRowHeight * tierRowCount(axisTiers);
-  const companyLogoExtra = data.companyLogo ? COMPANY_LOGO_HEIGHT + COMPANY_LOGO_GAP : 0;
-  const topBandHeight = TOP_BAND_HEIGHT * boxScale + companyLogoExtra;
+  // The logo's default position sits flush with the very top of the chart
+  // (chartTopMargin, same y the axis rows start at), in the left margin
+  // column the axis never paints into (AxisRow's segments start at
+  // MARGIN.left) — not a dedicated strip carved out of the top band, so
+  // topBandHeight/the PROGRAM chip/programName no longer need pushing down
+  // to make room for it (wayframe#64, revising #46/#54's original layout).
+  const topBandHeight = TOP_BAND_HEIGHT * boxScale;
   const topBandY = chartTopMargin + axisHeight;
   const lanesTop = topBandY + topBandHeight;
   const height = lanesTop + bodyHeight + MARGIN.bottom;
@@ -1396,6 +1425,58 @@ export function RoadmapTimeline({
     setLabelDrag(null);
   }
 
+  // Freeform logo drag/resize bounds (wayframe#64) — the logo's default top
+  // sits flush with chartTopMargin (the timeline's own top, where the axis
+  // rows start), so dy=0 means "aligned with the timeline top," not "just
+  // above the PROGRAM band" like the original #46/#54 layout. Bounds keep it
+  // from dragging/growing down into the PROGRAM chip/programName row
+  // (topBandY, where that band starts) or shrinking past
+  // COMPANY_LOGO_MIN_SCALE. Resize clamps scale against the *current* dy
+  // rather than nudging dy to fit, so growing the logo never silently
+  // repositions it.
+  function clampLogoDy(dy: number, scale: number): number {
+    const logoH = COMPANY_LOGO_HEIGHT * fontScale * scale;
+    const minDy = -chartTopMargin;
+    const maxDy = topBandY - 2 - chartTopMargin - logoH;
+    return Math.max(minDy, Math.min(maxDy, dy));
+  }
+  function clampLogoDx(dx: number, scale: number): number {
+    const logoW = COMPANY_LOGO_MAX_WIDTH * metricsScale * scale;
+    const minDx = -16;
+    const maxDx = Math.max(minDx, width - MARGIN.right - 16 - logoW);
+    return Math.max(minDx, Math.min(maxDx, dx));
+  }
+  function clampLogoScale(scale: number, dy: number): number {
+    const maxByOverlap = (topBandY - 2 - chartTopMargin - dy) / (COMPANY_LOGO_HEIGHT * fontScale);
+    return Math.max(COMPANY_LOGO_MIN_SCALE, Math.min(COMPANY_LOGO_MAX_SCALE, maxByOverlap, scale));
+  }
+  function beginLogoDrag(mode: "move" | "resize", evt: React.PointerEvent<SVGElement>) {
+    if (!onCompanyLogoChange || !data.companyLogo) return;
+    evt.currentTarget.setPointerCapture(evt.pointerId);
+    evt.stopPropagation();
+    const dx = data.companyLogo.dx ?? 0;
+    const dy = data.companyLogo.dy ?? 0;
+    const scale = data.companyLogo.scale ?? 1;
+    setLogoDrag({ mode, startX: evt.clientX, startY: evt.clientY, baseDx: dx, baseDy: dy, baseScale: scale, dx, dy, scale });
+  }
+  function moveLogoDrag(evt: React.PointerEvent<SVGSVGElement>) {
+    if (!logoDrag) return;
+    if (logoDrag.mode === "move") {
+      const dx = clampLogoDx(logoDrag.baseDx + (evt.clientX - logoDrag.startX), logoDrag.baseScale);
+      const dy = clampLogoDy(logoDrag.baseDy + (evt.clientY - logoDrag.startY), logoDrag.baseScale);
+      setLogoDrag({ ...logoDrag, dx, dy });
+    } else {
+      const rawScale = logoDrag.baseScale + (evt.clientX - logoDrag.startX) / COMPANY_LOGO_MAX_WIDTH;
+      const scale = clampLogoScale(rawScale, logoDrag.baseDy);
+      setLogoDrag({ ...logoDrag, scale });
+    }
+  }
+  function endLogoDrag() {
+    if (!logoDrag) return;
+    onCompanyLogoChange?.({ dx: logoDrag.dx, dy: logoDrag.dy, scale: logoDrag.scale });
+    setLogoDrag(null);
+  }
+
   // Manual phase placement (wayframe#45): a click-drag on empty lane space
   // draws a new phase's span while `placementMode` targets that lane with
   // shape "phase" — the milestone case needs no drag state at all, a plain
@@ -1474,8 +1555,22 @@ export function RoadmapTimeline({
   }
 
   const programNameLines = wrapText(data.programName, Math.max(6, Math.floor(26 / metricsScale)), 3);
-  const headerY = topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14);
+  const headerY = topBandY + (topBandStyle === "chip" ? 30 : 14);
   const ownerY = headerY + programNameLines.length * 15 * fontScale + 4 * fontScale;
+
+  // Freeform logo geometry (wayframe#64) — an in-flight drag/resize
+  // (logoDrag) previews ahead of the committed data.companyLogo.dx/dy/scale,
+  // same "live gesture overlays committed state" shape as labelDrag/drag above.
+  const logoDx = logoDrag ? logoDrag.dx : (data.companyLogo?.dx ?? 0);
+  const logoDy = logoDrag ? logoDrag.dy : (data.companyLogo?.dy ?? 0);
+  const logoScale = logoDrag ? logoDrag.scale : (data.companyLogo?.scale ?? 1);
+  const logoX = 16 + logoDx;
+  // Default top flush with the timeline's own top (chartTopMargin, same y
+  // the axis rows start at) — a left-margin masthead spot the axis never
+  // paints into, not a strip carved out of the PROGRAM band below it.
+  const logoY = chartTopMargin + logoDy;
+  const logoW = COMPANY_LOGO_MAX_WIDTH * metricsScale * logoScale;
+  const logoH = COMPANY_LOGO_HEIGHT * fontScale * logoScale;
 
   return (
     <div ref={containerRef} className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
@@ -1488,29 +1583,32 @@ export function RoadmapTimeline({
         height={height}
         style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
         onPointerMove={
-          drag || createDrag || labelDrag
+          drag || createDrag || labelDrag || logoDrag
             ? (e) => {
                 moveDrag(e);
                 moveCreateDrag(e);
                 moveLabelDrag(e);
+                moveLogoDrag(e);
               }
             : undefined
         }
         onPointerUp={
-          drag || createDrag || labelDrag
+          drag || createDrag || labelDrag || logoDrag
             ? () => {
                 endDrag();
                 endCreateDrag();
                 endLabelDrag();
+                endLogoDrag();
               }
             : undefined
         }
         onPointerCancel={
-          drag || createDrag || labelDrag
+          drag || createDrag || labelDrag || logoDrag
             ? () => {
                 setDrag(null);
                 setCreateDrag(null);
                 setLabelDrag(null);
+                setLogoDrag(null);
               }
             : undefined
         }
@@ -1550,21 +1648,47 @@ export function RoadmapTimeline({
             <rect x={0} y={topBandY + topBandHeight - 1} width={width} height={1} fill={theme.accent} fillOpacity={0.4} />
           </>
         )}
-        {/* Company logo (wayframe#46/#54) — top-left header column, same x=16
-            margin as the programme name/owner below it, directly above them.
-            Distinct from the fixed WayframeLogo mark in the page chrome
+        {/* Company logo (wayframe#46/#54, freeform drag/resize in #64) —
+            top-left masthead spot, default-aligned with the timeline's own
+            top (chartTopMargin) in the left margin column the axis never
+            paints into — same x=16 margin the programme name/owner sit in
+            further down, just not tied to their position anymore. Distinct
+            from the fixed WayframeLogo mark in the page chrome
             (RoadmapWorkspace's top-left bar); both are visible at once.
             preserveAspectRatio keeps an arbitrary uploaded image from
-            distorting inside its reserved box. */}
+            distorting as it's resized. */}
         {data.companyLogo && (
-          <image
-            href={data.companyLogo.dataUrl}
-            x={16}
-            y={topBandY + 2}
-            width={COMPANY_LOGO_MAX_WIDTH * metricsScale}
-            height={COMPANY_LOGO_HEIGHT * fontScale}
-            preserveAspectRatio="xMinYMid meet"
-          />
+          <>
+            <image
+              href={data.companyLogo.dataUrl}
+              x={logoX}
+              y={logoY}
+              width={logoW}
+              height={logoH}
+              preserveAspectRatio="xMinYMid meet"
+              pointerEvents={onCompanyLogoChange ? "auto" : "none"}
+              className={onCompanyLogoChange ? "cursor-grab select-none active:cursor-grabbing" : undefined}
+              onPointerDown={onCompanyLogoChange ? (e) => beginLogoDrag("move", e) : undefined}
+            />
+            {/* Direct-manipulation resize handle (wayframe#64) — bottom-right
+                corner, uniform scale from horizontal drag distance. Omitted
+                whenever the logo itself is (dev preview / off-screen export
+                capture), same onCompanyLogoChange gate as the drag above. */}
+            {onCompanyLogoChange && (
+              <rect
+                x={logoX + logoW - 6}
+                y={logoY + logoH - 6}
+                width={10}
+                height={10}
+                rx={2}
+                fill={theme.accent}
+                stroke={theme.ground}
+                strokeWidth={1}
+                className="cursor-nwse-resize"
+                onPointerDown={(e) => beginLogoDrag("resize", e)}
+              />
+            )}
+          </>
         )}
 
         {/* "chip" — a small "PROGRAM" chip ahead of the programme name, no band fill. Its box
@@ -1573,10 +1697,10 @@ export function RoadmapTimeline({
             chip/badge/button in this file. */}
         {topBandStyle === "chip" && (
           <>
-            <rect x={16} y={topBandY + 3 + companyLogoExtra} width={"PROGRAM".length * 5.4 * metricsScale + 20} height={13} rx={6.5} fill={theme.accent} />
+            <rect x={16} y={topBandY + 3} width={"PROGRAM".length * 5.4 * metricsScale + 20} height={13} rx={6.5} fill={theme.accent} />
             <text
               x={16 + ("PROGRAM".length * 5.4 * metricsScale + 20) / 2}
-              y={topBandY + 12 + companyLogoExtra}
+              y={topBandY + 12}
               textAnchor="middle"
               fontSize={8.5 * fontScale}
               fontWeight={700}

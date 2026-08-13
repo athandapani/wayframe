@@ -133,6 +133,7 @@ export type CorrectionBoxAction =
   | { type: "setRagOverride"; id: string; rag: Rag | "auto" }
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
+  | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
   | { type: "snapshotRollups"; today: Date };
 
 /**
@@ -523,6 +524,22 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setCompanyLogoGeometry": {
+      // Freeform drag/resize commit (wayframe#64) — fired once per gesture
+      // (on pointer-up), not per pointermove, same "commit at drag-end"
+      // shape as setMilestoneDate. Instant-save, undo-tracked like
+      // setLaneColor: document-persisted, not the viewer-local
+      // use-label-overrides.ts treatment every other chart drag gets,
+      // because this ticket resolved the logo's placement as something the
+      // document owner sets once and expects to travel with the file.
+      if (!state.data.companyLogo) return state;
+      return {
+        ...state,
+        data: stampUpdated({ ...state.data, companyLogo: { ...state.data.companyLogo, dx: action.dx, dy: action.dy, scale: action.scale } }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "snapshotRollups": {
       // Passive once-per-calendar-day-per-lane rollup snapshot for the
       // Executive-view trend arrow (wayframe#33) — same "not a user edit"
@@ -588,6 +605,8 @@ export interface UseCorrectionBoxResult {
   loadDocument: (data: RoadmapData) => void;
   setCompanyLogo: (dataUrl: string) => void;
   clearCompanyLogo: () => void;
+  /** Commits a drag/resize gesture's final dx/dy/scale (wayframe#64) — a no-op if there's no logo to move. */
+  setCompanyLogoGeometry: (dx: number, dy: number, scale: number) => void;
 }
 
 /**
@@ -840,6 +859,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
   const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
   const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
+  const setCompanyLogoGeometry = useCallback((dx: number, dy: number, scale: number) => dispatch({ type: "setCompanyLogoGeometry", dx, dy, scale }), []);
 
   return {
     data: state.data,
@@ -874,5 +894,6 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     loadDocument,
     setCompanyLogo,
     clearCompanyLogo,
+    setCompanyLogoGeometry,
   };
 }

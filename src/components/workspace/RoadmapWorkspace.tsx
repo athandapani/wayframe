@@ -109,6 +109,7 @@ function RoadmapView({
   timelineSummary,
   fontScale,
   fontFamily,
+  onCompanyLogoChange,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -158,6 +159,8 @@ function RoadmapView({
    */
   fontScale?: number;
   fontFamily?: string;
+  /** Freeform logo drag/resize commit (wayframe#64) — omit for the off-screen export capture, same convention as onEditDocument. */
+  onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
 }) {
   if (mode === "program") {
     return (
@@ -189,6 +192,7 @@ function RoadmapView({
           fontFamily={fontFamily}
           metricsScale={fontScale}
           onEditDocument={onEditDocument}
+          onCompanyLogoChange={onCompanyLogoChange}
         />
         {legend}
         <BlufCallout
@@ -553,6 +557,11 @@ export function RoadmapWorkspace({
                   Remove
                 </button>
               )}
+              {box.data.companyLogo && (box.data.companyLogo.dx || box.data.companyLogo.dy || (box.data.companyLogo.scale && box.data.companyLogo.scale !== 1)) && (
+                <button onClick={() => box.setCompanyLogoGeometry(0, 0, 1)} style={PILL_STYLE} className={pillToggle(true)}>
+                  Reset position
+                </button>
+              )}
               <input
                 ref={logoFileRef}
                 type="file"
@@ -871,6 +880,7 @@ export function RoadmapWorkspace({
             timelineSummary={timelineSummary.summary}
             fontScale={fontScale.scale}
             fontFamily={fontFamily.fontFamily}
+            onCompanyLogoChange={(patch) => box.setCompanyLogoGeometry(patch.dx, patch.dy, patch.scale)}
             legend={
               <ChartLegend
                 theme={theme}
