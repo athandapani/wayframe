@@ -8,7 +8,7 @@
 // hand-maintains its own copy.
 import { useEffect, useRef, useState } from "react";
 import type { RoadmapData } from "@/components/timeline/types";
-import { RoadmapTimeline, type GhostMode } from "@/components/timeline/RoadmapTimeline";
+import { RoadmapTimeline, type GhostMode, type AtRiskMode } from "@/components/timeline/RoadmapTimeline";
 import type { Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
@@ -17,6 +17,7 @@ import { HelpPanel } from "./HelpPanel";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox, type AppliedIds } from "@/components/correction-box/use-correction-box";
 import { useGhostMode } from "@/components/timeline/use-ghost-mode";
+import { useAtRiskStyle } from "@/components/timeline/use-at-risk-style";
 import { useFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "@/components/timeline/use-font-scale";
 import { useFontFamily, FONT_FAMILY_CHOICES } from "@/components/timeline/use-font-family";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
@@ -77,6 +78,7 @@ function RoadmapView({
   data,
   today,
   ghostMode,
+  atRiskMode,
   showCriticalPath,
   criticalPathStyle,
   theme,
@@ -107,6 +109,7 @@ function RoadmapView({
   data: RoadmapData;
   today: Date;
   ghostMode: GhostMode;
+  atRiskMode: AtRiskMode;
   showCriticalPath: boolean;
   criticalPathStyle: CriticalPathStyle;
   theme: Theme;
@@ -155,6 +158,7 @@ function RoadmapView({
           today={today}
           width={chartWidth}
           ghostMode={ghostMode}
+          atRiskMode={atRiskMode}
           showCriticalPath={showCriticalPath}
           criticalPathStyle={criticalPathStyle}
           theme={theme}
@@ -234,6 +238,7 @@ export function RoadmapWorkspace({
   const box = useCorrectionBox(initialData, persist, today);
   const timelineSummary = useTimelineSummary(box.data);
   const ghost = useGhostMode();
+  const atRisk = useAtRiskStyle();
   const criticalPath = useCriticalPathVisibility();
   const lastUpdated = useLastUpdatedVisibility();
   const { themeId, theme, setTheme } = useTheme();
@@ -652,6 +657,34 @@ export function RoadmapWorkspace({
                 </div>
               </OptionsMenuRow>
             )}
+            <OptionsMenuRow label="At-risk projection">
+              <button
+                onClick={() => atRisk.setEnabled(!atRisk.enabled)}
+                aria-pressed={atRisk.enabled}
+                aria-label={`At-risk projection: ${atRisk.enabled ? "On" : "Off"}`}
+                style={PILL_STYLE} className={pillToggle(atRisk.enabled)}
+              >
+                {atRisk.enabled ? "On" : "Off"}
+              </button>
+            </OptionsMenuRow>
+            {atRisk.enabled && (
+              <OptionsMenuRow label="At-risk style">
+                <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
+                  {(["sibling", "comet", "zone"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => atRisk.setStyle(s)}
+                      style={atRisk.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
+                      className={
+                        "px-2.5 py-1 capitalize " + (atRisk.style === s ? "font-semibold" : "opacity-60")
+                      }
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </OptionsMenuRow>
+            )}
             <OptionsMenuRow label="Critical path">
               <button
                 onClick={() => criticalPath.setVisible(!criticalPath.visible)}
@@ -755,6 +788,7 @@ export function RoadmapWorkspace({
             data={box.data}
             today={today}
             ghostMode={ghost.mode}
+            atRiskMode={atRisk.mode}
             showCriticalPath={criticalPath.visible}
             criticalPathStyle={criticalPathLine.style}
             theme={theme}
@@ -783,6 +817,7 @@ export function RoadmapWorkspace({
                 criticalPathStyle={criticalPathLine.style}
                 showCriticalPath={criticalPath.visible}
                 ghostMode={ghost.mode}
+                atRiskMode={atRisk.mode}
                 tracing={trace !== null}
                 hasDurations={box.data.milestones.some((m) => m.endDate)}
               />
@@ -799,6 +834,7 @@ export function RoadmapWorkspace({
               data={box.data}
               today={today}
               ghostMode={ghost.mode}
+              atRiskMode={atRisk.mode}
               showCriticalPath={criticalPath.visible}
               criticalPathStyle={criticalPathLine.style}
               topBandStyle={topBand.style}

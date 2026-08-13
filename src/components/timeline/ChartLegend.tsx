@@ -14,7 +14,7 @@ import { useEffect, useReducer, useState } from "react";
 import type { Theme } from "./theme";
 import type { Status } from "./types";
 import type { CriticalPathStyle } from "./use-critical-path-style";
-import type { GhostMode } from "./RoadmapTimeline";
+import type { GhostMode, AtRiskMode } from "./RoadmapTimeline";
 
 const STORAGE_KEY = "wayframe:legend-open";
 
@@ -61,13 +61,14 @@ export interface ChartLegendProps {
   criticalPathStyle: CriticalPathStyle;
   showCriticalPath: boolean;
   ghostMode: GhostMode;
+  atRiskMode: AtRiskMode;
   /** True while a trace is active, so the trace key only appears when it means something. */
   tracing: boolean;
   /** True when the document has at least one milestone with a duration. */
   hasDurations: boolean;
 }
 
-export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostMode, tracing, hasDurations }: ChartLegendProps) {
+export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostMode, atRiskMode, tracing, hasDurations }: ChartLegendProps) {
   const [open, setOpen] = useReducer((_: boolean, next: boolean) => next, true);
   const [hydrated, setHydrated] = useState(false);
 
@@ -150,6 +151,15 @@ export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostM
                 </text>
               </svg>
               Slipped from its original date
+            </span>
+          )}
+          {atRiskMode !== "off" && (
+            <span className="flex items-center gap-1.5">
+              <svg width={26} height={12} viewBox="0 0 26 12" aria-hidden="true">
+                <line x1={1} y1={6} x2={17} y2={6} stroke={theme.statusColor["at-risk"]} strokeWidth={1.5} strokeDasharray="1 3" strokeLinecap="round" />
+                <rect x={16} y={2} width={9} height={9} rx={2} fill="none" stroke={theme.statusColor["at-risk"]} strokeWidth={1.25} strokeDasharray="2 2" transform="rotate(45 20.5 6.5)" />
+              </svg>
+              At risk of slipping to a later date
             </span>
           )}
           <span className="flex items-center gap-1.5">

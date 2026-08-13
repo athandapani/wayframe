@@ -91,8 +91,10 @@ function computeDomain(data: RoadmapData): { domainMin: number; domainMax: numbe
     ...data.milestones.map((m) => m.date),
     ...data.milestones.filter((m) => m.endDate).map((m) => m.endDate!),
     ...data.milestones.filter((m) => m.originalDate).map((m) => m.originalDate!),
+    ...data.milestones.filter((m) => m.potentialDate).map((m) => m.potentialDate!),
     ...data.topLevelItems.map((t) => ("date" in t ? t.date : t.endDate)),
     ...data.topLevelItems.map((t) => ("startDate" in t ? t.startDate : t.date)),
+    ...data.topLevelItems.filter((t): t is Extract<TopLevelItem, { potentialDate?: string }> => "potentialDate" in t && !!t.potentialDate).map((t) => t.potentialDate!),
   ];
   const minDate = parseDate(allDates.reduce((a, b) => (a < b ? a : b)));
   const maxDate = parseDate(allDates.reduce((a, b) => (a > b ? a : b)));
@@ -141,6 +143,7 @@ function CushionMarker({
   stroke,
   strokeWidth,
   strokeDasharray,
+  fillOpacity,
 }: {
   cx: number;
   cy: number;
@@ -149,6 +152,7 @@ function CushionMarker({
   stroke: string;
   strokeWidth: number;
   strokeDasharray?: string;
+  fillOpacity?: number;
 }) {
   return (
     <rect
@@ -158,6 +162,7 @@ function CushionMarker({
       height={r * 2}
       rx={r * 0.4}
       fill={fill}
+      fillOpacity={fillOpacity}
       stroke={stroke}
       strokeWidth={strokeWidth}
       strokeDasharray={strokeDasharray}
@@ -559,6 +564,129 @@ function ghostBadgeWidth(label: string, metricsScale: number): number {
   return Math.max(22, label.length * 6 * metricsScale + 8);
 }
 
+// Forward-looking slip-risk projection (wayframe#61/#72) — the temporal
+// opposite of Ghost*/CushionMarker's originalDate mechanism above: that one
+// draws where a milestone WAS before a correction moved it, this draws
+// where it MIGHT land if a named risk materializes. The committed date/cx
+// never moves; a second, lighter marker previews the potential one at
+// riskCx. Three visual treatments shipped as a viewer preference (#61's
+// prototype resolution — user kept all three rather than picking one),
+// switched per-viewer via atRiskMode/AtRiskStyle below, same pattern as
+// GhostMode's badge/outline switch.
+export type AtRiskStyle = "sibling" | "comet" | "zone";
+export type AtRiskMode = "off" | AtRiskStyle;
+
+function atRiskLabel(fromDateStr: string, toDateStr: string): string {
+  return `+${daysBetween(fromDateStr, toDateStr)}d risk · ${formatDateShort(toDateStr)}`;
+}
+
+function AtRiskProjection({
+  style,
+  cx,
+  cy,
+  riskCx,
+  color,
+  label,
+  tier = 0,
+  fontScale = 1,
+  metricsScale = 1,
+}: {
+  style: AtRiskStyle;
+  cx: number;
+  cy: number;
+  riskCx: number;
+  color: string;
+  label: string;
+  /** From layoutGhostBadges, reused for this independent tiered pass (wayframe#72) — escalates the label above the marker when it would otherwise land on a title/ghost badge. */
+  tier?: 0 | 1 | 2;
+  fontScale?: number;
+  metricsScale?: number;
+}) {
+  const labelY = cy + GHOST_TIER_DY[tier];
+  const moved = tier > 0;
+
+  if (style === "sibling") {
+    // Same grammar as GhostOutline/GhostBadge above, pointed forward instead
+    // of back: a dotted leader to a dashed hollow diamond, with a pill badge
+    // riding the same tiered offset ghost badges use.
+    const badgeW = ghostBadgeWidth(label, metricsScale);
+    const bx = riskCx - badgeW / 2;
+    const by = labelY - 6.5;
+    return (
+      <g data-testid="at-risk-sibling">
+        <line x1={cx + 9} y1={cy} x2={riskCx - 9} y2={cy} stroke={color} strokeWidth={1.5} strokeDasharray="1 3" strokeLinecap="round" />
+        <CushionMarker cx={riskCx} cy={cy} r={8} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="2 2" />
+        {moved && <line x1={riskCx} y1={cy - 9} x2={riskCx} y2={by + 13} stroke={color} strokeOpacity={0.4} />}
+        <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={color} />
+        <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8 * fontScale} fontWeight={700} fill="#ffffff">
+          {label}
+        </text>
+      </g>
+    );
+  }
+
+  if (style === "comet") {
+    // A streak that fades as it reaches into the future, ending in a soft
+    // halo instead of a hard outline — the label rides the same tiered
+    // offset as "sibling", just without a pill behind it.
+    return (
+      <g data-testid="at-risk-comet">
+        {[0, 1, 2, 3].map((i) => {
+          const t0 = 0.12 + i * 0.22;
+          const t1 = t0 + 0.16;
+          return (
+            <line
+              key={i}
+              x1={cx + (riskCx - cx) * t0}
+              y1={cy}
+              x2={cx + (riskCx - cx) * t1}
+              y2={cy}
+              stroke={color}
+              strokeWidth={2 - i * 0.35}
+              strokeOpacity={0.85 - i * 0.18}
+              strokeLinecap="round"
+            />
+          );
+        })}
+        <circle cx={riskCx} cy={cy} r={11} fill="none" stroke={color} strokeOpacity={0.3} strokeWidth={4} />
+        <CushionMarker cx={riskCx} cy={cy} r={6.5} fill={color} fillOpacity={0.18} stroke={color} strokeWidth={1.5} />
+        {moved && <line x1={riskCx} y1={cy - 11} x2={riskCx} y2={labelY + 4} stroke={color} strokeOpacity={0.35} />}
+        <text x={riskCx} y={labelY} textAnchor="middle" fontSize={8 * fontScale} fontWeight={600} fill={color}>
+          {label}
+        </text>
+      </g>
+    );
+  }
+
+  // "zone" — the odd one out on purpose: not a second marker at all, a
+  // translucent wedge spanning committed-to-projected date, ending in a
+  // flag pin. Reads as a range of uncertainty rather than a discrete
+  // alternate position. Label still rides the shared tiered offset.
+  const wedgeHalf = 5;
+  return (
+    <g data-testid="at-risk-zone">
+      <polygon
+        points={`${cx},${cy - wedgeHalf} ${riskCx},${cy - wedgeHalf * 2.4} ${riskCx},${cy + wedgeHalf * 2.4} ${cx},${cy + wedgeHalf}`}
+        fill={color}
+        fillOpacity={0.14}
+        stroke={color}
+        strokeOpacity={0.5}
+        strokeWidth={1}
+        strokeDasharray="1 3"
+      />
+      <line x1={riskCx} y1={cy - wedgeHalf * 2.4} x2={riskCx} y2={cy + wedgeHalf * 2.4} stroke={color} strokeWidth={1.5} />
+      <polygon
+        points={`${riskCx},${cy - wedgeHalf * 2.4} ${riskCx + 14},${cy - wedgeHalf * 2.4 + 4} ${riskCx},${cy - wedgeHalf * 2.4 + 8}`}
+        fill={color}
+      />
+      {moved && <line x1={riskCx} y1={cy - wedgeHalf * 2.4 - 1} x2={riskCx} y2={labelY + 4} stroke={color} strokeOpacity={0.35} />}
+      <text x={riskCx} y={labelY} textAnchor="middle" fontSize={8 * fontScale} fontWeight={600} fill={color}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
 function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: number }) {
   return (
     <g data-testid={`ghost-outline-${m.id}`}>
@@ -841,6 +969,8 @@ export interface RoadmapTimelineProps {
   periodGridlineStyle?: PeriodGridlineStyle;
   /** Click-to-edit on programName/owner in the chart header (wayframe#55/#60) — omit to keep them static text (dev preview / off-screen export capture). */
   onEditDocument?: (patch: { programName?: string; owner?: string }) => void;
+  /** Forward-looking slip-risk projection display (wayframe#61/#72) — off by default; callers opt in. */
+  atRiskMode?: AtRiskMode;
 }
 
 export function RoadmapTimeline({
@@ -868,6 +998,7 @@ export function RoadmapTimeline({
   boxScale = 1,
   periodGridlineStyle = "year-line",
   onEditDocument,
+  atRiskMode = "off",
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -1013,6 +1144,7 @@ export function RoadmapTimeline({
   const primaryPlacement = new Map<string, TitlePlacement>();
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
   const ghostPlacement = new Map<string, TierPlacement>();
+  const atRiskPlacement = new Map<string, TierPlacement>();
   for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
     // Duration-pill milestones (endDate set) show their own inline title and
     // don't participate in the point-marker tiered-label layout.
@@ -1074,6 +1206,28 @@ export function RoadmapTimeline({
           });
         const ghosts = layoutGhostBadges(badgeItems, blockers, 6 * metricsScale);
         for (const [k, v] of ghosts) ghostPlacement.set(k, v);
+      }
+    }
+
+    // At-risk-projection label collision-avoidance (wayframe#61/#72) — its
+    // own independent pass through the same tiered idiom, seeded with the
+    // same title blockers ghost badges use. A milestone can carry both an
+    // originalDate ghost and a potentialDate projection at once (already
+    // slipped once, now at risk of slipping again); each escalates on its
+    // own, same as dates/ghosts already do independently of each other.
+    if (atRiskMode !== "off") {
+      const projected = laneMilestones.filter((m) => m.potentialDate);
+      if (projected.length > 0) {
+        const items: GhostBadgeItem[] = projected.map((m) => ({ id: m.id, x: x(m.potentialDate!), text: atRiskLabel(m.date, m.potentialDate!) }));
+        const blockers: GhostBlocker[] = laneMilestones
+          .filter((m) => (primary.get(m.id)?.lines.length ?? 0) > 0)
+          .map((m) => {
+            const lines = primary.get(m.id)!.lines;
+            const widestLine = Math.max(...lines.map((l) => l.length));
+            return { x: x(m.date), w: widestLine * CHAR_W * metricsScale };
+          });
+        const placements = layoutGhostBadges(items, blockers, 6 * metricsScale);
+        for (const [k, v] of placements) atRiskPlacement.set(k, v);
       }
     }
   }
@@ -1392,6 +1546,19 @@ export function RoadmapTimeline({
                     {label}
                   </text>
                 )}
+                {/* Projects endDate forward, mirroring a lane duration pill — fixed offset, PROGRAM-band items have no tiered-label system to plug into. */}
+                {atRiskMode !== "off" && t.potentialDate && (
+                  <AtRiskProjection
+                    style={atRiskMode}
+                    cx={px + w}
+                    cy={y}
+                    riskCx={x(t.potentialDate)}
+                    color={theme.statusColor["at-risk"]}
+                    label={atRiskLabel(t.endDate, t.potentialDate)}
+                    fontScale={fontScale}
+                    metricsScale={metricsScale}
+                  />
+                )}
               </g>
             );
           }
@@ -1403,6 +1570,18 @@ export function RoadmapTimeline({
                 <text x={cx} y={y - 18} textAnchor="middle" fontSize={11 * fontScale} fontWeight={600}>
                   {t.title}
                 </text>
+                {atRiskMode !== "off" && t.potentialDate && (
+                  <AtRiskProjection
+                    style={atRiskMode}
+                    cx={cx}
+                    cy={y}
+                    riskCx={x(t.potentialDate)}
+                    color={theme.statusColor["at-risk"]}
+                    label={atRiskLabel(t.date, t.potentialDate)}
+                    fontScale={fontScale}
+                    metricsScale={metricsScale}
+                  />
+                )}
               </g>
             );
           }
@@ -1703,6 +1882,19 @@ export function RoadmapTimeline({
                   </text>
                 )}
                 <title>{`${m.title} — ${formatDateShort(m.date)} to ${formatDateShort(m.endDate!)}${onMilestoneClick ? " — Click to edit" : ""}`}</title>
+                {/* At-risk projection on a duration pill projects endDate forward (the end might slip later), not date — the start is already underway. Fixed offset, not tiered: pills already sit outside the point-marker tiered-label system above. */}
+                {atRiskMode !== "off" && m.potentialDate && (
+                  <AtRiskProjection
+                    style={atRiskMode}
+                    cx={px + w}
+                    cy={cy}
+                    riskCx={x(m.potentialDate)}
+                    color={theme.statusColor["at-risk"]}
+                    label={atRiskLabel(m.endDate!, m.potentialDate)}
+                    fontScale={fontScale}
+                    metricsScale={metricsScale}
+                  />
+                )}
               </g>
             );
           })}
@@ -1738,6 +1930,25 @@ export function RoadmapTimeline({
               onGhostDragStart={(evt) => beginLabelDrag(`ghost-${m.id}`, evt)}
             />
           ))}
+
+        {/* Forward-looking slip-risk projection (wayframe#61/#72) — point milestones only; duration pills render their own projection above. */}
+        {atRiskMode !== "off" &&
+          data.milestones
+            .filter((m) => !m.endDate && m.potentialDate)
+            .map((m) => (
+              <AtRiskProjection
+                key={`at-risk-${m.id}`}
+                style={atRiskMode}
+                cx={x(m.date)}
+                cy={laneY(m.laneId)}
+                riskCx={x(m.potentialDate!)}
+                color={theme.statusColor["at-risk"]}
+                label={atRiskLabel(m.date, m.potentialDate!)}
+                tier={atRiskPlacement.get(m.id)?.tier ?? 0}
+                fontScale={fontScale}
+                metricsScale={metricsScale}
+              />
+            ))}
 
         {/* Vertical marker layer. Everything full-height is drawn here,
             after the lanes, so a date line always reads across the whole

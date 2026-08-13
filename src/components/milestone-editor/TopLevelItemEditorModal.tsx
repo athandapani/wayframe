@@ -31,18 +31,21 @@ interface Draft {
   endDate: string;
   showReferenceLine: boolean;
   message: string;
+  /** Forward-looking slip-risk projection (wayframe#61/#72) — milestone/phase only, blank on annotation. */
+  potentialDate: string;
 }
 
 function toDraft(t: EditableTopLevelItem): Draft {
-  if (t.type === "phase") return { title: t.title, status: t.status, date: "", startDate: t.startDate, endDate: t.endDate, showReferenceLine: false, message: "" };
-  if (t.type === "annotation") return { title: t.title, status: "not-started", date: t.date, startDate: "", endDate: "", showReferenceLine: false, message: t.message };
-  return { title: t.title, status: t.status, date: t.date, startDate: "", endDate: "", showReferenceLine: t.showReferenceLine ?? false, message: "" };
+  if (t.type === "phase")
+    return { title: t.title, status: t.status, date: "", startDate: t.startDate, endDate: t.endDate, showReferenceLine: false, message: "", potentialDate: t.potentialDate ?? "" };
+  if (t.type === "annotation") return { title: t.title, status: "not-started", date: t.date, startDate: "", endDate: "", showReferenceLine: false, message: t.message, potentialDate: "" };
+  return { title: t.title, status: t.status, date: t.date, startDate: "", endDate: "", showReferenceLine: t.showReferenceLine ?? false, message: "", potentialDate: t.potentialDate ?? "" };
 }
 
 function toPatch(t: EditableTopLevelItem, draft: Draft): TopLevelItemPatch {
-  if (t.type === "phase") return { title: draft.title, status: draft.status, startDate: draft.startDate, endDate: draft.endDate };
+  if (t.type === "phase") return { title: draft.title, status: draft.status, startDate: draft.startDate, endDate: draft.endDate, potentialDate: draft.potentialDate || undefined };
   if (t.type === "annotation") return { title: draft.title, date: draft.date, message: draft.message };
-  return { title: draft.title, status: draft.status, date: draft.date, showReferenceLine: draft.showReferenceLine };
+  return { title: draft.title, status: draft.status, date: draft.date, showReferenceLine: draft.showReferenceLine, potentialDate: draft.potentialDate || undefined };
 }
 
 function ModalForm({
@@ -98,6 +101,18 @@ function ModalForm({
                   onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
                 />
               </label>
+              <label className="col-span-2 block">
+                <span className="mb-1 block text-xs font-medium text-zinc-500">
+                  Potential end date <span className="font-normal text-zinc-400">— at risk of slipping to</span>
+                </span>
+                <input
+                  type="date"
+                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+                  value={draft.potentialDate}
+                  onChange={(e) => setDraft({ ...draft, potentialDate: e.target.value })}
+                  placeholder="blank = no projected risk"
+                />
+              </label>
             </>
           )}
           {item.type === "milestone" && (
@@ -109,6 +124,18 @@ function ModalForm({
                   className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
                   value={draft.date}
                   onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+                />
+              </label>
+              <label className="col-span-2 block">
+                <span className="mb-1 block text-xs font-medium text-zinc-500">
+                  Potential date <span className="font-normal text-zinc-400">— at risk of slipping to</span>
+                </span>
+                <input
+                  type="date"
+                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+                  value={draft.potentialDate}
+                  onChange={(e) => setDraft({ ...draft, potentialDate: e.target.value })}
+                  placeholder="blank = no projected risk"
                 />
               </label>
               <label className="col-span-2 flex items-center gap-2">

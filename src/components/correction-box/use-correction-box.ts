@@ -56,8 +56,8 @@ export function loadPersistedDocument(): RoadmapData | null {
 }
 
 /** Fields the lighter phase/top-level-milestone/annotation editor can touch (wayframe#19, widened to showReferenceLine in wayframe#48, to annotation's fields in wayframe#59) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
-export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate">> &
-  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date" | "showReferenceLine">> &
+export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate" | "potentialDate">> &
+  Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date" | "showReferenceLine" | "potentialDate">> &
   Partial<Pick<Extract<TopLevelItem, { type: "annotation" }>, "message">>;
 
 export interface PendingPatch {

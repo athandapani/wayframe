@@ -89,6 +89,50 @@ describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
   });
 });
 
+describe("at-risk slip-risk projection (wayframe#61/#72)", () => {
+  const atRiskRoadmap: RoadmapData = {
+    ...sampleRoadmap,
+    milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, potentialDate: "2026-03-08" } : m)),
+  };
+
+  it("renders nothing extra when atRiskMode is off, even for a projected milestone", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="off" />);
+    expect(screen.queryByTestId("at-risk-sibling")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("at-risk-comet")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("at-risk-zone")).not.toBeInTheDocument();
+  });
+
+  it("renders exactly one projection, only for the milestone that has a potentialDate", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="sibling" />);
+    // m2 has potentialDate; m1 doesn't — only one projection should render, not one per milestone.
+    expect(screen.getAllByTestId("at-risk-sibling")).toHaveLength(1);
+  });
+
+  it("style sibling: renders the dashed-outline+badge treatment", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="sibling" />);
+    expect(screen.getByTestId("at-risk-sibling")).toBeInTheDocument();
+    expect(screen.queryByTestId("at-risk-comet")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("at-risk-zone")).not.toBeInTheDocument();
+  });
+
+  it("style comet: renders the fading-streak treatment", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="comet" />);
+    expect(screen.getByTestId("at-risk-comet")).toBeInTheDocument();
+    expect(screen.queryByTestId("at-risk-sibling")).not.toBeInTheDocument();
+  });
+
+  it("style zone: renders the hazard-wedge treatment", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="zone" />);
+    expect(screen.getByTestId("at-risk-zone")).toBeInTheDocument();
+    expect(screen.queryByTestId("at-risk-sibling")).not.toBeInTheDocument();
+  });
+
+  it("does not move the committed date or stamp originalDate", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="sibling" />);
+    expect(screen.getByText("Feb 15")).toBeInTheDocument();
+  });
+});
+
 describe("ghost-badge collision-avoidance (wayframe#47)", () => {
   function withGhostedMilestone(title: string): RoadmapData {
     return {

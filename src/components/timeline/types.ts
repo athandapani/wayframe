@@ -63,8 +63,10 @@ export type TopLevelItem =
       status: Status;
       /** Draws a full-height vertical marker line, same mechanism as the always-on Today line (wayframe issue #15). */
       showReferenceLine?: boolean;
+      /** Forward-looking slip-risk projection (wayframe#61/#72) — mirrors Milestone.potentialDate; see its doc there. */
+      potentialDate?: string;
     }
-  | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: Status }
+  | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: Status; potentialDate?: string }
   | { id: string; type: "annotation"; title: string; date: string; message: string };
 
 export interface DependencyEdge {
@@ -128,6 +130,19 @@ export interface Milestone {
   endDate?: string;
   /** Draws a full-height vertical marker line, same mechanism as the always-on Today line (wayframe issue #15). */
   showReferenceLine?: boolean;
+  /**
+   * Forward-looking slip-risk projection (wayframe#61/#72) — the temporal
+   * opposite of `originalDate`: that one snapshots a past baseline once a
+   * correction moves `date` away from it, this one projects a possible
+   * *future* date without moving anything committed. `date` (the committed/
+   * planned date) never changes because of this field.
+   *
+   * For a point milestone (no `endDate`), this projects `date` forward. For
+   * a duration-pill milestone (`endDate` set), it projects `endDate`
+   * forward instead — the pill's start is already underway, so "at risk of
+   * slipping" means the *end* might land later, not the start.
+   */
+  potentialDate?: string;
 }
 
 export interface ActionItem {

@@ -62,4 +62,20 @@ describe("buildMilestoneEditOps", () => {
     const ops = buildMilestoneEditOps(m, draft);
     expect(ops).toEqual([{ targetId: "m1", field: "endDate", newValue: "", reason: "manual edit" }]);
   });
+
+  it("emits a potentialDate op when a slip-risk date is set (wayframe#61/#72)", () => {
+    const m = milestone({ id: "m1", date: "2026-01-01" });
+    const draft = { ...milestoneToEditableFields(m), potentialDate: "2026-01-15" };
+
+    const ops = buildMilestoneEditOps(m, draft);
+    expect(ops).toEqual([{ targetId: "m1", field: "potentialDate", newValue: "2026-01-15", reason: "manual edit" }]);
+  });
+
+  it("emits a potentialDate-clear op when the risk is withdrawn", () => {
+    const m = milestone({ id: "m1", date: "2026-01-01", potentialDate: "2026-01-15" });
+    const draft = { ...milestoneToEditableFields(m), potentialDate: "" };
+
+    const ops = buildMilestoneEditOps(m, draft);
+    expect(ops).toEqual([{ targetId: "m1", field: "potentialDate", newValue: "", reason: "manual edit" }]);
+  });
 });

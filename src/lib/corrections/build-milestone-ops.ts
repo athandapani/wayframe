@@ -26,6 +26,11 @@ export interface EditableMilestoneFields {
    * this field alone decides which shape the marker renders as.
    */
   endDate: string;
+  /**
+   * Forward-looking slip-risk projection (wayframe#61/#72) — see its doc on
+   * Milestone in types.ts. Blank clears it.
+   */
+  potentialDate: string;
 }
 
 export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields {
@@ -40,6 +45,7 @@ export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields
     shortLabel: m.shortLabel ?? "",
     showReferenceLine: m.showReferenceLine ?? false,
     endDate: m.endDate ?? "",
+    potentialDate: m.potentialDate ?? "",
   };
 }
 
@@ -65,6 +71,7 @@ export function buildMilestoneEditOps(original: Milestone, draft: EditableMilest
   if (draft.shortLabel !== before.shortLabel) ops.push({ targetId: original.id, field: "shortLabel", newValue: draft.shortLabel, reason });
   if (draft.showReferenceLine !== before.showReferenceLine) ops.push({ targetId: original.id, field: "showReferenceLine", newValue: draft.showReferenceLine, reason });
   if (draft.endDate !== before.endDate) ops.push({ targetId: original.id, field: "endDate", newValue: draft.endDate, reason });
+  if (draft.potentialDate !== before.potentialDate) ops.push({ targetId: original.id, field: "potentialDate", newValue: draft.potentialDate, reason });
 
   return ops;
 }

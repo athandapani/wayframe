@@ -142,5 +142,7 @@ function applyOp(m: Milestone, op: PatchOp): Milestone {
       return { ...m, showReferenceLine: op.newValue };
     case "endDate":
       return { ...m, endDate: op.newValue || undefined };
+    case "potentialDate":
+      return { ...m, potentialDate: op.newValue || undefined };
   }
 }

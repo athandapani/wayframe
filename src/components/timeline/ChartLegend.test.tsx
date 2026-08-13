@@ -10,6 +10,7 @@ function renderLegend(overrides: Partial<React.ComponentProps<typeof ChartLegend
       criticalPathStyle="thick"
       showCriticalPath
       ghostMode="badge"
+      atRiskMode="off"
       tracing={false}
       hasDurations
       {...overrides}

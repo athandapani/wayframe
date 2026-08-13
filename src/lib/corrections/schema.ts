@@ -82,10 +82,16 @@ export const PatchOpSchema = z.discriminatedUnion("field", [
     newValue: z.string(), // "" clears the field, converting a phase back into a point milestone (wayframe#45)
     reason: z.string().min(1),
   }),
+  z.object({
+    targetId: z.string().min(1),
+    field: z.literal("potentialDate"),
+    newValue: z.string(), // "" clears the field (wayframe#61/#72)
+    reason: z.string().min(1),
+  }),
 ]);
 
 /** PROGRAM-band item fields a correction (AI or manual) can target — mirrors PatchOpSchema's discriminated-by-field shape, scoped to TopLevelItem's fields (wayframe#59). Not every field applies to every kind (e.g. "date" is milestone/annotation-only, "startDate"/"endDate" phase-only) — same "apply whichever fields are relevant" merge as the existing editTopLevelItem reducer action, not enforced by this schema. */
-export const TOP_LEVEL_ITEM_FIELDS = ["title", "status", "date", "startDate", "endDate", "showReferenceLine", "message"] as const;
+export const TOP_LEVEL_ITEM_FIELDS = ["title", "status", "date", "startDate", "endDate", "showReferenceLine", "message", "potentialDate"] as const;
 const TopLevelItemFieldEnum = z.enum(TOP_LEVEL_ITEM_FIELDS);
 
 export const TopLevelItemOpSchema = z.discriminatedUnion("field", [
@@ -96,6 +102,7 @@ export const TopLevelItemOpSchema = z.discriminatedUnion("field", [
   z.object({ targetId: z.string().min(1), field: z.literal("endDate"), newValue: z.string().min(1), reason: z.string().min(1) }),
   z.object({ targetId: z.string().min(1), field: z.literal("showReferenceLine"), newValue: z.boolean(), reason: z.string().min(1) }),
   z.object({ targetId: z.string().min(1), field: z.literal("message"), newValue: z.string(), reason: z.string().min(1) }), // "" clears the message
+  z.object({ targetId: z.string().min(1), field: z.literal("potentialDate"), newValue: z.string(), reason: z.string().min(1) }), // "" clears it (wayframe#61/#72); milestone/phase only, not annotation
 ]);
 export type TopLevelItemOp = z.infer<typeof TopLevelItemOpSchema>;
 
@@ -233,6 +240,7 @@ export const CORRECTION_FIELDS = [
   "shortLabel",
   "showReferenceLine",
   "endDate",
+  "potentialDate",
 ] as const;
 const FieldEnum = z.enum(CORRECTION_FIELDS);
 

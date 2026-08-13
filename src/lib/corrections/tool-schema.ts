@@ -43,7 +43,7 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
               description:
                 "Always a string, whatever the field's real type: for field=date, the shifted ISO date (YYYY-MM-DD); for field=status, one of " +
                 STATUS_ENUM.join("|") +
-                "; for field=percentComplete, an integer 0-100 as a string; for field=isCriticalPathOverride or field=showReferenceLine, the literal string \"true\" or \"false\"; for field=endDate, an ISO date (YYYY-MM-DD), or an empty string to clear it (converts a duration pill back into a point milestone); for title/owner/comment/shortLabel, the literal new text.",
+                "; for field=percentComplete, an integer 0-100 as a string; for field=isCriticalPathOverride or field=showReferenceLine, the literal string \"true\" or \"false\"; for field=endDate, an ISO date (YYYY-MM-DD), or an empty string to clear it (converts a duration pill back into a point milestone); for field=potentialDate, an ISO date (YYYY-MM-DD) the milestone might slip to if a risk materializes, or an empty string to clear it — use this, never field=date, when the request describes a possible future date rather than a confirmed change; for title/owner/comment/shortLabel, the literal new text.",
             },
             reason: { type: "string", description: "Short explanation of why this milestone matched the request." },
           },
@@ -102,13 +102,13 @@ export const CORRECTION_TOOL: Anthropic.Tool = {
           type: "object",
           properties: {
             targetId: { type: "string", description: "Real id of the top-level item this op applies to — must be one of the given top-level-item ids." },
-            field: { type: "string", enum: [...TOP_LEVEL_ITEM_FIELDS], description: "Only use a field that applies to that item's type: date/showReferenceLine (milestone), startDate/endDate (phase), message (annotation), title/status apply broadly (status doesn't exist on annotation)." },
+            field: { type: "string", enum: [...TOP_LEVEL_ITEM_FIELDS], description: "Only use a field that applies to that item's type: date/showReferenceLine/potentialDate (milestone), startDate/endDate/potentialDate (phase), message (annotation), title/status apply broadly (status doesn't exist on annotation)." },
             newValue: {
               type: "string",
               description:
                 "Always a string: for field=date/startDate/endDate, an ISO date (YYYY-MM-DD); for field=status, one of " +
                 STATUS_ENUM.join("|") +
-                "; for field=showReferenceLine, the literal string \"true\" or \"false\"; for title/message, the literal new text.",
+                "; for field=showReferenceLine, the literal string \"true\" or \"false\"; for field=potentialDate, an ISO date (YYYY-MM-DD) the item might slip to if a risk materializes (for a phase, this is a projected endDate, not startDate), or an empty string to clear it — use this, never field=date/endDate, for a possible future date rather than a confirmed change; for title/message, the literal new text.",
             },
             reason: { type: "string", description: "Short explanation of why this item matched the request." },
           },

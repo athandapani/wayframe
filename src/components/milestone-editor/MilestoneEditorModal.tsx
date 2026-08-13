@@ -245,6 +245,18 @@ function ModalForm({
               {draft.endDate ? "Convert to milestone" : "Convert to pill"}
             </button>
           </div>
+          <label className="col-span-2 block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">
+              Potential {draft.endDate ? "end " : ""}date <span className="font-normal text-zinc-400">— at risk of slipping to</span>
+            </span>
+            <input
+              type="date"
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.potentialDate}
+              onChange={(e) => setDraft({ ...draft, potentialDate: e.target.value })}
+              placeholder="blank = no projected risk"
+            />
+          </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-zinc-500">Status</span>
             <select

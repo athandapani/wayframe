@@ -86,6 +86,24 @@ describe("applyOps", () => {
     expect(result[0].comment).toBeUndefined();
     expect(result[0].shortLabel).toBeUndefined();
   });
+
+  it("applies a potentialDate op without touching date or stamping originalDate (wayframe#61/#72)", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01" })];
+    const ops: PatchOp[] = [{ targetId: "m1", field: "potentialDate", newValue: "2026-01-15", reason: "at risk" }];
+
+    const result = applyOps(milestones, ops);
+    expect(result[0].potentialDate).toBe("2026-01-15");
+    expect(result[0].date).toBe("2026-01-01");
+    expect(result[0].originalDate).toBeUndefined();
+  });
+
+  it("clears potentialDate when the op's newValue is an empty string", () => {
+    const milestones = [milestone({ id: "m1", date: "2026-01-01", potentialDate: "2026-01-15" })];
+    const ops: PatchOp[] = [{ targetId: "m1", field: "potentialDate", newValue: "", reason: "risk resolved" }];
+
+    const result = applyOps(milestones, ops);
+    expect(result[0].potentialDate).toBeUndefined();
+  });
 });
 
 describe("applyAddMilestoneOps (wayframe#59)", () => {
@@ -125,6 +143,12 @@ describe("applyTopLevelItemOps (wayframe#59)", () => {
   it("leaves items with no matching op untouched", () => {
     const result = applyTopLevelItemOps([milestoneItem, annotationItem], [{ targetId: "t1", field: "title", newValue: "X", reason: "r" }]);
     expect(result[1]).toBe(annotationItem);
+  });
+
+  it("applies a potentialDate op on a milestone-type item without touching date (wayframe#61/#72)", () => {
+    const ops: TopLevelItemOp[] = [{ targetId: "t1", field: "potentialDate", newValue: "2026-01-20", reason: "r" }];
+    const result = applyTopLevelItemOps([milestoneItem], ops);
+    expect(result[0]).toMatchObject({ date: "2026-01-01", potentialDate: "2026-01-20" });
   });
 });
 
