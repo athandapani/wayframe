@@ -1,7 +1,7 @@
 // Configurable 2/3-tier date axis (Year always on top; Quarter and/or Month
 // as an optional finer tier).
 
-export type Tier = "quarter" | "month" | "none";
+export type Tier = "quarter" | "month" | "week" | "none";
 
 export interface AxisTierConfig {
   key: string;
@@ -25,6 +25,31 @@ export interface Segment {
 
 export function tierRowCount(config: AxisTierConfig): number {
   return 1 + (config.tier2 !== "none" ? 1 : 0) + (config.tier3 !== "none" ? 1 : 0);
+}
+
+/**
+ * Level 3 must be finer-grained than whatever Level 2 is set to (wayframe#70)
+ * — the timeline-edge disclosure control only ever offers these, so an
+ * invalid combination (e.g. tier2 "month" + tier3 "month") is unreachable
+ * through the UI rather than something render code has to guard against.
+ */
+export function tier3OptionsFor(tier2: Tier): Tier[] {
+  if (tier2 === "quarter") return ["none", "month", "week"];
+  if (tier2 === "month") return ["none", "week"];
+  return ["none"];
+}
+
+/**
+ * How many segments' worth of label to skip so text doesn't collide at the
+ * current chart width — Week-tier over a multi-month domain routinely packs
+ * segments narrower than an 11px date label needs. The grid itself (rects +
+ * dividers) still renders every segment; only the label draws sparser.
+ */
+export function labelStride(segmentCount: number, availablePx: number, minLabelPx = 46): number {
+  if (segmentCount === 0) return 1;
+  const avgPx = availablePx / segmentCount;
+  if (avgPx >= minLabelPx) return 1;
+  return Math.ceil(minLabelPx / avgPx);
 }
 
 export function yearSegments(domainMin: number, domainMax: number): Segment[] {
@@ -94,8 +119,30 @@ export function monthSegments(domainMin: number, domainMax: number): Segment[] {
   return segments;
 }
 
+export function weekSegments(domainMin: number, domainMax: number): Segment[] {
+  const segments: Segment[] = [];
+  const d = new Date(domainMin);
+  const mondayOffsetDays = (d.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+  const WEEK_MS = 7 * 86400000;
+  let cursor = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - mondayOffsetDays * 86400000;
+  while (cursor <= domainMax) {
+    const start = cursor;
+    const end = cursor + WEEK_MS;
+    if (end >= domainMin) {
+      segments.push({
+        start: Math.max(start, domainMin),
+        end: Math.min(end, domainMax),
+        label: new Date(start).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
+      });
+    }
+    cursor += WEEK_MS;
+  }
+  return segments;
+}
+
 export function segmentsForTier(tier: Tier, domainMin: number, domainMax: number): Segment[] {
   if (tier === "quarter") return quarterSegments(domainMin, domainMax);
   if (tier === "month") return monthSegments(domainMin, domainMax);
+  if (tier === "week") return weekSegments(domainMin, domainMax);
   return [];
 }

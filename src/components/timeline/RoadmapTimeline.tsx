@@ -16,7 +16,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
-import { darken } from "./color-utils";
+import { darken, lighten, contrastText } from "./color-utils";
 import { parseDate, formatDateShort, formatDateCompact } from "./date-utils";
 
 import { laneColorAt } from "./lane-colors";
@@ -27,7 +27,7 @@ import type { PeriodGridlineStyle } from "./use-period-gridlines";
 import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker, type TierPlacement } from "./label-layout";
 import { layoutReferenceLines, type RefLineItem } from "./reference-line-layout";
 import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
-import { yearSegments, segmentsForTier, tierRowCount, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
+import { yearSegments, segmentsForTier, tierRowCount, tier3OptionsFor, labelStride, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 import { useLabelOverrides, type LabelOffset } from "./use-label-overrides";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
@@ -105,32 +105,131 @@ function computeDomain(data: RoadmapData): { domainMin: number; domainMax: numbe
 function AxisRow({
   y,
   segments,
-  theme,
-  opacity,
+  fill,
+  text,
   xOf,
   rowHeight = AXIS_ROW_HEIGHT,
   fontScale = 1,
+  availablePx,
 }: {
   y: number;
   segments: Segment[];
-  theme: Theme;
-  opacity: number;
+  /** Resolved fill for this row — Level 1 is the picked/theme axis color, Levels 2/3 are lighter shades of it (wayframe#70). */
+  fill: string;
+  /** Contrast-safe label/divider color for `fill`, not a fixed theme token — a light Level-3 shade needs dark text. */
+  text: string;
   xOf: (ts: number) => number;
   rowHeight?: number;
   fontScale?: number;
+  availablePx: number;
 }) {
+  const stride = labelStride(segments.length, availablePx);
   return (
     <>
-      {segments.map((s) => (
+      {segments.map((s, idx) => (
         <g key={s.label + s.start}>
-          <rect x={xOf(s.start)} y={y} width={xOf(s.end) - xOf(s.start)} height={rowHeight} fill={theme.axisBg} fillOpacity={opacity} />
-          <line x1={xOf(s.start)} x2={xOf(s.start)} y1={y} y2={y + rowHeight} stroke={theme.axisText} strokeOpacity={0.25} />
-          <text x={(xOf(s.start) + xOf(s.end)) / 2} y={y + rowHeight - 7} textAnchor="middle" fontSize={11 * fontScale} fontWeight={700} fill={theme.axisText}>
-            {s.label}
-          </text>
+          <rect x={xOf(s.start)} y={y} width={xOf(s.end) - xOf(s.start)} height={rowHeight} fill={fill} />
+          <line x1={xOf(s.start)} x2={xOf(s.start)} y1={y} y2={y + rowHeight} stroke={text} strokeOpacity={0.25} />
+          {idx % stride === 0 && (
+            <text x={(xOf(s.start) + xOf(s.end)) / 2} y={y + rowHeight - 7} textAnchor="middle" fontSize={11 * fontScale} fontWeight={700} fill={text}>
+              {s.label}
+            </text>
+          )}
         </g>
       ))}
     </>
+  );
+}
+
+/**
+ * Timeline-edge disclosure control (wayframe#70 prototype Variant E, as
+ * decided) — sits in the existing MARGIN.right gutter rather than a
+ * separate panel. ▶ reveals Level 2 (shown once, only while nothing's
+ * expanded); ▼ opens the next level down from whichever row is currently
+ * deepest; ▲ collapses any row that isn't Level 1. Only rendered when
+ * `onAxisTiersChange` is provided — omitted for the off-screen export
+ * capture, same convention as onEditDocument/onMilestoneClick.
+ */
+function AxisLevelControl({
+  y,
+  rowHeight,
+  x,
+  color,
+  onCollapse,
+  expandKind,
+  onExpand,
+}: {
+  y: number;
+  rowHeight: number;
+  x: number;
+  color: string;
+  onCollapse?: () => void;
+  expandKind?: "right" | "down";
+  onExpand?: () => void;
+}) {
+  const cy = y + rowHeight / 2;
+  return (
+    <>
+      {onCollapse && <AxisTriangleButton kind="up" cx={x + 11} cy={cy} color={color} label="Collapse this level" onActivate={onCollapse} />}
+      {expandKind && onExpand && (
+        <AxisTriangleButton
+          kind={expandKind}
+          cx={x + 27}
+          cy={cy}
+          color={color}
+          label={expandKind === "right" ? "Reveal Level 2" : "Go one level deeper"}
+          onActivate={onExpand}
+        />
+      )}
+    </>
+  );
+}
+
+function AxisTriangleButton({
+  kind,
+  cx,
+  cy,
+  color,
+  label,
+  onActivate,
+}: {
+  kind: "up" | "down" | "right";
+  cx: number;
+  cy: number;
+  color: string;
+  label: string;
+  onActivate: () => void;
+}) {
+  const points =
+    kind === "right"
+      ? `${cx - 4},${cy - 5} ${cx - 4},${cy + 5} ${cx + 5},${cy}`
+      : kind === "down"
+        ? `${cx - 5},${cy - 4} ${cx + 5},${cy - 4} ${cx},${cy + 5}`
+        : `${cx - 5},${cy + 4} ${cx + 5},${cy + 4} ${cx},${cy - 5}`;
+
+  function onKeyDown(e: React.KeyboardEvent<SVGGElement>) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onActivate();
+    }
+  }
+
+  return (
+    <g
+      className="cursor-pointer"
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onActivate();
+      }}
+      onKeyDown={onKeyDown}
+    >
+      <title>{label}</title>
+      <rect x={cx - 8} y={cy - 8} width={16} height={16} fill="transparent" />
+      <polygon points={points} fill={color} />
+    </g>
   );
 }
 
@@ -911,6 +1010,15 @@ export interface RoadmapTimelineProps {
   data: RoadmapData;
   theme?: Theme;
   axisTiers?: AxisTierConfig;
+  /** Level 1 (Year) color — Levels 2/3 are always derived as lighter shades of it (wayframe#70); a picker lives in the Options menu, not here. Defaults to theme.axisBg. */
+  axisYearColor?: string;
+  /**
+   * Fired with the fully-resolved next `{tier2, tier3}` when a timeline-edge
+   * triangle is clicked (wayframe#70). Omit to render the axis read-only —
+   * used for the off-screen export capture, same convention as
+   * onEditDocument/onMilestoneClick.
+   */
+  onAxisTiersChange?: (next: AxisTierConfig) => void;
   /** Defaults to the real current date; override for tests/screenshots. */
   today?: Date;
   /** Opens the manual milestone editor (wayframe#19) — omit to keep markers non-interactive. */
@@ -977,6 +1085,8 @@ export function RoadmapTimeline({
   data,
   theme = defaultTheme,
   axisTiers = AXIS_PRESETS[1],
+  axisYearColor,
+  onAxisTiersChange,
   width: fixedWidth,
   today = new Date(),
   onMilestoneClick,
@@ -1321,9 +1431,47 @@ export function RoadmapTimeline({
     setCreateDrag(null);
   }
 
-  const axisRows: { segments: Segment[]; opacity: number }[] = [{ segments: yearSegments(domainMin, domainMax), opacity: 1 }];
-  if (axisTiers.tier2 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax), opacity: 0.8 });
-  if (axisTiers.tier3 !== "none") axisRows.push({ segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax), opacity: 0.6 });
+  // Level 1 is the picked (or theme-default) axis color; Levels 2/3 are
+  // always lighter shades of it, never independently colored (wayframe#70).
+  const axisYearColorResolved = axisYearColor ?? theme.axisBg;
+  const axisShades = [axisYearColorResolved, lighten(axisYearColorResolved, 0.22), lighten(axisYearColorResolved, 0.42)];
+  const tier3Choices = tier3OptionsFor(axisTiers.tier2).filter((t) => t !== "none");
+
+  interface AxisRowSpec {
+    segments: Segment[];
+    fill: string;
+    text: string;
+    onCollapse?: () => void;
+    expandKind?: "right" | "down";
+    onExpand?: () => void;
+  }
+  const axisRows: AxisRowSpec[] = [
+    {
+      segments: yearSegments(domainMin, domainMax),
+      fill: axisShades[0],
+      text: contrastText(axisShades[0]),
+      expandKind: onAxisTiersChange && axisTiers.tier2 === "none" ? "right" : undefined,
+      onExpand: onAxisTiersChange && axisTiers.tier2 === "none" ? () => onAxisTiersChange({ ...axisTiers, tier2: "quarter", tier3: "none" }) : undefined,
+    },
+  ];
+  if (axisTiers.tier2 !== "none") {
+    axisRows.push({
+      segments: segmentsForTier(axisTiers.tier2, domainMin, domainMax),
+      fill: axisShades[1],
+      text: contrastText(axisShades[1]),
+      onCollapse: onAxisTiersChange ? () => onAxisTiersChange({ ...axisTiers, tier2: "none", tier3: "none" }) : undefined,
+      expandKind: onAxisTiersChange && axisTiers.tier3 === "none" ? "down" : undefined,
+      onExpand: onAxisTiersChange && axisTiers.tier3 === "none" ? () => onAxisTiersChange({ ...axisTiers, tier3: tier3Choices[0] ?? "none" }) : undefined,
+    });
+  }
+  if (axisTiers.tier2 !== "none" && axisTiers.tier3 !== "none") {
+    axisRows.push({
+      segments: segmentsForTier(axisTiers.tier3, domainMin, domainMax),
+      fill: axisShades[2],
+      text: contrastText(axisShades[2]),
+      onCollapse: onAxisTiersChange ? () => onAxisTiersChange({ ...axisTiers, tier3: "none" }) : undefined,
+    });
+  }
 
   const programNameLines = wrapText(data.programName, Math.max(6, Math.floor(26 / metricsScale)), 3);
   const headerY = topBandY + companyLogoExtra + (topBandStyle === "chip" ? 30 : 14);
@@ -1368,8 +1516,31 @@ export function RoadmapTimeline({
         }
       >
         {axisRows.map((row, i) => (
-          <AxisRow key={i} y={chartTopMargin + i * axisRowHeight} segments={row.segments} theme={theme} opacity={row.opacity} xOf={xTs} rowHeight={axisRowHeight} fontScale={fontScale} />
+          <AxisRow
+            key={i}
+            y={chartTopMargin + i * axisRowHeight}
+            segments={row.segments}
+            fill={row.fill}
+            text={row.text}
+            xOf={xTs}
+            rowHeight={axisRowHeight}
+            fontScale={fontScale}
+            availablePx={innerWidth}
+          />
         ))}
+        {onAxisTiersChange &&
+          axisRows.map((row, i) => (
+            <AxisLevelControl
+              key={i}
+              y={chartTopMargin + i * axisRowHeight}
+              rowHeight={axisRowHeight}
+              x={width - MARGIN.right}
+              color={theme.accent}
+              onCollapse={row.onCollapse}
+              expandKind={row.expandKind}
+              onExpand={row.onExpand}
+            />
+          ))}
 
         {/* PROGRAM-band highlight treatment (wayframe#41) — "tint"/"border" paint the band itself; "chip" leaves it unpainted. */}
         {topBandStyle === "tint" && <rect x={0} y={topBandY} width={width} height={topBandHeight} fill={theme.accent} fillOpacity={0.08} />}

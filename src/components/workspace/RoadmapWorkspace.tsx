@@ -26,6 +26,8 @@ import { useCriticalPathStyle, CRITICAL_PATH_STYLES, type CriticalPathStyle } fr
 import { useTopBandStyle, TOP_BAND_STYLES, type TopBandStyle } from "@/components/timeline/use-top-band-style";
 import { useSoWhatStyle } from "@/components/timeline/use-so-what-style";
 import { usePeriodGridlines, PERIOD_GRIDLINE_STYLES, type PeriodGridlineStyle } from "@/components/timeline/use-period-gridlines";
+import { useAxisTiers } from "@/components/timeline/use-axis-tiers";
+import type { AxisTierConfig } from "@/components/timeline/axis-tiers";
 import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
 import type { LabelDensity } from "@/components/timeline/title-layout";
 import { useTheme } from "@/components/timeline/use-theme";
@@ -96,6 +98,9 @@ function RoadmapView({
   onAddTopLevelItem,
   topBandStyle,
   periodGridlineStyle,
+  axisTiers,
+  axisYearColor,
+  onAxisTiersChange,
   onMilestoneDateChange,
   tracedIds,
   chartWidth,
@@ -129,6 +134,10 @@ function RoadmapView({
   onAddTopLevelItem?: (kind: "milestone" | "phase" | "annotation") => void;
   topBandStyle?: TopBandStyle;
   periodGridlineStyle?: PeriodGridlineStyle;
+  axisTiers?: AxisTierConfig;
+  axisYearColor?: string;
+  /** Omit for the off-screen export capture — that copy renders the axis read-only, same convention as onEditDocument. */
+  onAxisTiersChange?: (next: AxisTierConfig) => void;
   onMilestoneDateChange?: (id: string, date: string) => void;
   tracedIds?: Set<string>;
   /** Pinned width for the off-screen export capture; omitted on screen so the chart fits its container. */
@@ -170,6 +179,9 @@ function RoadmapView({
           onAddTopLevelItem={onAddTopLevelItem}
           topBandStyle={topBandStyle}
           periodGridlineStyle={periodGridlineStyle}
+          axisTiers={axisTiers}
+          axisYearColor={axisYearColor}
+          onAxisTiersChange={onAxisTiersChange}
           onMilestoneDateChange={onMilestoneDateChange}
           tracedIds={tracedIds}
           labelDensity={labelDensity}
@@ -246,6 +258,7 @@ export function RoadmapWorkspace({
   const topBand = useTopBandStyle();
   const soWhat = useSoWhatStyle();
   const gridlines = usePeriodGridlines();
+  const axisTiers = useAxisTiers();
   const labels = useLabelDensity();
   const fontScale = useFontScale();
   const fontFamily = useFontFamily();
@@ -614,6 +627,16 @@ export function RoadmapWorkspace({
                 ))}
               </select>
             </OptionsMenuRow>
+            <OptionsMenuRow label="Year color">
+              <input
+                type="color"
+                aria-label="Axis Year color"
+                value={axisTiers.yearColor}
+                onChange={(e) => axisTiers.setYearColor(e.target.value)}
+                style={{ borderColor: "var(--wf-border)" }}
+                className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
+              />
+            </OptionsMenuRow>
             <OptionsMenuRow label="Gridlines">
               <select
                 value={gridlines.style}
@@ -805,6 +828,9 @@ export function RoadmapWorkspace({
             onAddTopLevelItem={handleAddTopLevelItem}
             topBandStyle={topBand.style}
             periodGridlineStyle={gridlines.style}
+            axisTiers={axisTiers.config}
+            axisYearColor={axisTiers.yearColor}
+            onAxisTiersChange={axisTiers.setTiers}
             onMilestoneDateChange={box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
@@ -839,6 +865,8 @@ export function RoadmapWorkspace({
               criticalPathStyle={criticalPathLine.style}
               topBandStyle={topBand.style}
               periodGridlineStyle={gridlines.style}
+              axisTiers={axisTiers.config}
+              axisYearColor={axisTiers.yearColor}
               theme={theme}
               blufOpen={blufOpen}
               onBlufOpenChange={setBlufOpen}
