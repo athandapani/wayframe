@@ -141,6 +141,7 @@ function CushionMarker({
   stroke,
   strokeWidth,
   strokeDasharray,
+  fillOpacity,
 }: {
   cx: number;
   cy: number;
@@ -149,6 +150,7 @@ function CushionMarker({
   stroke: string;
   strokeWidth: number;
   strokeDasharray?: string;
+  fillOpacity?: number;
 }) {
   return (
     <rect
@@ -158,6 +160,7 @@ function CushionMarker({
       height={r * 2}
       rx={r * 0.4}
       fill={fill}
+      fillOpacity={fillOpacity}
       stroke={stroke}
       strokeWidth={strokeWidth}
       strokeDasharray={strokeDasharray}
@@ -559,6 +562,112 @@ function ghostBadgeWidth(label: string, metricsScale: number): number {
   return Math.max(22, label.length * 6 * metricsScale + 8);
 }
 
+// PROTOTYPE (wayfinder#61) -- forward-looking slip-risk projection: unlike
+// Ghost* above, which draws where a milestone WAS before a correction moved
+// it, this draws where it MIGHT land if a named risk materializes. The
+// committed date doesn't move; a second, lighter marker previews the
+// potential one. Three structurally different treatments to react to, not
+// a decided design -- delete two of them (and the slipRisks/slipRiskVariant
+// plumbing below) once #61 resolves, and fold the winner into GhostBadge's
+// neighborhood for real.
+export type SlipRiskVariant = "A" | "B" | "C";
+
+function SlipRiskProjection({
+  variant,
+  cx,
+  cy,
+  riskCx,
+  color,
+  label,
+}: {
+  variant: SlipRiskVariant;
+  cx: number;
+  cy: number;
+  riskCx: number;
+  color: string;
+  label: string;
+}) {
+  if (variant === "A") {
+    // "Ghost sibling" -- same grammar as GhostOutline/GhostBadge (dashed
+    // outline + pill), just pointed forward instead of back, in the
+    // at-risk hue so it never reads as a second real milestone.
+    const badgeW = Math.max(30, label.length * 5.4 + 10);
+    const bx = riskCx - badgeW / 2;
+    const by = cy - 30;
+    return (
+      <g data-testid="slip-risk-a">
+        <line x1={cx + 9} y1={cy} x2={riskCx - 9} y2={cy} stroke={color} strokeWidth={1.5} strokeDasharray="1 3" strokeLinecap="round" />
+        <CushionMarker cx={riskCx} cy={cy} r={8} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="2 2" />
+        <line x1={riskCx} y1={cy - 9} x2={riskCx} y2={by + 13} stroke={color} strokeOpacity={0.4} />
+        <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={color} />
+        <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8} fontWeight={700} fill="#ffffff">
+          {label}
+        </text>
+      </g>
+    );
+  }
+  if (variant === "B") {
+    // "Comet" -- a streak that fades as it reaches into the future, ending
+    // in a soft halo instead of a hard outline; the date rides on the line
+    // itself rather than in a separate pill, so nothing new competes with
+    // the marker's own title/date labels for vertical space.
+    const midX = (cx + riskCx) / 2;
+    return (
+      <g data-testid="slip-risk-b">
+        {[0, 1, 2, 3].map((i) => {
+          const t0 = 0.12 + i * 0.22;
+          const t1 = t0 + 0.16;
+          return (
+            <line
+              key={i}
+              x1={cx + (riskCx - cx) * t0}
+              y1={cy}
+              x2={cx + (riskCx - cx) * t1}
+              y2={cy}
+              stroke={color}
+              strokeWidth={2 - i * 0.35}
+              strokeOpacity={0.85 - i * 0.18}
+              strokeLinecap="round"
+            />
+          );
+        })}
+        <circle cx={riskCx} cy={cy} r={11} fill="none" stroke={color} strokeOpacity={0.3} strokeWidth={4} />
+        <CushionMarker cx={riskCx} cy={cy} r={6.5} fill={color} fillOpacity={0.18} stroke={color} strokeWidth={1.5} />
+        <text x={midX} y={cy - 8} textAnchor="middle" fontSize={8} fontWeight={600} fill={color}>
+          {label}
+        </text>
+      </g>
+    );
+  }
+  // "Hazard zone" -- the odd one out on purpose: not a second marker at all,
+  // a translucent wedge spanning committed-to-projected date, ending in a
+  // flag pin. Reads as a range of uncertainty rather than a discrete
+  // alternate position, closer to the reference-line vocabulary than the
+  // ghost one.
+  const wedgeHalf = 5;
+  return (
+    <g data-testid="slip-risk-c">
+      <polygon
+        points={`${cx},${cy - wedgeHalf} ${riskCx},${cy - wedgeHalf * 2.4} ${riskCx},${cy + wedgeHalf * 2.4} ${cx},${cy + wedgeHalf}`}
+        fill={color}
+        fillOpacity={0.14}
+        stroke={color}
+        strokeOpacity={0.5}
+        strokeWidth={1}
+        strokeDasharray="1 3"
+      />
+      <line x1={riskCx} y1={cy - wedgeHalf * 2.4} x2={riskCx} y2={cy + wedgeHalf * 2.4} stroke={color} strokeWidth={1.5} />
+      <polygon
+        points={`${riskCx},${cy - wedgeHalf * 2.4} ${riskCx + 14},${cy - wedgeHalf * 2.4 + 4} ${riskCx},${cy - wedgeHalf * 2.4 + 8}`}
+        fill={color}
+      />
+      <text x={riskCx + 3} y={cy + wedgeHalf * 2.4 + 11} fontSize={8} fontWeight={600} fill={color}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
 function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: number }) {
   return (
     <g data-testid={`ghost-outline-${m.id}`}>
@@ -841,6 +950,10 @@ export interface RoadmapTimelineProps {
   periodGridlineStyle?: PeriodGridlineStyle;
   /** Click-to-edit on programName/owner in the chart header (wayframe#55/#60) — omit to keep them static text (dev preview / off-screen export capture). */
   onEditDocument?: (patch: { programName?: string; owner?: string }) => void;
+  /** PROTOTYPE (wayfinder#61) — milestone id -> projected at-risk date (ISO). Not a real Milestone field yet; dev-preview-only plumbing for the slip-risk visualization prototype. */
+  slipRisks?: Record<string, string>;
+  /** PROTOTYPE (wayfinder#61) — which of the three slip-risk visual treatments to render. Defaults to "A". */
+  slipRiskVariant?: SlipRiskVariant;
 }
 
 export function RoadmapTimeline({
@@ -868,6 +981,8 @@ export function RoadmapTimeline({
   boxScale = 1,
   periodGridlineStyle = "year-line",
   onEditDocument,
+  slipRisks,
+  slipRiskVariant = "A",
 }: RoadmapTimelineProps) {
   const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
@@ -1738,6 +1853,26 @@ export function RoadmapTimeline({
               onGhostDragStart={(evt) => beginLabelDrag(`ghost-${m.id}`, evt)}
             />
           ))}
+
+        {/* PROTOTYPE (wayfinder#61) -- forward-looking slip-risk projection. See SlipRiskProjection above. */}
+        {slipRisks &&
+          data.milestones
+            .filter((m) => !m.endDate && slipRisks[m.id])
+            .map((m) => {
+              const riskDate = slipRisks[m.id];
+              const days = daysBetween(m.date, riskDate);
+              return (
+                <SlipRiskProjection
+                  key={`risk-${m.id}`}
+                  variant={slipRiskVariant}
+                  cx={x(m.date)}
+                  cy={laneY(m.laneId)}
+                  riskCx={x(riskDate)}
+                  color={theme.statusColor["at-risk"]}
+                  label={`+${days}d risk · ${formatDateShort(riskDate)}`}
+                />
+              );
+            })}
 
         {/* Vertical marker layer. Everything full-height is drawn here,
             after the lanes, so a date line always reads across the whole
