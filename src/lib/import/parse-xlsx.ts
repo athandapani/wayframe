@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import type { ParsedRow } from "./rows-to-text";
 
 /**
- * XLSX parsing (Archer delta v1.2) — parses the first worksheet (or one
+ * XLSX parsing — parses the first worksheet (or one
  * chosen by name) into the same `ParsedRow[]` shape `parse-csv.ts` already
  * produces, so every downstream piece (rows-to-text, the column mapper,
  * rows-to-roadmap) is shared between CSV and XLSX rather than duplicated.

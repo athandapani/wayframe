@@ -1,6 +1,6 @@
 "use client";
 
-// Swimlane.owner display toggle (Archer delta v1.3.0) — a viewer display
+// Swimlane.owner display toggle — a viewer display
 // preference, same on/off boolean pattern as use-critical-path-visibility.ts.
 // The owner name itself is document content (Swimlane.owner); whether a
 // given viewer wants it cluttering the lane header is not.

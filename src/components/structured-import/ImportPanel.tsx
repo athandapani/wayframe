@@ -74,7 +74,7 @@ export function ImportPanel({
   /** Live document — needed by the deterministic Spreadsheet tab's smart-merge matching. */
   data: RoadmapData;
   onExtracted: (data: RoadmapData) => void;
-  /** Deterministic CSV/XLSX import merge (Archer delta v1.2) — see SpreadsheetImportTab.tsx. */
+  /** Deterministic CSV/XLSX import merge — see SpreadsheetImportTab.tsx. */
   onMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
   onClose: () => void;
 }) {

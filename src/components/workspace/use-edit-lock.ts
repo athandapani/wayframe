@@ -1,6 +1,6 @@
 "use client";
 
-// Edit/View mode lock (Archer delta v1.2) — a viewer display preference,
+// Edit/View mode lock — a viewer display preference,
 // same named-style pattern as use-top-band-style.ts. "edit" (the original,
 // only behavior) leaves every interactive affordance wired up; "view"
 // disables drag/click-to-add/editor-opening for a clean presentation pass

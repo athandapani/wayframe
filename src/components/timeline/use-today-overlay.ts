@@ -1,6 +1,6 @@
 "use client";
 
-// Today progress overlay (Archer delta v1.3.0) — a viewer display
+// Today progress overlay — a viewer display
 // preference, same on/off boolean pattern as use-critical-path-visibility.ts.
 // Off by default: it's a second, denser layer of "what's elapsed" reading
 // on top of the always-on Today reference line, additive chrome rather

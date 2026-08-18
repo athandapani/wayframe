@@ -1,8 +1,8 @@
 "use client";
 
-// Add / rename / recolor / delete legend categories (Archer delta v1.1,
-// extended in v1.3.0 by the category-fill encoding) — mirrors
-// SwimlaneManager.tsx's list/inline-confirm-delete shape exactly, same
+// Add / rename / recolor / delete legend categories (later extended by
+// the category-fill encoding) — mirrors SwimlaneManager.tsx's
+// list/inline-confirm-delete shape exactly, same
 // reasoning: a modal rather than an options-menu row, room to show what a
 // delete will do (clear the tag off every milestone carrying it, not
 // delete those milestones).

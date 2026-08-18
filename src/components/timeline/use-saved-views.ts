@@ -1,7 +1,7 @@
 "use client";
 
-// Saved Views (Archer delta v1.4.0) — named snapshots of every viewer
-// display preference (§10 of archer-rebuild-spec.md), so a viewer can jump
+// Saved Views — named snapshots of every viewer
+// display preference (§10 of rebuild-spec.md), so a viewer can jump
 // between "how I like to read this" setups instead of re-toggling a dozen
 // options rows by hand. Same reasoning every one of those preferences is
 // already per-viewer localStorage, not document content: a saved view is a

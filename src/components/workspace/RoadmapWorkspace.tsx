@@ -191,7 +191,7 @@ function RoadmapView({
   fontFamily?: string;
   /** Freeform logo drag/resize commit (wayframe#64) — omit for the off-screen export capture, same convention as onEditDocument. */
   onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
-  // --- Archer delta v1.1–v1.4.0 additions — all pass straight through to RoadmapTimeline ---
+  // --- Later additions — all pass straight through to RoadmapTimeline ---
   connectorStyle?: ConnectorStyle;
   connectorDash?: ConnectorDash;
   connectorArrow?: ConnectorArrow;
@@ -346,7 +346,7 @@ export function RoadmapWorkspace({
   const selection = useSelection();
   const [selectMode, setSelectMode] = useState(false);
 
-  // Saved Views (Archer delta v1.4.0) — reads every preference hook already
+  // Saved Views — reads every preference hook already
   // instantiated above into one snapshot / writes one back out through each
   // hook's own setter, the same setters the options-menu rows below call
   // directly. Legend open/closed is deliberately not included: ChartLegend

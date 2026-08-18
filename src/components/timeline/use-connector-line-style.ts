@@ -1,6 +1,6 @@
 "use client";
 
-// Connector line dash + arrowhead (Archer delta v1.1) — a viewer display
+// Connector line dash + arrowhead — a viewer display
 // preference, same enabled/style-pair pattern as use-ghost-mode.ts: `dash`
 // and `arrow` persist independently so changing one doesn't reset the
 // other. Applies to the ordinary (non-critical, non-traced) connector

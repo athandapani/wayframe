@@ -1,5 +1,5 @@
-// Deterministic, AI-free CSV/XLSX → roadmap merge (Archer delta v1.2) —
-// distinct from the existing structured-import path (ImportPanel's "File
+// Deterministic, AI-free CSV/XLSX → roadmap merge — distinct from the
+// existing structured-import path (ImportPanel's "File
 // upload" tab), which still flattens rows to text and feeds
 // `/api/extract`. This path never calls the model: a column mapping tells
 // it exactly which header means what, and "smart merge" is a plain

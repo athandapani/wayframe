@@ -61,8 +61,8 @@ export function OptionsMenuRow({ label, children }: { label: string; children: R
 }
 
 /**
- * Collapsible grouping for OptionsMenuRow children (Archer delta v1.4.0) —
- * the flat row-per-setting list got long enough to need sections; this
+ * Collapsible grouping for OptionsMenuRow children — the flat
+ * row-per-setting list got long enough to need sections; this
  * wraps a group of existing rows under a named, independently
  * collapsible/expandable header rather than changing OptionsMenuRow itself.
  * Open/closed state is owned by the caller (see use-options-sections.ts) so

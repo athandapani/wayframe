@@ -1,6 +1,6 @@
 "use client";
 
-// Auto lane height / fit-to-viewport (Archer delta v1.1) — a viewer display
+// Auto lane height / fit-to-viewport — a viewer display
 // preference, same on/off boolean pattern as use-critical-path-visibility.ts.
 // Off by default: RoadmapTimeline's fixed LANE_HEIGHT is the predictable,
 // export-stable behavior; this trades that predictability for "see the

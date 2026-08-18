@@ -209,7 +209,7 @@ export function EntryForm({ onExtracted }: { onExtracted: (data: RoadmapData) =>
         {status === "loading" ? "Extracting…" : "Extract roadmap →"}
       </button>
 
-      {/* Midnight starter template (Archer delta, as-built) — a third way
+      {/* Midnight starter template — a third way
           in that needs no AI call at all, for when there's nothing to type
           or photograph yet. Every label in it is a visible placeholder,
           not invented program content. */}

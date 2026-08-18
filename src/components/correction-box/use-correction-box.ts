@@ -458,7 +458,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
     }
     case "setMilestoneDateRange": {
-      // Pill drag-to-move (Archer delta v1.3.0) — translates a duration
+      // Pill drag-to-move — translates a duration
       // pill's start and end together. `date`'s cascade can still push a
       // dependent milestone out; `endDate` is a plain field op (nothing
       // downstream depends on a pill's own finish the way it depends on a
@@ -596,8 +596,8 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return changed ? { ...state, data: { ...state.data, swimlanes } } : state;
     }
     case "setMilestoneCategory": {
-      // Milestone editor's "Category" select (Archer delta v1.1/v1.3.0) —
-      // mirrors setLaneColor's placement/pattern: not a PatchOpSchema field
+      // Milestone editor's "Category" select — mirrors setLaneColor's
+      // placement/pattern: not a PatchOpSchema field
       // (that union is shared with the AI-correction path, which doesn't
       // reason about categories yet), so a small dedicated action instead.
       return {
@@ -611,7 +611,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
     }
     case "importMerge": {
-      // Deterministic CSV/XLSX import merge (Archer delta v1.2) — one
+      // Deterministic CSV/XLSX import merge — one
       // atomic edit (new lanes + field updates on matched milestones + new
       // milestones), same undo-stack treatment as any other document
       // change: a bad import is one Undo away from gone. Ids for newLanes/
@@ -632,7 +632,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
     }
     case "bulkEdit": {
-      // Mass-edit (Archer delta B-stream) — one atomic edit covering
+      // Mass-edit — one atomic edit covering
       // whichever combination of the three mutation kinds the selection
       // toolbar built (shift-dates/set-status ride patchOps through the
       // same cascade every date/field edit already goes through; lane
@@ -656,7 +656,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
     }
     case "addCategory": {
-      // Legend category vocabulary (Archer delta v1.1/v1.3.0) — mirrors
+      // Legend category vocabulary — mirrors
       // addSwimlaneOp's placement/pattern; CategoryManager.tsx is the
       // add/rename/recolor/delete surface, same shape as SwimlaneManager.
       const category = { id: action.newId, name: action.name, color: action.color };
@@ -744,7 +744,7 @@ export interface UseCorrectionBoxResult {
   removeMilestone: (id: string) => void;
   removeTopLevelItem: (id: string) => void;
   setMilestoneDate: (id: string, date: string) => void;
-  /** Pill drag-to-move (Archer delta v1.3.0) — commits both ends of a dragged duration pill at once. */
+  /** Pill drag-to-move — commits both ends of a dragged duration pill at once. */
   setMilestoneDateRange: (id: string, date: string, endDate: string) => void;
   toggleDependency: (dependentId: string, dependencyId: string, add: boolean, showConnector?: boolean) => void;
   addSwimlane: (swimlaneType: "lane" | "separator") => void;
@@ -759,16 +759,16 @@ export interface UseCorrectionBoxResult {
   clearCompanyLogo: () => void;
   /** Commits a drag/resize gesture's final dx/dy/scale (wayframe#64) — a no-op if there's no logo to move. */
   setCompanyLogoGeometry: (dx: number, dy: number, scale: number) => void;
-  /** Legend category vocabulary management (Archer delta v1.1/v1.3.0) — see CategoryManager.tsx. */
+  /** Legend category vocabulary management — see CategoryManager.tsx. */
   addCategory: (name: string, color: string) => void;
   renameCategory: (id: string, name: string) => void;
   recolorCategory: (id: string, color: string) => void;
   removeCategory: (id: string) => void;
   /** Milestone editor's "Category" select — null clears the tag. */
   setMilestoneCategory: (id: string, categoryId: string | null) => void;
-  /** Deterministic CSV/XLSX import merge (Archer delta v1.2) — one atomic edit, see ImportDiffReview.tsx. */
+  /** Deterministic CSV/XLSX import merge — one atomic edit, see ImportDiffReview.tsx. */
   importMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
-  /** Mass-edit (Archer delta B-stream) — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/apply.ts. */
+  /** Mass-edit — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/apply.ts. */
   bulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void;
 }
 

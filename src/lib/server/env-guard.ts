@@ -1,5 +1,5 @@
-// Server-only environment guard (Archer delta B-stream — "backend
-// foundation") — consolidates the pattern src/lib/smartsheet/client.ts's
+// Server-only environment guard ("backend foundation") — consolidates the
+// pattern src/lib/smartsheet/client.ts's
 // tokenOrThrow() already established for ANTHROPIC_API_KEY/
 // SMARTSHEET_API_TOKEN alike: a missing var throws a message naming *which*
 // variable is absent, never the value of any configured one. Both existing

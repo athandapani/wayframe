@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { hasEnv } from "@/lib/server/env-guard";
 
 /**
- * Backend-foundation visibility (Archer delta B-stream) — the equivalent of
+ * Backend-foundation visibility — the equivalent of
  * a "startup log" naming which optional integrations are configured,
  * surfaced as an inspectable endpoint rather than a console line: a
  * serverless function has no persistent process startup the way a

@@ -1,6 +1,6 @@
 "use client";
 
-// Dependency-connector shape (Archer delta v1.3.0) — a viewer display
+// Dependency-connector shape — a viewer display
 // preference on its own localStorage key, same pattern as
 // use-top-band-style.ts: three named looks, no "off" state (a connector
 // always draws in one of these three shapes once it's decided to draw at

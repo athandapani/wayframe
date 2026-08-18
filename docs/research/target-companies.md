@@ -25,8 +25,6 @@ The pitch is: a manufacturing/PMO operator who has also personally built AI-assi
 
 I did **not** find a dedicated "PMO," "Director of Program Management," "Chief of Staff," or "AI Transformation" titled role on Figure's own board at the time of this research — saying so explicitly rather than inventing one. The Engineering Program Manager, Electronics role is the best real match.
 
-**Brett Adcock / Archer Aviation connection (sourced):** Brett Adcock co-founded **Archer Aviation**, an electric vertical-takeoff-and-landing (eVTOL) aircraft company, in October 2018, alongside Adam Goldstein; Archer went public on the NYSE in February 2021 via SPAC merger at roughly a $3.8B equity valuation. [Wikipedia — Archer Aviation](https://en.wikipedia.org/wiki/Archer_Aviation); [Wikipedia — Brett Adcock](https://en.wikipedia.org/wiki/Brett_Adcock). Adcock has told this founding story in his own words publicly: "I started Archer at the University of Florida... I partnered with the Aerospace and Mechanical engineering lab," describing self-funding the venture and building a lab before raising outside capital — and describes founding Figure the same way, starting from "living in this... WeWork phone booth in Palo Alto, just... cold calling everybody in the space." [Brett Adcock — LinkedIn post on founding Archer and Figure](https://www.linkedin.com/posts/brettadcock_heres-the-founding-story-of-archer-aviation-activity-7094712617130233856-RLbM). He stepped back from an operating role at Archer in 2022 and founded Figure in the same period. Note: I attempted to pull Archer's SEC S-1/A filing directly (a true primary regulatory source) at [sec.gov](https://www.sec.gov/Archives/edgar/data/1824502/000110465921129022/tm2128079-5_s1a.htm) but the fetch was blocked (HTTP 403); the Wikipedia + Adcock's own LinkedIn statement + business press triangulate the same facts, but the SEC filing itself is flagged here as unverified-by-me-directly rather than silently treated as confirmed.
-
 ---
 
 ## Apptronik
@@ -141,8 +139,6 @@ Symbotic is the only company in this research with a role literally titled "PMO"
 - [Intel Capital — Figure Series C release](https://www.intelcapital.com/figure-exceeds-1b-in-series-c-funding-at-39b-post-money-valuation/)
 - [Bloomberg via Yahoo Finance — Figure $39B valuation](https://finance.yahoo.com/news/figure-reaches-39b-valuation-latest-164944663.html)
 - [Wikipedia — Brett Adcock](https://en.wikipedia.org/wiki/Brett_Adcock)
-- [Wikipedia — Archer Aviation](https://en.wikipedia.org/wiki/Archer_Aviation)
-- [Brett Adcock — LinkedIn post on founding Archer/Figure](https://www.linkedin.com/posts/brettadcock_heres-the-founding-story-of-archer-aviation-activity-7094712617130233856-RLbM)
 - [Apptronik — Series A press release](https://apptronik.com/news-collection/apptronik-closes-over-935-million-series-a)
 - [Bloomberg — Apptronik $5.5B valuation](https://www.bloomberg.com/news/articles/2026-02-11/apptronik-raises-520-million-in-new-funding-to-build-more-humanoids)
 - [CNBC — Apptronik $5.5B valuation](https://www.cnbc.com/2026/02/11/apptronik-raises-520-million-at-5-billion-valuation-for-apollo-robot.html)

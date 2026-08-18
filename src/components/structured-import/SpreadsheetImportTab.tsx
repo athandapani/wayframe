@@ -1,6 +1,6 @@
 "use client";
 
-// Deterministic CSV/XLSX import wizard (Archer delta v1.2) — column mapper
+// Deterministic CSV/XLSX import wizard — column mapper
 // + smart merge + diff review, no AI call at all. Distinct from the
 // existing "File upload" tab in ImportPanel.tsx, which still flattens rows
 // to text and feeds `/api/extract`; this path never leaves the browser.

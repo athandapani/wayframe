@@ -41,9 +41,9 @@ const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
  * rather than a single line of initials, and that needs vertical room.
  */
 const LANE_HEIGHT = 132;
-/** Floor a lane can shrink to under auto lane height (Archer delta v1.1) — below this, labels stop being legible. */
+/** Floor a lane can shrink to under auto lane height — below this, labels stop being legible. */
 const MIN_AUTO_LANE_HEIGHT = 64;
-/** Extra vertical room reserved per stacked overlapping duration pill within a lane (Archer delta v1.2). */
+/** Extra vertical room reserved per stacked overlapping duration pill within a lane. */
 const PILL_ROW_HEIGHT = 18;
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
@@ -92,7 +92,7 @@ function computeRows(
   swimlanes: Swimlane[],
   laneHeight = LANE_HEIGHT,
   separatorHeight = SEPARATOR_HEIGHT,
-  /** Extra height a lane needs for stacked overlapping duration pills (Archer delta v1.2) — see stack-intervals.ts. */
+  /** Extra height a lane needs for stacked overlapping duration pills — see stack-intervals.ts. */
   extraHeightByLaneId?: Map<string, number>,
 ): RowInfo[] {
   let y = 0;
@@ -293,13 +293,13 @@ function CushionMarker({
 }
 
 /**
- * Marker fill/stroke resolution (Archer delta v1.1/v1.3.0) — two rule
+ * Marker fill/stroke resolution — two rule
  * changes layered on top of the original "status is the fill, halo is
  * always the same ring" scheme:
  *
  *   - A not-started marker renders hollow (ground-colored fill, its own
  *     status color as the ring) rather than filled gray. This is a
- *     conscious deviation from the archer-rebuild-spec.md constraint that
+ *     conscious deviation from the rebuild-spec.md constraint that
  *     status is color-only, silhouette-invariant — accepted as-built
  *     rather than re-derived, per the product owner's call.
  *   - When legend category-fill encoding is on and this milestone carries a
@@ -596,7 +596,7 @@ function TopBandLabeledButton({
  * path insetting.
  */
 /**
- * Dependency-connector path shape (Archer delta v1.3.0) — a viewer
+ * Dependency-connector path shape — a viewer
  * preference (use-connector-style.ts), independent of the
  * critical/traced/plain stroke treatment above. "elbow" is the original
  * orthogonal three-segment path; "s-curve" replaces it with a single cubic
@@ -972,11 +972,11 @@ function MilestoneMarker({
   onDateDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
   ghostOffset?: LabelOffset;
   onGhostDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
-  /** Legend category tag (Archer delta v1.1/v1.3.0) — resolved from Milestone.categoryId, only when category-fill encoding is on (see resolveMarkerPaint). */
+  /** Legend category tag — resolved from Milestone.categoryId, only when category-fill encoding is on (see resolveMarkerPaint). */
   category?: LegendCategory;
-  /** Marker date-label placement (Archer delta v1.1) — "inline" skips the tiered below-marker slot entirely for a fixed beside-the-marker position. */
+  /** Marker date-label placement — "inline" skips the tiered below-marker slot entirely for a fixed beside-the-marker position. */
   dateLabelPlacement?: DateLabelPlacement;
-  /** Rubber-band/click multi-select (Archer delta B-stream) — renders a dashed accent ring, same layering idea as the critical/trace rings below but its own visual so the three never get confused for one another. */
+  /** Rubber-band/click multi-select — renders a dashed accent ring, same layering idea as the critical/trace rings below but its own visual so the three never get confused for one another. */
   selected?: boolean;
 }) {
   const r = 8;
@@ -1052,7 +1052,7 @@ function MilestoneMarker({
         </g>
       )}
       {dateLabelPlacement === "inline" ? (
-        // Inline placement (Archer delta v1.1) — a fixed slot beside the
+        // Inline placement — a fixed slot beside the
         // marker rather than the tiered below-marker system, so it opts out
         // of drag-to-reposition (dateOffset) entirely; there's no collision
         // math to escalate against here.
@@ -1176,28 +1176,28 @@ export interface RoadmapTimelineProps {
   atRiskMode?: AtRiskMode;
   /** Fired once a logo drag or resize gesture ends (wayframe#64) — omit to keep the logo fixed/non-interactive (dev preview / off-screen export capture). */
   onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
-  // --- Archer delta v1.1–v1.4.0 additions ---
-  /** Dependency-connector shape (Archer delta v1.3.0) — a viewer preference, see use-connector-style.ts. */
+  // --- Later additions ---
+  /** Dependency-connector shape — a viewer preference, see use-connector-style.ts. */
   connectorStyle?: ConnectorStyle;
   /** Ordinary connector dash pattern — a viewer preference, see use-connector-line-style.ts. Critical-path/traced connectors keep their own fixed treatment regardless. */
   connectorDash?: ConnectorDash;
   /** Ordinary connector arrowhead — a viewer preference, see use-connector-line-style.ts. */
   connectorArrow?: ConnectorArrow;
-  /** Today progress overlay: translucent elapsed-time fill + axis caret (Archer delta v1.3.0) — off by default. */
+  /** Today progress overlay: translucent elapsed-time fill + axis caret — off by default. */
   todayOverlayEnabled?: boolean;
-  /** Duration-pill %-complete visualization (Archer delta v1.2) — a viewer preference, see use-pill-progress-style.ts. */
+  /** Duration-pill %-complete visualization — a viewer preference, see use-pill-progress-style.ts. */
   pillProgressStyle?: PillProgressStyle;
-  /** Shrinks lane height to fit more of the programme in the viewport (Archer delta v1.1) — a viewer preference. Only ever shrinks below the normal LANE_HEIGHT, never grows past it. */
+  /** Shrinks lane height to fit more of the programme in the viewport — a viewer preference. Only ever shrinks below the normal LANE_HEIGHT, never grows past it. */
   autoLaneHeight?: boolean;
   /** Marker date-label placement — a viewer preference, see use-date-label-placement.ts. */
   dateLabelPlacement?: DateLabelPlacement;
-  /** Legend category-fill / status-outline encoding (Archer delta v1.1/v1.3.0) — a viewer preference, see use-legend-category-style.ts and Milestone.categoryId. */
+  /** Legend category-fill / status-outline encoding — a viewer preference, see use-legend-category-style.ts and Milestone.categoryId. */
   legendCategoryFillEnabled?: boolean;
-  /** Shows each lane's Swimlane.owner below its name (Archer delta v1.3.0) — a viewer preference, see use-swimlane-owner-visibility.ts. */
+  /** Shows each lane's Swimlane.owner below its name — a viewer preference, see use-swimlane-owner-visibility.ts. */
   swimlaneOwnerVisible?: boolean;
-  /** Fired once a duration pill is dragged to a new date range, both ends shifted by the same delta (Archer delta v1.3.0) — omit to keep pills reschedule-only via the editor. */
+  /** Fired once a duration pill is dragged to a new date range, both ends shifted by the same delta — omit to keep pills reschedule-only via the editor. */
   onMilestoneDateRangeChange?: (milestoneId: string, isoDate: string, isoEndDate: string) => void;
-  /** Rubber-band/click multi-select (Archer delta B-stream — mass-edit) — when on, a marker click toggles selection instead of opening its editor, and empty lane space can be marquee-dragged. */
+  /** Rubber-band/click multi-select (mass-edit) — when on, a marker click toggles selection instead of opening its editor, and empty lane space can be marquee-dragged. */
   selectionModeEnabled?: boolean;
   /** Currently selected milestone ids — rendered with a distinct selection ring. */
   selectedIds?: Set<string>;
@@ -1251,7 +1251,7 @@ export function RoadmapTimeline({
   onToggleSelect,
   onMarqueeSelect,
 }: RoadmapTimelineProps) {
-  // Auto lane height (Archer delta v1.1) — only ever shrinks the fixed
+  // Auto lane height — only ever shrinks the fixed
   // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
   // than an unbounded resize. Measures window height, not the container's
   // own (the container's height is driven BY the chart, not the other way
@@ -1277,7 +1277,7 @@ export function RoadmapTimeline({
       ? Math.min(LANE_HEIGHT * boxScale, Math.max(MIN_AUTO_LANE_HEIGHT, (viewportHeight - reservedChromeEstimate) / rawLaneCount))
       : LANE_HEIGHT * boxScale;
 
-  // Phase & pill vertical stacking (Archer delta v1.2) — overlapping
+  // Phase & pill vertical stacking — overlapping
   // duration pills within the same lane get their own sub-row instead of
   // rendering on top of each other; a lane that needs it grows to fit (see
   // stack-intervals.ts). Point milestones never participate.
@@ -1572,8 +1572,8 @@ export function RoadmapTimeline({
   }
 
   function beginDrag(m: Milestone, evt: React.PointerEvent<SVGGElement>) {
-    // A pill (m.endDate set) drags via onMilestoneDateRangeChange (Archer
-    // delta v1.3.0 — translates both ends together); a point marker drags
+    // A pill (m.endDate set) drags via onMilestoneDateRangeChange
+    // (translates both ends together); a point marker drags
     // via onMilestoneDateChange as before. Guard on whichever one this
     // milestone actually needs, not just onMilestoneDateChange, or pills
     // silently stop being draggable when only the range handler is wired.
@@ -1723,7 +1723,7 @@ export function RoadmapTimeline({
     setCreateDrag(null);
   }
 
-  // Rubber-band marquee select (Archer delta B-stream — mass-edit): a
+  // Rubber-band marquee select (mass-edit): a
   // pointer-down on empty lane background while selection mode is armed
   // draws a rect; on release, every point milestone whose marker center
   // falls inside it gets added to the selection. Mirrors createDrag's
@@ -2259,7 +2259,7 @@ export function RoadmapTimeline({
                   </tspan>
                 ))}
               </text>
-              {/* Per-lane owner (Archer delta v1.3.0) — a viewer-toggleable
+              {/* Per-lane owner — a viewer-toggleable
                   second line under the lane name, same muted-caption
                   treatment as the header's owner line. */}
               {swimlaneOwnerVisible && row.swimlane.owner && (
@@ -2279,7 +2279,7 @@ export function RoadmapTimeline({
           );
         })}
 
-        {/* Today progress overlay (Archer delta v1.3.0) — a second, denser
+        {/* Today progress overlay — a second, denser
             reading of "what's elapsed" layered on top of the always-on
             Today reference line: a translucent wash from the plot's left
             edge up to today, plus a caret notch on the axis row itself.
@@ -2355,7 +2355,7 @@ export function RoadmapTimeline({
                 // Critical wins the line where the two overlap; the trace
                 // still lifts the markers, so a traced critical edge
                 // doesn't lose which one it is. Dash/arrowhead choice
-                // (Archer delta v1.1) only applies to this plain treatment —
+                // only applies to this plain treatment —
                 // critical/traced connectors keep their own fixed look
                 // below, same reasoning theme.criticalPathColor is never
                 // overridable per-viewer.
@@ -2412,7 +2412,7 @@ export function RoadmapTimeline({
               <path d="M0,1.5 L9,5 L0,8.5 z" fill={color} opacity={opacity} />
             </marker>
           ))}
-          {/* Ordinary-connector arrowhead choice (Archer delta v1.1) — three
+          {/* Ordinary-connector arrowhead choice — three
               variants of the same fixed-size, userSpaceOnUse marker above,
               selected per viewer preference (use-connector-line-style.ts).
               Critical/trace connectors never use these — see the dash/arrow
@@ -2426,7 +2426,7 @@ export function RoadmapTimeline({
           <marker id="roadmap-arrow-connector-circle" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
             <circle cx="5" cy="5" r="3.2" fill={theme.connector} opacity={0.55} />
           </marker>
-          {/* Duration-pill %-complete "hatch" style (Archer delta v1.2) —
+          {/* Duration-pill %-complete "hatch" style —
               diagonal-line pattern applied to the completed portion of a
               pill instead of a flat fill/bar, see use-pill-progress-style.ts. */}
           <pattern id="pill-hatch" width={5} height={5} patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
@@ -2444,7 +2444,7 @@ export function RoadmapTimeline({
             const pillDx = pillDragging ? drag.dx : 0;
             const px = x(m.date);
             const w = Math.max(pillHeightSm, x(m.endDate!) - px);
-            // Sub-row offset (Archer delta v1.2, stack-intervals.ts) — 0 for
+            // Sub-row offset (stack-intervals.ts) — 0 for
             // every lane that isn't stacking overlapping pills.
             const cy = laneY(m.laneId) + pillSubRowOffset(m.laneId, m.id);
             const fill = darken(laneTint(m.laneId), 0.4);
@@ -2458,7 +2458,7 @@ export function RoadmapTimeline({
             // end — a long title used to overrun the chart's right edge.
             const labelChars = Math.floor((w - pillHeightSm) / (4.8 * metricsScale));
             const label = labelChars >= 6 ? wrapText(m.title, labelChars, 1)[0] : null;
-            // %-complete visualization (Archer delta v1.2) — only draws
+            // %-complete visualization — only draws
             // anything when a style is chosen and the milestone actually
             // carries a percentComplete; a pill with no progress tracked
             // renders exactly as before.
@@ -2658,7 +2658,7 @@ export function RoadmapTimeline({
           />
         )}
 
-        {/* Rubber-band marquee (Archer delta B-stream — mass-edit) — live
+        {/* Rubber-band marquee (mass-edit) — live
             preview rect while dragging; selection itself commits on
             pointer-up (endMarquee above). */}
         {marquee && (

@@ -51,7 +51,7 @@ function openOptionsMenu() {
   fireEvent.click(screen.getByRole("button", { name: "Options" }));
 }
 
-// The options-menu accordion (Archer delta v1.4.0) collapses everything but
+// The options-menu accordion collapses everything but
 // Appearance by default — tests that need a row from another section expand
 // it first, the same click a real user would make.
 function openSection(label: string) {

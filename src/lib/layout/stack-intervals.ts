@@ -1,5 +1,5 @@
 /**
- * Phase & pill vertical stacking (Archer delta v1.2) — when a lane has
+ * Phase & pill vertical stacking — when a lane has
  * duration pills whose date ranges overlap, RoadmapTimeline needs to know
  * which vertical sub-row to draw each one on so overlapping pills don't
  * render on top of each other. Classic interval-partitioning: sort by

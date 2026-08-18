@@ -1,6 +1,6 @@
 "use client";
 
-// Marker date-label placement (Archer delta v1.1) — a viewer display
+// Marker date-label placement — a viewer display
 // preference, same named-style pattern as use-top-band-style.ts. "below"
 // is the original fixed-slot-under-the-marker behavior; "inline" places
 // the date beside the title's last line instead, for a denser read.

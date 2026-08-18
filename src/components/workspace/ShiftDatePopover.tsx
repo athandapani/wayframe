@@ -1,7 +1,7 @@
 "use client";
 
-// Small ±N-days input for SelectionToolbar's "Shift dates…" action (Archer
-// delta B-stream) — deliberately tiny, mirrors OptionsMenu's inline-confirm
+// Small ±N-days input for SelectionToolbar's "Shift dates…" action —
+// deliberately tiny, mirrors OptionsMenu's inline-confirm
 // idioms rather than a full modal: the only thing it needs from the viewer
 // is one signed integer.
 import { useState } from "react";

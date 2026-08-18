@@ -183,7 +183,7 @@ function ModalForm({
   onEditAttachments: (ops: AttachmentOp[]) => void;
   onAcceptBaseline: (id: string) => void;
   onTrace: (direction: TraceDirection) => void;
-  /** Legend category assignment (Archer delta v1.1/v1.3.0) — applies immediately, same as EdgeEditor/AttachmentEditor above, not batched into Save. */
+  /** Legend category assignment — applies immediately, same as EdgeEditor/AttachmentEditor above, not batched into Save. */
   onSetCategory?: (id: string, categoryId: string | null) => void;
 }) {
   const [draft, setDraft] = useState<EditableMilestoneFields>(() => milestoneToEditableFields(milestone));

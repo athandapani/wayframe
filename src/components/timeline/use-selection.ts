@@ -1,6 +1,6 @@
 "use client";
 
-// Multi-milestone selection (Archer delta B-stream — mass-edit) — viewer/
+// Multi-milestone selection (mass-edit) — viewer/
 // session state, not document content and not itself undo-tracked (only
 // the bulk edit it eventually produces is, via useCorrectionBox's own
 // history stack). Not persisted to localStorage either: unlike a display

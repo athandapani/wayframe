@@ -1,20 +1,19 @@
-# Wayframe — Rebuild Specification (Archer Environment)
+# Wayframe — Rebuild Specification
 
-> **Revision note (2026-08-17):** this spec was the Phase 1/2 baseline the Archer build started
-> from. Archer has since shipped a real delta beyond it — polish, new subsystems (Saved Views,
+> **Revision note (2026-08-17):** this spec was the Phase 1/2 baseline the build started
+> from. The build has since shipped a real delta beyond it — polish, new subsystems (Saved Views,
 > mass-edit, a deterministic CSV/XLSX wizard), and one deliberate deviation from a stated
-> constraint. That delta is now folded into the sections below (each addition is marked
-> **`(Archer delta)`**) so this remains the single accurate baseline for both sides. **§17** is a
-> compact index of every delta item and where it's documented, plus what's still explicitly *not*
-> folded in (still-gated AI-correction-bar/op-log work, and features Archer has only planned, not
-> shipped).
+> constraint. That delta is now folded into the sections below so this remains the single
+> accurate baseline for both sides. **§17** is a compact index of every delta item and where
+> it's documented, plus what's still explicitly *not* folded in (still-gated
+> AI-correction-bar/op-log work, and features that are only planned, not shipped).
 
 ## 0. How to use this document
 
 This is a from-scratch build spec for **Wayframe**, a roadmap-visualization tool, written for
 an implementer (human or AI) who has no access to the original codebase. It describes
 **behavior and data model**, not the original React/Next.js implementation — build it in
-whatever stack Archer's environment provides. Where the original implementation used a
+whatever stack the target environment provides. Where the original implementation used a
 specific technique worth carrying over (a formula, an algorithm, a non-obvious rule), that's
 called out explicitly as "**Implementation note**."
 
@@ -85,19 +84,19 @@ Core value proposition (Phase 1 + Phase 2 combined):
 | Export both views to a `.pptx` deck | 1 | — |
 | Company logo upload + freeform placement | 1 | — |
 | Demo/QA fixture route (a canned example roadmap) | 1 | — |
-| Midnight starter template entry point *(Archer delta)* | 1 | — |
-| Options-menu accordion sections *(Archer delta)* | 1 | — |
-| Saved Views + built-in presets *(Archer delta, §10)* | 1 | — |
-| Legend categories + category-fill/status-outline encoding *(Archer delta, §7.6)* | 1 | — |
-| Connector shape (elbow/S-curve/rounded) + dash/arrowhead style *(Archer delta, §7.10)* | 1 | — |
-| Today progress overlay *(Archer delta, §7.11)* | 1 | — |
-| Duration-pill %-complete visualization + vertical stacking *(Archer delta, §7.12)* | 1 | — |
-| Auto lane height, date-label placement, swimlane owner *(Archer delta, §7.13)* | 1 | — |
-| Edit/View mode lock *(Archer delta, §8.8)* | 1 | — |
-| Mass-edit / bulk multi-select *(Archer delta, §5.6)* | 1 | — |
-| Deterministic CSV/XLSX import wizard (no AI) *(Archer delta, §13)* | 1 | — |
-| Vector (native-shape) PPTX export option *(Archer delta, §9.2)* | 1 | — |
-| Backend env-guard + health endpoint *(Archer delta, §14.4)* | — | — |
+| Midnight starter template entry point | 1 | — |
+| Options-menu accordion sections | 1 | — |
+| Saved Views + built-in presets *(§10)* | 1 | — |
+| Legend categories + category-fill/status-outline encoding *(§7.6)* | 1 | — |
+| Connector shape (elbow/S-curve/rounded) + dash/arrowhead style *(§7.10)* | 1 | — |
+| Today progress overlay *(§7.11)* | 1 | — |
+| Duration-pill %-complete visualization + vertical stacking *(§7.12)* | 1 | — |
+| Auto lane height, date-label placement, swimlane owner *(§7.13)* | 1 | — |
+| Edit/View mode lock *(§8.8)* | 1 | — |
+| Mass-edit / bulk multi-select *(§5.6)* | 1 | — |
+| Deterministic CSV/XLSX import wizard (no AI) *(§13)* | 1 | — |
+| Vector (native-shape) PPTX export option *(§9.2)* | 1 | — |
+| Backend env-guard + health endpoint *(§14.4)* | — | — |
 | AI extraction from typed notes / photo | 2 | Claude API key |
 | AI extraction from CSV upload | 2 | Claude API key |
 | AI extraction from Smartsheet | 2 | Claude API key + Smartsheet token |
@@ -119,7 +118,7 @@ The original implementation: Next.js (React) + TypeScript + Tailwind CSS, chart 
 SVG (no charting library), state in a single `useReducer`, deployed as a static/serverless site
 with two thin serverless API routes for the Phase-2 AI calls.
 
-For Archer, given "start with a single HTML-hosted page style, Node.js is supported":
+For this rebuild, given "start with a single HTML-hosted page style, Node.js is supported":
 
 - **Phase 1 can ship as a static, client-only single-page app** — TypeScript, bundled to one HTML
   page (or a small number of static assets). No backend is required for Phase 1: all state lives
@@ -135,7 +134,7 @@ For Archer, given "start with a single HTML-hosted page style, Node.js is suppor
   a charting library. This is a deliberate choice — recommended to carry over, since collision
   avoidance, dependency-connector routing, and drag interactions all need direct control over
   individual marker geometry that most off-the-shelf chart libraries don't expose. Canvas is a
-  viable alternative if Archer's environment favors it, but hit-testing/dragging/hover-tooltips
+  viable alternative if the target environment favors it, but hit-testing/dragging/hover-tooltips
   are simpler in SVG (DOM elements) than canvas (manual hit-testing).
 - **Persistence format:** a single JSON document (schema in §4) is the source of truth for
   everything in both views. Treat it as the one file format to design around.
@@ -169,7 +168,7 @@ produces.
 | `topLevelItems` | array of `TopLevelItem` | The "PROGRAM band" row at the top of the chart — program-level milestones/phases/annotations that aren't inside any lane. See §4.3. |
 | `milestones` | array of `Milestone` | Lane-scoped items. See §4.5. |
 | `companyLogo` | object, optional | `{ dataUrl: string, dx?: number, dy?: number, scale?: number }`. An uploaded logo image, stored inline as a data URL (no blob storage — it travels with the document). `dx`/`dy`/`scale` are a freeform drag/resize offset from the default top-left placement; undefined/1 means "hasn't been moved." |
-| `legendCategories` | array of `LegendCategory`, optional **`(Archer delta)`** | Document-level vocabulary of named, colored tags a milestone can carry independent of its lane and status — see §7.6's category-fill encoding. `LegendCategory = { id: string, name: string, color: string }`. Managed via a dedicated add/rename/recolor/delete modal, same shape as the Swimlane manager. |
+| `legendCategories` | array of `LegendCategory`, optional | Document-level vocabulary of named, colored tags a milestone can carry independent of its lane and status — see §7.6's category-fill encoding. `LegendCategory = { id: string, name: string, color: string }`. Managed via a dedicated add/rename/recolor/delete modal, same shape as the Swimlane manager. |
 
 `ActionItem`: `{ id, text, owner?, dueDate?, done? }`.
 
@@ -188,7 +187,7 @@ A swimlane is a row in the Program view. Two `type`s: `"lane"` (holds milestones
 | `color` | string (hex), optional | Per-lane color pin. Unset = falls back to the active theme's generated lane palette by lane index (§7.6), so switching themes restyles every un-pinned lane. |
 | `rollupHistory` | array of `RollupSnapshot`, optional | Append-only, one entry written passively per calendar day per lane, on load/view — **never** through the undo-tracked edit path (it's not a user edit). Powers the Executive-view trend arrow. `RollupSnapshot = { date: string, rag: Rag, atRiskCount: number, delayedCount: number }`. |
 | `density` | `"normal" \| "lean"`, optional | `"lean"` renders the lane row at 75% of normal height, for lanes with few milestones. Document content (an editorial layout call), not a per-viewer preference — everyone opening the file sees the same density. |
-| `owner` | string, optional **`(Archer delta)`** | Per-lane owner name, shown as a muted second line below the lane name in the header gutter, toggleable per-viewer (§10). Document content, same placement reasoning as `color`/`density` above — an editorial fact about the lane, not a viewer preference. |
+| `owner` | string, optional | Per-lane owner name, shown as a muted second line below the lane name in the header gutter, toggleable per-viewer (§10). Document content, same placement reasoning as `color`/`density` above — an editorial fact about the lane, not a viewer preference. |
 
 ### 4.3 TopLevelItem (PROGRAM band)
 
@@ -242,7 +241,7 @@ is a hard security requirement, not a nice-to-have.
 | `endDate` | string (ISO date), optional | When set (and later than `date`), this milestone renders as a **lane-scoped duration pill** spanning `date → endDate` instead of a point marker — same entity, not a separate item type. Blank/absent = point milestone. |
 | `showReferenceLine` | boolean, optional | Same full-height marker line as the top-level version. |
 | `potentialDate` | string (ISO date), optional | At-risk projection (§7.5) — the temporal *opposite* of `originalDate`: this projects a possible *future* date without moving anything committed. For a point milestone, projects `date` forward; for a duration pill, projects `endDate` forward (the pill's start is already underway). |
-| `categoryId` | string \| null, optional **`(Archer delta)`** | FK into `RoadmapData.legendCategories` — independent of `laneId` (organizational) and `status` (state). When the category-fill viewer preference is on (§7.6) and this is set, the marker/pill fill becomes the category's color and `status` moves to the stroke/border instead of the fill. `null`/absent = no category, renders exactly as the un-tagged baseline. |
+| `categoryId` | string \| null, optional | FK into `RoadmapData.legendCategories` — independent of `laneId` (organizational) and `status` (state). When the category-fill viewer preference is on (§7.6) and this is set, the marker/pill fill becomes the category's color and `status` moves to the stroke/border instead of the fill. `null`/absent = no category, renders exactly as the un-tagged baseline. |
 
 ### 4.6 Status enum
 
@@ -369,7 +368,7 @@ never red (red is reserved for critical path, so the two meanings never collide)
 and an active trace overlap on the same edge, critical path wins the line color but the trace
 still visually lifts the markers.
 
-### 5.6 Mass-edit / bulk multi-select `(Archer delta)`
+### 5.6 Mass-edit / bulk multi-select
 
 **[Phase 1]** A selection model layered on top of everything above — viewer/session state (a
 `Set` of selected milestone ids), not document content and not itself undo-tracked; only the bulk
@@ -594,13 +593,13 @@ background/text, separator band colors, lane-wash opacity, a lane color-ramp spe
 trace color (never red), connector color, marker halo (the ring that lifts a marker off the lane
 wash), page background, panel background/border/ink, and an accent color.
 
-**Status color rule (revised by an Archer delta — read the deviation note below):** status was
+**Status color rule (revised by a later delta — read the deviation note below):** status was
 originally communicated by **fill color only**, on a deliberate lightness/chroma gradient from
 calm to severe (not five arbitrary hues) specifically because color alone can't reliably separate
 5 categorical states for colorblind readers or in greyscale reproduction — a gradient at least
 degrades gracefully where 5 arbitrary hues don't.
 
-> **Deviation `(Archer delta, as-built, conscious)`:** Archer ships a **hollow marker for
+> **Deviation (as-built, conscious):** this build ships a **hollow marker for
 > `not-started`** (ground-colored fill, the status color as a ring instead) rather than a filled
 > gray diamond — every other status stays filled. This does encode one state by silhouette,
 > which is exactly what the constraint above was written to avoid. It's an intentional,
@@ -608,7 +607,7 @@ degrades gracefully where 5 arbitrary hues don't.
 > than re-deriving the original constraint, but if colorblind/greyscale legibility is re-litigated
 > later, this is the specific rule to revisit first.
 
-**Legend category-fill / status-outline encoding `(Archer delta)`:** a per-viewer toggle (§10),
+**Legend category-fill / status-outline encoding:** a per-viewer toggle (§10),
 off by default. When on, a milestone carrying a `categoryId` (§4.5) renders with its **category's
 color as the fill** and its **status color as the stroke/ring** instead — "what track is this"
 becomes the dominant read, "how healthy is it" the secondary one. A `not-started` milestone still
@@ -619,7 +618,7 @@ dedicated modal — add/rename/recolor/delete, mirroring the Swimlane manager (�
 the assignment as a "Category" select in the milestone editor (§8.1), populated from that list and
 hidden entirely when the document has no categories yet.
 
-**Strikethrough delayed dates `(Archer delta, always-on)`:** the compact date label under a
+**Strikethrough delayed dates (always-on):** the compact date label under a
 `delayed` milestone's marker renders with strikethrough — no toggle, applies unconditionally to
 that one status, every other status's date label is unaffected.
 
@@ -659,7 +658,7 @@ Sparse label rendering when segments get narrower than a legible label width (sk
 stride, but still draw every segment's grid boundary) — required at Week granularity over a
 multi-month domain.
 
-### 7.10 Dependency connector shape and line style `(Archer delta)`
+### 7.10 Dependency connector shape and line style
 
 **[Phase 1]** Two independent per-viewer preferences (§10) layered onto the connector geometry
 §6.1 already describes:
@@ -677,7 +676,7 @@ multi-month domain.
 intervening duration pill) is out of scope — connectors still route through their simple
 predecessor→midpoint→dependent path regardless of shape choice.
 
-### 7.11 Today progress overlay `(Archer delta)`
+### 7.11 Today progress overlay
 
 **[Phase 1]** An off-by-default per-viewer toggle (§10) that layers two more elapsed-time cues on
 top of the always-on Today reference line (§6.1): a translucent wash across the full plot height
@@ -685,7 +684,7 @@ from the chart's left edge up to Today's x-position, painted above the lane wash
 markers/connectors, plus a small caret notch at the boundary between the Year axis row and the
 tier below it, at Today's x-position.
 
-### 7.12 Duration-pill progress visualization and stacking `(Archer delta)`
+### 7.12 Duration-pill progress visualization and stacking
 
 **[Phase 1]**
 
@@ -705,7 +704,7 @@ tier below it, at Today's x-position.
   translates both `date` and `endDate` by the same delta, committed through the same cascade-aware
   edit path as any other date change (§5.3) once the drag completes.
 
-### 7.13 Layout preferences: auto lane height, date-label placement, swimlane owner `(Archer delta)`
+### 7.13 Layout preferences: auto lane height, date-label placement, swimlane owner
 
 **[Phase 1]** Three more per-viewer preferences (§10):
 
@@ -810,7 +809,7 @@ content the owner sets once and expects to travel with the file (unlike every ot
 drag, which is per-viewer, see §10). "Reset position" restores the default top-left placement;
 "Remove" clears the logo entirely.
 
-### 8.8 Edit/View mode lock `(Archer delta)`
+### 8.8 Edit/View mode lock
 
 **[Phase 1]** A per-viewer toggle (§10): `edit` (the default — every affordance in this section
 stays wired up) or `view` (every interactive callback this section describes — marker click,
@@ -863,7 +862,7 @@ scroll position), letterboxed to fit a 16:9 slide without distortion. Images onl
 native-editable PowerPoint shapes/text; this is an accepted, documented scope cut, not an oversight.
 Filename: `<slugified-program-name-or-"roadmap">-deck.pptx`.
 
-**Vector export option `(Archer delta)`:** Archer's build reverses the "images only" scope cut
+**Vector export option:** this build reverses the "images only" scope cut
 above with a second export mode — native, editable PPTX shapes (rectangles for lane rows,
 diamond/rounded-rect shapes for markers and pills, lines for connectors, text boxes for every
 label) generated by walking `RoadmapData` through the same layout math the chart itself uses,
@@ -880,7 +879,7 @@ viewer can actually edit in PowerPoint afterward.
 **not** written into the `.wayframe.json` document and **not** part of the undo stack — two people
 opening the same file can have different settings simultaneously.
 
-**Menu structure `(Archer delta)`:** exposed through one options menu, organized into named,
+**Menu structure:** exposed through one options menu, organized into named,
 independently collapsible/expandable **accordion sections** (own persisted open/closed state per
 section) rather than one long flat list — the row-per-setting list grew long enough to need
 grouping. Suggested sections: Appearance, Chart symbols, Views, Layout, Data. A few frequent
@@ -905,14 +904,14 @@ sections are expanded.
 - "So what" panel: shown/hidden, fill color override, fill transparency, reset-to-theme
 - Import a schedule *(Phase 2)*
 - Generate/update Executive timeline summary (§6.3)
-- Connector shape + line style/arrowhead — §7.10 **`(Archer delta)`**
-- Today progress overlay: on/off — §7.11 **`(Archer delta)`**
-- Duration-pill %-complete style — §7.12 **`(Archer delta)`**
+- Connector shape + line style/arrowhead — §7.10
+- Today progress overlay: on/off — §7.11
+- Duration-pill %-complete style — §7.12
 - Auto lane height: on/off; date-label placement (below/inline); swimlane owner: shown/hidden —
-  §7.13 **`(Archer delta)`**
-- Legend category-fill encoding: on/off — §7.6 **`(Archer delta)`**
-- Edit/View mode lock — §8.8 **`(Archer delta)`**
-- Select mode: on/off — arms the mass-edit rubber-band/click picker, §5.6 **`(Archer delta)`**
+  §7.13
+- Legend category-fill encoding: on/off — §7.6
+- Edit/View mode lock — §8.8
+- Select mode: on/off — arms the mass-edit rubber-band/click picker, §5.6
 
 Also per-viewer (own storage keys, not swept into the options menu list above): legend
 open/closed, BLUF panel position, every manual per-label drag override (§7.1).
@@ -923,7 +922,7 @@ content (§4) specifically because they're editorial calls the document owner ma
 opening the file should see identically — don't accidentally implement any of those as per-viewer
 preferences.
 
-### 10.1 Saved Views `(Archer delta)`
+### 10.1 Saved Views
 
 **[Phase 1]** A named-snapshot layer on top of every preference above: capture the current value
 of every viewer preference into one named object, store it alongside a per-viewer list of such
@@ -1131,7 +1130,7 @@ posture as extraction). Return the validated, typed op-set to the client.
   toggle which loaded source(s) are included, shows the exact combined text block that will be
   sent, and only then triggers extraction.
 
-### 13.1 Deterministic CSV/XLSX import wizard — no AI, fully Phase-1-buildable `(Archer delta)`
+### 13.1 Deterministic CSV/XLSX import wizard — no AI, fully Phase-1-buildable
 
 **[Phase 1]** A second, independent import path alongside 13's AI-extraction flow — this one never
 calls the model at all, so it needs no API key and belongs entirely in Phase 1. Steps:
@@ -1145,7 +1144,7 @@ calls the model at all, so it needs no API key and belongs entirely in Phase 1. 
    > GHSA-5pgg-2g8v-p4x9) with no fix available on the npm-published package — a real risk for a
    > parser that runs directly against untrusted user-uploaded files. `exceljs` was used instead;
    > its only flagged advisory at evaluation time was moderate and transitive (via `uuid`). Re-run
-   > this check against whatever XLSX library Archer's environment/ecosystem offers — don't assume
+   > this check against whatever XLSX library the target environment/ecosystem offers — don't assume
    > either package's audit status is still current by the time this gets rebuilt.
 2. **Map columns** — a small mapping UI: Title and Date are required; Lane, End date, Status,
    Owner, % complete, and Comment are optional. Auto-guess a starting mapping from common header
@@ -1214,7 +1213,7 @@ Fail closed with a typed, specific error when a key/token isn't configured, rath
 500 — Phase 1's whole value proposition is that the app works fully without these, so a missing
 key should degrade exactly the two gated features, not the app as a whole.
 
-**Shared env-guard helper + health endpoint `(Archer delta)`:** consolidate "is this secret
+**Shared env-guard helper + health endpoint:** consolidate "is this secret
 configured" into one small server-only helper (a boolean check for a health/status surface, and a
 throwing variant — naming only *which* variable is missing, never echoing a configured value —
 for the code paths that actually need the secret) rather than duplicating the check per
@@ -1241,7 +1240,7 @@ process boot moment to log at the way a long-running Node/Express service would.
 9. Export to Deck (§9.2).
 10. Viewer preferences / options menu, legend, gridlines (§7.7–7.8, §10).
 11. Company logo (§8.7).
-11.5. *(Archer delta, all Phase 1, safe to interleave with steps 4–11 above rather than treated as
+11.5. *(All Phase 1, safe to interleave with steps 4–11 above rather than treated as
    a separate pass)* Legend categories + category-fill encoding, connector shape/line style,
    today overlay, pill %-complete + stacking, auto lane height, date-label placement, swimlane
    owner, edit/view lock, mass-edit toolbar, Saved Views, Midnight starter template, the
@@ -1256,37 +1255,37 @@ process boot moment to log at the way a long-running Node/Express service would.
 
 ---
 
-## 16. Open questions to confirm inside the Archer environment
+## 16. Open questions to confirm inside the target environment
 
 These are places this spec makes a reasonable assumption that should be explicitly verified
 before or during the build, since they weren't things I could resolve from the source app alone:
 
-1. **Rendering approach** — does Archer's environment favor a specific charting/canvas library, or
+1. **Rendering approach** — does the target environment favor a specific charting/canvas library, or
    is hand-rolled SVG (as recommended in §3) workable? The collision-avoidance, drag, and
    connector-routing requirements all assume direct per-element control.
 2. **File save/open mechanics** — confirm the browser download/file-input APIs assumed in §9.1 are
-   available in Archer's hosting context (vs. needing a server-side file-storage integration
+   available in the target hosting context (vs. needing a server-side file-storage integration
    instead).
 3. **Where the Node.js backend lives** once Phase 2 starts — a serverless function per the original,
    or a persistent Node service — affects nothing in this spec's data model but affects deployment
    instructions not included here.
-4. **Smartsheet access** — confirm whether Archer's environment can reach `api.smartsheet.com`
+4. **Smartsheet access** — confirm whether the target environment can reach `api.smartsheet.com`
    outbound before committing to §13's Smartsheet path; if not, ship the CSV half only.
-5. **Phase 1 entry point — resolved `(Archer delta)`.** Option (b) was picked: a "Midnight"
+5. **Phase 1 entry point — resolved.** Option (b) was picked: a "Midnight"
    starter template (a couple of placeholder lanes + one placeholder milestone, every label a
    visible "replace me") offered as a third option on the entry form, alongside notes/photo — not
    a replacement for AI extraction, additive to it.
 6. **XLSX dependency choice** — §13.1's security note found `xlsx` (SheetJS) carrying unpatched
    high-severity advisories at evaluation time and used `exceljs` instead. Re-verify this against
    current advisory data before the rebuild locks in a library, since audit status changes over
-   time and Archer's package ecosystem may differ from npm's.
+   time and the target package ecosystem may differ from npm's.
 
 ---
 
-## 17. Archer-shipped delta — index
+## 17. Shipped delta — index
 
 Quick cross-reference of everything folded into the sections above, for anyone diffing this spec
-against an earlier revision or against Archer's own feature-delta notes.
+against an earlier revision or against the build's own feature-delta notes.
 
 | Item | Documented in |
 |---|---|

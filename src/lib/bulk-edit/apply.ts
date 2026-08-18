@@ -1,4 +1,4 @@
-// Mass-edit / bulk multi-select (Archer delta B-stream) — pure op-builders
+// Mass-edit / bulk multi-select — pure op-builders
 // for the four actions SelectionToolbar.tsx offers over a set of selected
 // milestone ids. Deterministic, same reasoning cascade.ts and
 // resolveBulkShiftOps already establish: the "what changes" computation

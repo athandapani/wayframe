@@ -1,5 +1,5 @@
-// "Midnight" starter template (Archer delta, as-built) — resolves the
-// original spec's open question (archer-rebuild-spec.md §16 item 5): with
+// "Midnight" starter template — resolves the
+// original spec's open question (rebuild-spec.md §16 item 5): with
 // no AI extraction available on day one, a Phase-1 visitor needs some way
 // to start besides a fully blank document. This is a small, clean starter
 // — a couple of lanes, one placeholder milestone — not a second demo

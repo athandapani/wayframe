@@ -1,7 +1,7 @@
 "use client";
 
-// Legend category-fill / status-outline encoding (Archer delta v1.1 /
-// v1.3.0) — a viewer display preference, same on/off boolean pattern as
+// Legend category-fill / status-outline encoding — a viewer display
+// preference, same on/off boolean pattern as
 // use-critical-path-visibility.ts. Off by default: fill=status is the
 // original, always-valid reading; turning this on only changes anything
 // for milestones that actually carry a Milestone.categoryId.

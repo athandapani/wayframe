@@ -1,6 +1,6 @@
 "use client";
 
-// Duration-pill %-complete visualization (Archer delta v1.2) — a viewer
+// Duration-pill %-complete visualization — a viewer
 // display preference, same named-style pattern as use-top-band-style.ts,
 // but with a real "off" state (unlike top-band, most roadmaps don't track
 // percentComplete on every pill, so the default has to be "draw pills

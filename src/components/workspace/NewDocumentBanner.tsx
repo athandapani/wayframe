@@ -1,7 +1,7 @@
 "use client";
 
-// One-time orientation nudge after starting a fresh roadmap (Archer delta
-// v1.4.0) — a brand-new document (from the Midnight starter template or a
+// One-time orientation nudge after starting a fresh roadmap — a brand-new
+// document (from the Midnight starter template or a
 // blank entry point) has no other cue that it's already saving itself.
 // Component-local dismiss state, not a persisted preference: this is a
 // per-document "you're set up" note, not a recurring setting someone would

@@ -1,8 +1,8 @@
 "use client";
 
 // Floating toolbar for the rubber-band/checkbox multi-select system
-// (Archer delta B-stream — mass-edit) — shown whenever a selection is
-// non-empty. Self-contained like CorrectionBoxSwitcher: owns which bulk
+// (mass-edit) — shown whenever a selection is non-empty. Self-contained
+// like CorrectionBoxSwitcher: owns which bulk
 // action is being configured and the diff-preview accept/reject state,
 // exposes only the resolved commit outward via onBulkEdit.
 import { useState } from "react";

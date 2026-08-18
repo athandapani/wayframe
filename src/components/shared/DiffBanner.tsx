@@ -1,7 +1,7 @@
 "use client";
 
-// Generic "here's what will change" diff review (Archer delta v1.2/B-stream)
-// — the deterministic, entity-agnostic counterpart to CorrectionBox.tsx's
+// Generic "here's what will change" diff review — the deterministic,
+// entity-agnostic counterpart to CorrectionBox.tsx's
 // AI-proposal preview card. Two features need this: the CSV/XLSX import
 // wizard's merge preview (structured-import/) and the bulk multi-select
 // toolbar's shift/restatus/re-lane preview (workspace/SelectionToolbar.tsx)
