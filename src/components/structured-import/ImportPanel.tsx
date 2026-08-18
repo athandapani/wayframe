@@ -10,9 +10,11 @@
 // canned mock data; rowsToText()'s shape is unchanged from the prototype,
 // so /api/extract needed no schema change.
 import { useRef, useState } from "react";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Milestone, RoadmapData } from "@/components/timeline/types";
+import type { PatchOp } from "@/lib/corrections/schema";
 import { parseCsvFile } from "@/lib/import/parse-csv";
 import { rowsToText, type ParsedRow } from "@/lib/import/rows-to-text";
+import { SpreadsheetImportTab } from "./SpreadsheetImportTab";
 
 interface LoadedSource {
   label: string;
@@ -25,7 +27,7 @@ interface SheetSummary {
   name: string;
 }
 
-type Tab = "file" | "smartsheet";
+type Tab = "file" | "smartsheet" | "spreadsheet";
 type SmartsheetState = "disconnected" | "connecting" | "connected" | "pulling";
 
 function formatTime(d: Date): string {
@@ -63,7 +65,19 @@ function RowPreviewTable({ rows }: { rows: ParsedRow[] }) {
   );
 }
 
-export function ImportPanel({ onExtracted, onClose }: { onExtracted: (data: RoadmapData) => void; onClose: () => void }) {
+export function ImportPanel({
+  data,
+  onExtracted,
+  onMerge,
+  onClose,
+}: {
+  /** Live document — needed by the deterministic Spreadsheet tab's smart-merge matching. */
+  data: RoadmapData;
+  onExtracted: (data: RoadmapData) => void;
+  /** Deterministic CSV/XLSX import merge (Archer delta v1.2) — see SpreadsheetImportTab.tsx. */
+  onMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
+  onClose: () => void;
+}) {
   const [tab, setTab] = useState<Tab>("file");
   const [fileSource, setFileSource] = useState<LoadedSource | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -166,13 +180,13 @@ export function ImportPanel({ onExtracted, onClose }: { onExtracted: (data: Road
         </div>
 
         <div className="flex overflow-hidden rounded-lg border border-zinc-300 text-sm dark:border-zinc-700">
-          {(["file", "smartsheet"] as const).map((t) => (
+          {(["file", "smartsheet", "spreadsheet"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={"flex-1 px-4 py-2 capitalize " + (tab === t ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")}
             >
-              {t === "file" ? "File upload" : "Smartsheet"}
+              {t === "file" ? "AI extraction" : t === "smartsheet" ? "Smartsheet" : "Spreadsheet (no AI)"}
               {t === "file" && fileSource && " ✓"}
               {t === "smartsheet" && sheetSource && " ✓"}
             </button>
@@ -180,6 +194,7 @@ export function ImportPanel({ onExtracted, onClose }: { onExtracted: (data: Road
         </div>
 
         <div className="mt-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+          {tab === "spreadsheet" && <SpreadsheetImportTab data={data} onMerge={onMerge} />}
           {tab === "file" && (
             <div className="space-y-3">
               <div className="flex gap-2">

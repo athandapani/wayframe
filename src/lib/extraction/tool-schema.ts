@@ -64,8 +64,25 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
               enum: ["green", "amber", "red"],
               description: "Manual Executive-view rollup override — leave unset unless the input explicitly states a status the milestones don't already imply.",
             },
+            owner: {
+              type: "string",
+              description: "Per-lane owner name, only if the input explicitly names one for this lane/track.",
+            },
           },
           required: ["tempKey", "order", "type", "name"],
+        },
+      },
+      legendCategories: {
+        type: "array",
+        description: "Named, colored tags milestones can carry independent of lane/status (e.g. 'Regulatory', 'Customer-facing') — only include if the input explicitly calls out such tags. Most inputs should leave this empty.",
+        items: {
+          type: "object",
+          properties: {
+            tempKey: { type: "string" },
+            name: { type: "string" },
+            color: { type: "string", description: "A CSS color name or hex value." },
+          },
+          required: ["tempKey", "name", "color"],
         },
       },
       topLevelItems: {
@@ -151,6 +168,10 @@ export const EXTRACTION_TOOL: Anthropic.Tool = {
             showReferenceLine: {
               type: "boolean",
               description: "Draws a full-height vertical marker line, same as the always-on Today line. Only set when the input explicitly calls out this milestone's date as a callout/deadline line, not for every milestone.",
+            },
+            categoryRef: {
+              type: ["string", "null"],
+              description: "tempKey of a legendCategories entry, or null — only set when the input explicitly ties this milestone to a named category/tag.",
             },
           },
           required: [

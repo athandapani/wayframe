@@ -26,9 +26,11 @@ export interface RoadmapDocument {
     type: "lane" | "separator";
     name: string;
     ragOverride?: "green" | "amber" | "red";
+    owner?: string;
   }[];
   topLevelItems: Record<string, unknown>[];
   milestones: Record<string, unknown>[];
+  legendCategories: { id: string; name: string; color: string }[];
 }
 
 /**
@@ -47,6 +49,9 @@ export function resolveDraftIds(draft: RoadmapDraft): RoadmapDocument {
   const milestoneIdByTempKey = new Map(
     draft.milestones.map((m) => [m.tempKey, nanoid()]),
   );
+  const categoryIdByTempKey = new Map(
+    draft.legendCategories.map((c) => [c.tempKey, nanoid()]),
+  );
 
   return {
     schemaVersion: draft.schemaVersion,
@@ -63,13 +68,14 @@ export function resolveDraftIds(draft: RoadmapDraft): RoadmapDocument {
       type: l.type,
       name: l.name,
       ragOverride: l.ragOverride,
+      owner: l.owner,
     })),
     topLevelItems: draft.topLevelItems.map((t) => {
       const { tempKey, ...rest } = t;
       return { id: topLevelIdByTempKey.get(tempKey)!, ...rest };
     }),
     milestones: draft.milestones.map((m) => {
-      const { tempKey, laneRef, linksToTopLevelMilestoneRef, dependsOn, ...rest } = m;
+      const { tempKey, laneRef, linksToTopLevelMilestoneRef, dependsOn, categoryRef, ...rest } = m;
       return {
         id: milestoneIdByTempKey.get(tempKey)!,
         laneId: laneIdByTempKey.get(laneRef)!,
@@ -81,8 +87,14 @@ export function resolveDraftIds(draft: RoadmapDraft): RoadmapDocument {
           id: milestoneIdByTempKey.get(d.tempKey)!,
           showConnector: d.showConnector,
         })),
+        categoryId: categoryRef !== null ? (categoryIdByTempKey.get(categoryRef) ?? null) : null,
         ...rest,
       };
     }),
+    legendCategories: draft.legendCategories.map((c) => ({
+      id: categoryIdByTempKey.get(c.tempKey)!,
+      name: c.name,
+      color: c.color,
+    })),
   };
 }

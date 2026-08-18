@@ -16,6 +16,7 @@ import {
   SAMPLE_NOTES_TEXT,
   validateImageFile,
 } from "./sample-content";
+import { createMidnightTemplate } from "@/data/midnight-template";
 
 const ERROR_COPY: Record<ExtractionError["kind"], { tone: "amber" | "red" | "zinc"; message: string }> = {
   no_input: { tone: "zinc", message: "Add some notes or a photo first." },
@@ -206,6 +207,23 @@ export function EntryForm({ onExtracted }: { onExtracted: (data: RoadmapData) =>
         className="mt-4 w-full rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
       >
         {status === "loading" ? "Extracting…" : "Extract roadmap →"}
+      </button>
+
+      {/* Midnight starter template (Archer delta, as-built) — a third way
+          in that needs no AI call at all, for when there's nothing to type
+          or photograph yet. Every label in it is a visible placeholder,
+          not invented program content. */}
+      <div className="mt-3 flex items-center gap-3">
+        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+        <span className="text-xs text-zinc-400">or</span>
+        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+      </div>
+      <button
+        onClick={() => onExtracted(createMidnightTemplate(new Date()))}
+        disabled={status === "loading"}
+        className="mt-3 w-full rounded-lg border border-zinc-300 py-2.5 text-sm font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+      >
+        Start from a blank template
       </button>
     </div>
   );

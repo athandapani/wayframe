@@ -29,6 +29,13 @@ const SwimlaneSchema = z.object({
     .array(z.object({ date: IsoDate, rag: RagSchema, atRiskCount: z.number(), delayedCount: z.number() }))
     .optional(),
   density: z.enum(["normal", "lean"]).optional(),
+  owner: z.string().optional(),
+});
+
+const LegendCategorySchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  color: z.string(),
 });
 
 const MilestoneSchema = z.object({
@@ -49,12 +56,14 @@ const MilestoneSchema = z.object({
   shortLabel: z.string().optional(),
   showReferenceLine: z.boolean().optional(),
   attachments: z.array(z.object({ type: z.enum(["image", "link"]), url: z.string(), label: z.string().optional() })).optional(),
+  potentialDate: IsoDate.optional(),
+  categoryId: z.string().nullable().optional(),
 });
 
 const TopLevelItemSchema = z.discriminatedUnion("type", [
-  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema }),
-  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional() }),
-  z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate }),
+  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional() }),
+  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional() }),
+  z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate, message: z.string().optional() }),
 ]);
 
 const RoadmapDataSchema = z.object({
@@ -79,6 +88,7 @@ const RoadmapDataSchema = z.object({
   // unrecognized keys rather than erroring, so a saved file's companyLogo
   // was dropped on every Open, without a schema-validation error to catch it.
   companyLogo: z.object({ dataUrl: z.string(), dx: z.number().optional(), dy: z.number().optional(), scale: z.number().optional() }).optional(),
+  legendCategories: z.array(LegendCategorySchema).optional(),
 });
 
 export type LoadResult = { ok: true; document: RoadmapData } | { ok: false; message: string; issues: string[] };
@@ -89,8 +99,10 @@ function referentialProblems(doc: RoadmapData): string[] {
   const laneIds = new Set(doc.swimlanes.map((l) => l.id));
   const milestoneIds = new Set(doc.milestones.map((m) => m.id));
   const topIds = new Set(doc.topLevelItems.map((t) => t.id));
+  const categoryIds = new Set((doc.legendCategories ?? []).map((c) => c.id));
   for (const m of doc.milestones) {
     if (!laneIds.has(m.laneId)) problems.push(`"${m.title}" is in lane "${m.laneId}", which doesn't exist`);
+    if (m.categoryId && !categoryIds.has(m.categoryId)) problems.push(`"${m.title}" references category "${m.categoryId}", which doesn't exist`);
     for (const d of m.dependsOn) {
       if (!milestoneIds.has(d.id)) problems.push(`"${m.title}" depends on "${d.id}", which doesn't exist`);
     }

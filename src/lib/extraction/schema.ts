@@ -28,6 +28,15 @@ export const SwimlaneDraftSchema = z.object({
   // Manual override for the Executive-view RAG rollup — see
   // src/components/timeline/types.ts's Swimlane.ragOverride doc.
   ragOverride: RagSchema.optional(),
+  // Optional per-lane owner name — see Swimlane.owner's doc in types.ts.
+  owner: z.string().optional(),
+});
+
+// Legend category vocabulary — see LegendCategory's doc in types.ts.
+export const LegendCategoryDraftSchema = z.object({
+  tempKey: z.string().min(1),
+  name: z.string().min(1),
+  color: z.string().min(1),
 });
 
 export const TopLevelItemDraftSchema = z.discriminatedUnion("type", [
@@ -96,6 +105,9 @@ export const MilestoneDraftSchema = z.object({
   // src/components/timeline/types.ts.
   endDate: z.string().optional(),
   showReferenceLine: z.boolean().optional(),
+  // Legend category tag — see Milestone.categoryId's doc in types.ts. References
+  // a LegendCategoryDraft.tempKey; checked in findDanglingReferences below.
+  categoryRef: z.string().nullable().default(null),
 });
 
 export const ActionItemDraftSchema = z.object({
@@ -119,6 +131,7 @@ export const RoadmapDraftSchema = z.object({
   swimlanes: z.array(SwimlaneDraftSchema).min(1),
   topLevelItems: z.array(TopLevelItemDraftSchema).default([]),
   milestones: z.array(MilestoneDraftSchema).default([]),
+  legendCategories: z.array(LegendCategoryDraftSchema).default([]),
 });
 
 export type RoadmapDraft = z.infer<typeof RoadmapDraftSchema>;
@@ -135,6 +148,7 @@ export function findDanglingReferences(draft: RoadmapDraft): string[] {
   const laneKeys = new Set(draft.swimlanes.map((l) => l.tempKey));
   const topLevelKeys = new Set(draft.topLevelItems.map((t) => t.tempKey));
   const milestoneKeys = new Set(draft.milestones.map((m) => m.tempKey));
+  const categoryKeys = new Set(draft.legendCategories.map((c) => c.tempKey));
 
   const problems: string[] = [];
 
@@ -142,6 +156,11 @@ export function findDanglingReferences(draft: RoadmapDraft): string[] {
     if (!laneKeys.has(m.laneRef)) {
       problems.push(
         `milestone "${m.title}" (tempKey=${m.tempKey}) references unknown laneRef "${m.laneRef}"`,
+      );
+    }
+    if (m.categoryRef !== null && !categoryKeys.has(m.categoryRef)) {
+      problems.push(
+        `milestone "${m.title}" (tempKey=${m.tempKey}) references unknown categoryRef "${m.categoryRef}"`,
       );
     }
     if (

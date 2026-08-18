@@ -63,6 +63,26 @@ export interface Swimlane {
    * SEPARATOR_HEIGHT regardless).
    */
   density?: "normal" | "lean";
+  /**
+   * Optional per-lane owner name, shown below the lane name in the header
+   * gutter (toggleable via a viewer preference — see use-swimlane-owner-visibility.ts).
+   * Document content, same placement reasoning as `color`/`density`.
+   */
+  owner?: string;
+}
+
+/**
+ * A named, colored tag a milestone can carry independent of its lane and
+ * status (legend categories) — e.g. "Regulatory", "Customer-facing". Lives
+ * on the document (RoadmapData.legendCategories) since it's shared,
+ * editorial vocabulary, not a per-viewer preference. Managed via
+ * CategoryManager.tsx, mirroring Swimlane's add/rename/recolor/delete
+ * pattern in SwimlaneManager.tsx.
+ */
+export interface LegendCategory {
+  id: string;
+  name: string;
+  color: string;
 }
 
 export type TopLevelItem =
@@ -154,6 +174,15 @@ export interface Milestone {
    * slipping" means the *end* might land later, not the start.
    */
   potentialDate?: string;
+  /**
+   * Optional FK into RoadmapData.legendCategories — independent of laneId
+   * (organizational) and status (state). When
+   * use-legend-category-style.ts's category-fill encoding is on, this
+   * milestone's marker/pill fill becomes the category's color and `status`
+   * moves to the stroke/border instead of the fill (see MilestoneMarker).
+   * null/undefined = no category, renders exactly as before.
+   */
+  categoryId?: string | null;
 }
 
 export interface ActionItem {
@@ -230,4 +259,11 @@ export interface RoadmapData {
    * file, same reasoning as lane color.
    */
   companyLogo?: { dataUrl: string; dx?: number; dy?: number; scale?: number };
+  /**
+   * Document-level vocabulary of legend categories a milestone can be
+   * tagged with (Milestone.categoryId) — see LegendCategory's doc above.
+   * Managed via CategoryManager.tsx; rendered as a second legend row when
+   * non-empty (see ChartLegend.tsx).
+   */
+  legendCategories?: LegendCategory[];
 }

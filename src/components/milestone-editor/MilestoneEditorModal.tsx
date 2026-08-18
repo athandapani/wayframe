@@ -172,6 +172,7 @@ function ModalForm({
   onEditAttachments,
   onAcceptBaseline,
   onTrace,
+  onSetCategory,
 }: {
   data: RoadmapData;
   milestone: Milestone;
@@ -182,6 +183,8 @@ function ModalForm({
   onEditAttachments: (ops: AttachmentOp[]) => void;
   onAcceptBaseline: (id: string) => void;
   onTrace: (direction: TraceDirection) => void;
+  /** Legend category assignment (Archer delta v1.1/v1.3.0) — applies immediately, same as EdgeEditor/AttachmentEditor above, not batched into Save. */
+  onSetCategory?: (id: string, categoryId: string | null) => void;
 }) {
   const [draft, setDraft] = useState<EditableMilestoneFields>(() => milestoneToEditableFields(milestone));
 
@@ -307,6 +310,23 @@ function ModalForm({
               onChange={(e) => setDraft({ ...draft, owner: e.target.value })}
             />
           </label>
+          {onSetCategory && (data.legendCategories?.length ?? 0) > 0 && (
+            <label className="col-span-2 block">
+              <span className="mb-1 block text-xs font-medium text-zinc-500">Category</span>
+              <select
+                className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+                value={milestone.categoryId ?? ""}
+                onChange={(e) => onSetCategory(milestone.id, e.target.value || null)}
+              >
+                <option value="">None</option>
+                {data.legendCategories!.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="col-span-2 block">
             <span className="mb-1 block text-xs font-medium text-zinc-500">Short label (timeline marker)</span>
             <input
@@ -433,6 +453,7 @@ export function MilestoneEditorModal({
   onEditAttachments,
   onAcceptBaseline,
   onTrace,
+  onSetCategory,
 }: {
   data: RoadmapData;
   milestone: Milestone | null;
@@ -443,6 +464,7 @@ export function MilestoneEditorModal({
   onEditAttachments: (ops: AttachmentOp[]) => void;
   onAcceptBaseline: (id: string) => void;
   onTrace: (direction: TraceDirection) => void;
+  onSetCategory?: (id: string, categoryId: string | null) => void;
 }) {
   if (!milestone) return null;
   return (
@@ -457,6 +479,7 @@ export function MilestoneEditorModal({
       onEditAttachments={onEditAttachments}
       onAcceptBaseline={onAcceptBaseline}
       onTrace={onTrace}
+      onSetCategory={onSetCategory}
     />
   );
 }

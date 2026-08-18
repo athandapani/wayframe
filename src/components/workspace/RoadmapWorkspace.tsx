@@ -7,6 +7,7 @@
 // demo fixture). Parameterized by `initialData`/`today` so neither caller
 // hand-maintains its own copy.
 import { useEffect, useRef, useState } from "react";
+import { nanoid } from "nanoid";
 import type { RoadmapData } from "@/components/timeline/types";
 import { RoadmapTimeline, type GhostMode, type AtRiskMode } from "@/components/timeline/RoadmapTimeline";
 import type { Theme } from "@/components/timeline/theme";
@@ -38,12 +39,27 @@ import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/corr
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
-import { OptionsMenu, OptionsMenuRow } from "./OptionsMenu";
+import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
+import { useOptionsSections } from "./use-options-sections";
+import { NewDocumentBanner } from "./NewDocumentBanner";
 import { exportToDeck } from "@/lib/export/export-to-deck";
 import { saveDocumentFile, parseDocumentFile } from "@/lib/document-file/document-file";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 import { useTimelineSummary } from "@/components/executive-view/use-timeline-summary";
 import type { ExecutiveTimelineSummary } from "@/components/executive-view/timeline-summary";
+import { useConnectorStyle, CONNECTOR_STYLES, type ConnectorStyle } from "@/components/timeline/use-connector-style";
+import { useConnectorLineStyle, CONNECTOR_DASHES, CONNECTOR_ARROWS, type ConnectorDash, type ConnectorArrow } from "@/components/timeline/use-connector-line-style";
+import { useTodayOverlay } from "@/components/timeline/use-today-overlay";
+import { usePillProgressStyle, PILL_PROGRESS_STYLES, type PillProgressStyle } from "@/components/timeline/use-pill-progress-style";
+import { useAutoLaneHeight } from "@/components/timeline/use-auto-lane-height";
+import { useDateLabelPlacement, DATE_LABEL_PLACEMENTS, type DateLabelPlacement } from "@/components/timeline/use-date-label-placement";
+import { useLegendCategoryStyle } from "@/components/timeline/use-legend-category-style";
+import { useSwimlaneOwnerVisibility } from "@/components/timeline/use-swimlane-owner-visibility";
+import { useEditLock } from "./use-edit-lock";
+import { CategoryManager } from "./CategoryManager";
+import { useSavedViews, type ViewSnapshot } from "@/components/timeline/use-saved-views";
+import { useSelection } from "@/components/timeline/use-selection";
+import { SelectionToolbar } from "./SelectionToolbar";
 
 type Mode = "executive" | "program";
 
@@ -110,6 +126,20 @@ function RoadmapView({
   fontScale,
   fontFamily,
   onCompanyLogoChange,
+  connectorStyle,
+  connectorDash,
+  connectorArrow,
+  todayOverlayEnabled,
+  pillProgressStyle,
+  autoLaneHeight,
+  dateLabelPlacement,
+  legendCategoryFillEnabled,
+  swimlaneOwnerVisible,
+  onMilestoneDateRangeChange,
+  selectionModeEnabled,
+  selectedIds,
+  onToggleSelect,
+  onMarqueeSelect,
 }: {
   mode: Mode;
   data: RoadmapData;
@@ -161,6 +191,22 @@ function RoadmapView({
   fontFamily?: string;
   /** Freeform logo drag/resize commit (wayframe#64) — omit for the off-screen export capture, same convention as onEditDocument. */
   onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
+  // --- Archer delta v1.1–v1.4.0 additions — all pass straight through to RoadmapTimeline ---
+  connectorStyle?: ConnectorStyle;
+  connectorDash?: ConnectorDash;
+  connectorArrow?: ConnectorArrow;
+  todayOverlayEnabled?: boolean;
+  pillProgressStyle?: PillProgressStyle;
+  autoLaneHeight?: boolean;
+  dateLabelPlacement?: DateLabelPlacement;
+  legendCategoryFillEnabled?: boolean;
+  swimlaneOwnerVisible?: boolean;
+  /** Omit for the off-screen export capture, same convention as onMilestoneDateChange. */
+  onMilestoneDateRangeChange?: (id: string, date: string, endDate: string) => void;
+  selectionModeEnabled?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onMarqueeSelect?: (ids: string[]) => void;
 }) {
   if (mode === "program") {
     return (
@@ -193,6 +239,20 @@ function RoadmapView({
           metricsScale={fontScale}
           onEditDocument={onEditDocument}
           onCompanyLogoChange={onCompanyLogoChange}
+          connectorStyle={connectorStyle}
+          connectorDash={connectorDash}
+          connectorArrow={connectorArrow}
+          todayOverlayEnabled={todayOverlayEnabled}
+          pillProgressStyle={pillProgressStyle}
+          autoLaneHeight={autoLaneHeight}
+          dateLabelPlacement={dateLabelPlacement}
+          legendCategoryFillEnabled={legendCategoryFillEnabled}
+          swimlaneOwnerVisible={swimlaneOwnerVisible}
+          onMilestoneDateRangeChange={onMilestoneDateRangeChange}
+          selectionModeEnabled={selectionModeEnabled}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
+          onMarqueeSelect={onMarqueeSelect}
         />
         {legend}
         <BlufCallout
@@ -269,6 +329,83 @@ export function RoadmapWorkspace({
   const labels = useLabelDensity();
   const fontScale = useFontScale();
   const fontFamily = useFontFamily();
+  const sections = useOptionsSections();
+  const connectorStyle = useConnectorStyle();
+  const connectorLineStyle = useConnectorLineStyle();
+  const todayOverlay = useTodayOverlay();
+  const pillProgress = usePillProgressStyle();
+  const autoLaneHeight = useAutoLaneHeight();
+  const dateLabelPlacement = useDateLabelPlacement();
+  const legendCategoryStyle = useLegendCategoryStyle();
+  const swimlaneOwner = useSwimlaneOwnerVisibility();
+  const editLock = useEditLock();
+  const isViewMode = editLock.mode === "view";
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const savedViews = useSavedViews();
+  const [savingViewName, setSavingViewName] = useState<string | null>(null);
+  const selection = useSelection();
+  const [selectMode, setSelectMode] = useState(false);
+
+  // Saved Views (Archer delta v1.4.0) — reads every preference hook already
+  // instantiated above into one snapshot / writes one back out through each
+  // hook's own setter, the same setters the options-menu rows below call
+  // directly. Legend open/closed is deliberately not included: ChartLegend
+  // owns that bit of state internally with no prop to drive it, so a saved
+  // view can't reach it without a bigger refactor of a component that
+  // already has its own tests.
+  function currentSnapshot(): ViewSnapshot {
+    return {
+      themeId,
+      ghostEnabled: ghost.enabled,
+      ghostStyle: ghost.style,
+      atRiskEnabled: atRisk.enabled,
+      atRiskStyle: atRisk.style,
+      criticalPathVisible: criticalPath.visible,
+      criticalPathStyle: criticalPathLine.style,
+      topBandStyle: topBand.style,
+      gridlineStyle: gridlines.style,
+      axisTiers: axisTiers.config,
+      axisYearColor: axisTiers.yearColor,
+      labelDensity: labels.density,
+      fontScale: fontScale.scale,
+      fontFamilyId: fontFamily.familyId,
+      connectorStyle: connectorStyle.style,
+      connectorDash: connectorLineStyle.dash,
+      connectorArrow: connectorLineStyle.arrow,
+      todayOverlayEnabled: todayOverlay.enabled,
+      pillProgressStyle: pillProgress.style,
+      autoLaneHeightEnabled: autoLaneHeight.enabled,
+      dateLabelPlacement: dateLabelPlacement.placement,
+      legendCategoryFillEnabled: legendCategoryStyle.enabled,
+      swimlaneOwnerVisible: swimlaneOwner.visible,
+    };
+  }
+
+  function applyView(snapshot: ViewSnapshot) {
+    if (snapshot.themeId !== undefined) setTheme(snapshot.themeId);
+    if (snapshot.ghostEnabled !== undefined) ghost.setEnabled(snapshot.ghostEnabled);
+    if (snapshot.ghostStyle !== undefined) ghost.setStyle(snapshot.ghostStyle);
+    if (snapshot.atRiskEnabled !== undefined) atRisk.setEnabled(snapshot.atRiskEnabled);
+    if (snapshot.atRiskStyle !== undefined) atRisk.setStyle(snapshot.atRiskStyle);
+    if (snapshot.criticalPathVisible !== undefined) criticalPath.setVisible(snapshot.criticalPathVisible);
+    if (snapshot.criticalPathStyle !== undefined) criticalPathLine.setStyle(snapshot.criticalPathStyle);
+    if (snapshot.topBandStyle !== undefined) topBand.setStyle(snapshot.topBandStyle);
+    if (snapshot.gridlineStyle !== undefined) gridlines.setStyle(snapshot.gridlineStyle);
+    if (snapshot.axisTiers !== undefined) axisTiers.setTiers(snapshot.axisTiers);
+    if (snapshot.axisYearColor !== undefined) axisTiers.setYearColor(snapshot.axisYearColor);
+    if (snapshot.labelDensity !== undefined) labels.setDensity(snapshot.labelDensity);
+    if (snapshot.fontScale !== undefined) fontScale.setScale(snapshot.fontScale);
+    if (snapshot.fontFamilyId !== undefined) fontFamily.setFamily(snapshot.fontFamilyId as (typeof FONT_FAMILY_CHOICES)[number]["id"]);
+    if (snapshot.connectorStyle !== undefined) connectorStyle.setStyle(snapshot.connectorStyle);
+    if (snapshot.connectorDash !== undefined) connectorLineStyle.setDash(snapshot.connectorDash);
+    if (snapshot.connectorArrow !== undefined) connectorLineStyle.setArrow(snapshot.connectorArrow);
+    if (snapshot.todayOverlayEnabled !== undefined) todayOverlay.setEnabled(snapshot.todayOverlayEnabled);
+    if (snapshot.pillProgressStyle !== undefined) pillProgress.setStyle(snapshot.pillProgressStyle);
+    if (snapshot.autoLaneHeightEnabled !== undefined) autoLaneHeight.setEnabled(snapshot.autoLaneHeightEnabled);
+    if (snapshot.dateLabelPlacement !== undefined) dateLabelPlacement.setPlacement(snapshot.dateLabelPlacement);
+    if (snapshot.legendCategoryFillEnabled !== undefined) legendCategoryStyle.setEnabled(snapshot.legendCategoryFillEnabled);
+    if (snapshot.swimlaneOwnerVisible !== undefined) swimlaneOwner.setVisible(snapshot.swimlaneOwnerVisible);
+  }
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -503,6 +640,7 @@ export function RoadmapWorkspace({
             )}
           </div>
         )}
+        {!box.data.lastUpdatedAt && box.historyLength === 0 && !placement && !trace && <NewDocumentBanner theme={theme} />}
         {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
         <div className="fixed top-4 right-4 z-50">
           <OptionsMenu>
@@ -560,334 +698,537 @@ export function RoadmapWorkspace({
                 {exporting ? "Exporting…" : "Export to Deck"}
               </button>
             </OptionsMenuRow>
-            <div className="border-b pb-3" style={{ borderColor: "var(--wf-border)" }}>
-              <p className="mb-1.5 opacity-70">Theme</p>
-              <div className="grid grid-cols-3 gap-1.5">
-                {THEME_LIST.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setTheme(t.id)}
-                    aria-pressed={themeId === t.id}
-                    title={t.tagline}
-                    style={{
-                      // Selection has to come from the theme's own accent —
-                      // an OS-dark-mode class here rendered the *inactive*
-                      // themes as the highlighted ones on a dark panel.
-                      borderColor: themeId === t.id ? "var(--wf-accent)" : "var(--wf-border)",
-                      borderWidth: themeId === t.id ? 2 : 1,
-                    }}
-                    className="rounded-lg border p-1.5 text-left text-[11px]"
-                  >
-                    {/* a real swatch of the theme, not just its name */}
-                    <span className="mb-1 flex h-6 overflow-hidden rounded" style={{ background: t.ground }}>
-                      {laneColors(t.laneRamp, 3).map((c) => (
-                        <span key={c} className="flex-1" style={{ background: c }} />
-                      ))}
-                      <span className="flex-1" style={{ background: t.statusColor.delayed }} />
-                    </span>
-                    <span className={themeId === t.id ? "font-semibold" : ""}>{t.name}</span>
-                  </button>
-                ))}
+            <OptionsMenuSection id="appearance" label="Appearance" open={sections.isOpen("appearance")} onToggle={() => sections.toggle("appearance")}>
+              <div>
+                <p className="mb-1.5 opacity-70">Theme</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {THEME_LIST.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setTheme(t.id)}
+                      aria-pressed={themeId === t.id}
+                      title={t.tagline}
+                      style={{
+                        // Selection has to come from the theme's own accent —
+                        // an OS-dark-mode class here rendered the *inactive*
+                        // themes as the highlighted ones on a dark panel.
+                        borderColor: themeId === t.id ? "var(--wf-accent)" : "var(--wf-border)",
+                        borderWidth: themeId === t.id ? 2 : 1,
+                      }}
+                      className="rounded-lg border p-1.5 text-left text-[11px]"
+                    >
+                      {/* a real swatch of the theme, not just its name */}
+                      <span className="mb-1 flex h-6 overflow-hidden rounded" style={{ background: t.ground }}>
+                        {laneColors(t.laneRamp, 3).map((c) => (
+                          <span key={c} className="flex-1" style={{ background: c }} />
+                        ))}
+                        <span className="flex-1" style={{ background: t.statusColor.delayed }} />
+                      </span>
+                      <span className={themeId === t.id ? "font-semibold" : ""}>{t.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <OptionsMenuRow label="Company logo">
-              <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
-                {box.data.companyLogo ? "Replace" : "Upload"}
-              </button>
-              {box.data.companyLogo && (
-                <button onClick={box.clearCompanyLogo} style={PILL_STYLE} className={pillToggle(true)}>
-                  Remove
+              <OptionsMenuRow label="Company logo">
+                <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
+                  {box.data.companyLogo ? "Replace" : "Upload"}
                 </button>
-              )}
-              {box.data.companyLogo && (box.data.companyLogo.dx || box.data.companyLogo.dy || (box.data.companyLogo.scale && box.data.companyLogo.scale !== 1)) && (
-                <button onClick={() => box.setCompanyLogoGeometry(0, 0, 1)} style={PILL_STYLE} className={pillToggle(true)}>
-                  Reset position
-                </button>
-              )}
-              <input
-                ref={logoFileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUploadLogo(f);
-                  e.target.value = "";
-                }}
-              />
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Swimlanes">
-              <button onClick={() => setLanesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                Add / edit lanes
-              </button>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Marker labels">
-              <select
-                value={labels.density}
-                onChange={(e) => labels.setDensity(e.target.value as LabelDensity)}
-                aria-label="Marker label density"
-                style={PILL_STYLE}
-                className="rounded-full border px-2 py-1 text-xs"
-              >
-                {LABEL_DENSITIES.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Font size">
-              <input
-                type="range"
-                min={FONT_SCALE_MIN}
-                max={FONT_SCALE_MAX}
-                step={FONT_SCALE_STEP}
-                value={fontScale.scale}
-                onChange={(e) => fontScale.setScale(parseFloat(e.target.value))}
-                aria-label="Font size"
-                className="w-24"
-              />
-              <span className="w-9 text-right font-mono opacity-70">{fontScale.scale.toFixed(2)}×</span>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Font family">
-              <select
-                value={fontFamily.familyId}
-                onChange={(e) => fontFamily.setFamily(e.target.value as (typeof FONT_FAMILY_CHOICES)[number]["id"])}
-                aria-label="Font family"
-                style={PILL_STYLE}
-                className="rounded-full border px-2 py-1 text-xs"
-              >
-                {FONT_FAMILY_CHOICES.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Program band">
-              <select
-                value={topBand.style}
-                onChange={(e) => topBand.setStyle(e.target.value as TopBandStyle)}
-                aria-label="Program band style"
-                style={PILL_STYLE}
-                className="rounded-full border px-2 py-1 text-xs"
-              >
-                {TOP_BAND_STYLES.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Year color">
-              <input
-                type="color"
-                aria-label="Axis Year color"
-                value={axisTiers.yearColor}
-                onChange={(e) => axisTiers.setYearColor(e.target.value)}
-                style={{ borderColor: "var(--wf-border)" }}
-                className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
-              />
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Gridlines">
-              <select
-                value={gridlines.style}
-                onChange={(e) => gridlines.setStyle(e.target.value as PeriodGridlineStyle)}
-                aria-label="Period gridline style"
-                style={PILL_STYLE}
-                className="rounded-full border px-2 py-1 text-xs"
-              >
-                {PERIOD_GRIDLINE_STYLES.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Ghosts">
-              <button
-                onClick={() => ghost.setEnabled(!ghost.enabled)}
-                aria-pressed={ghost.enabled}
-                aria-label={`Ghosts: ${ghost.enabled ? "On" : "Off"}`}
-                style={PILL_STYLE} className={pillToggle(ghost.enabled)}
-              >
-                {ghost.enabled ? "On" : "Off"}
-              </button>
-            </OptionsMenuRow>
-            {ghost.enabled && (
-              <OptionsMenuRow label="Ghost style">
-                <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
-                  {(["badge", "outline"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => ghost.setStyle(s)}
-                      style={ghost.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
-                      className={
-                        "px-2.5 py-1 capitalize " + (ghost.style === s ? "font-semibold" : "opacity-60")
-                      }
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                {box.data.companyLogo && (
+                  <button onClick={box.clearCompanyLogo} style={PILL_STYLE} className={pillToggle(true)}>
+                    Remove
+                  </button>
+                )}
+                {box.data.companyLogo && (box.data.companyLogo.dx || box.data.companyLogo.dy || (box.data.companyLogo.scale && box.data.companyLogo.scale !== 1)) && (
+                  <button onClick={() => box.setCompanyLogoGeometry(0, 0, 1)} style={PILL_STYLE} className={pillToggle(true)}>
+                    Reset position
+                  </button>
+                )}
+                <input
+                  ref={logoFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleUploadLogo(f);
+                    e.target.value = "";
+                  }}
+                />
               </OptionsMenuRow>
-            )}
-            {(() => {
-              const ghostedCount = box.data.milestones.filter((m) => m.originalDate).length;
-              if (ghostedCount === 0) return null;
-              // Inline count-based confirm (wayframe#62) — mirrors
-              // SwimlaneManager's confirmingId pattern for lane delete: a
-              // single click mutating many milestones at once gets a named
-              // warning, not a silent bulk action.
-              return (
-                <OptionsMenuRow label="Slipped milestones">
-                  {confirmingAcceptAll ? (
-                    <span className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => {
-                          box.acceptAllBaselines();
-                          setConfirmingAcceptAll(false);
-                        }}
-                        style={PILL_STYLE}
-                        className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                      >
-                        {`Accept ${ghostedCount}?`}
-                      </button>
-                      <button onClick={() => setConfirmingAcceptAll(false)} className="text-[11px] opacity-60 hover:opacity-100">
-                        Cancel
-                      </button>
-                    </span>
-                  ) : (
-                    <button onClick={() => setConfirmingAcceptAll(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                      {`Accept all (${ghostedCount})`}
-                    </button>
-                  )}
-                </OptionsMenuRow>
-              );
-            })()}
-            <OptionsMenuRow label="At-risk projection">
-              <button
-                onClick={() => atRisk.setEnabled(!atRisk.enabled)}
-                aria-pressed={atRisk.enabled}
-                aria-label={`At-risk projection: ${atRisk.enabled ? "On" : "Off"}`}
-                style={PILL_STYLE} className={pillToggle(atRisk.enabled)}
-              >
-                {atRisk.enabled ? "On" : "Off"}
-              </button>
-            </OptionsMenuRow>
-            {atRisk.enabled && (
-              <OptionsMenuRow label="At-risk style">
-                <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
-                  {(["sibling", "comet", "zone"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => atRisk.setStyle(s)}
-                      style={atRisk.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
-                      className={
-                        "px-2.5 py-1 capitalize " + (atRisk.style === s ? "font-semibold" : "opacity-60")
-                      }
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+              <OptionsMenuRow label="Font size">
+                <input
+                  type="range"
+                  min={FONT_SCALE_MIN}
+                  max={FONT_SCALE_MAX}
+                  step={FONT_SCALE_STEP}
+                  value={fontScale.scale}
+                  onChange={(e) => fontScale.setScale(parseFloat(e.target.value))}
+                  aria-label="Font size"
+                  className="w-24"
+                />
+                <span className="w-9 text-right font-mono opacity-70">{fontScale.scale.toFixed(2)}×</span>
               </OptionsMenuRow>
-            )}
-            <OptionsMenuRow label="Critical path">
-              <button
-                onClick={() => criticalPath.setVisible(!criticalPath.visible)}
-                aria-pressed={criticalPath.visible}
-                aria-label={`Critical path: ${criticalPath.visible ? "Shown" : "Hidden"}`}
-                style={PILL_STYLE} className={pillToggle(criticalPath.visible)}
-              >
-                {criticalPath.visible ? "Shown" : "Hidden"}
-              </button>
-            </OptionsMenuRow>
-            {criticalPath.visible && (
-              <OptionsMenuRow label="Critical line">
+              <OptionsMenuRow label="Font family">
                 <select
-                  value={criticalPathLine.style}
-                  onChange={(e) => criticalPathLine.setStyle(e.target.value as CriticalPathStyle)}
-                  aria-label="Critical path line style"
+                  value={fontFamily.familyId}
+                  onChange={(e) => fontFamily.setFamily(e.target.value as (typeof FONT_FAMILY_CHOICES)[number]["id"])}
+                  aria-label="Font family"
                   style={PILL_STYLE}
                   className="rounded-full border px-2 py-1 text-xs"
                 >
-                  {CRITICAL_PATH_STYLES.map((o) => (
+                  {FONT_FAMILY_CHOICES.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.label}
                     </option>
                   ))}
                 </select>
               </OptionsMenuRow>
-            )}
-            <OptionsMenuRow label="Correction UI">
-              <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
-                {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
-              </button>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Last updated">
-              <button
-                onClick={() => lastUpdated.setVisible(!lastUpdated.visible)}
-                aria-pressed={lastUpdated.visible}
-                aria-label={`Last updated: ${lastUpdated.visible ? "Shown" : "Hidden"}`}
-                style={PILL_STYLE} className={pillToggle(lastUpdated.visible)}
-              >
-                {lastUpdated.visible ? "Shown" : "Hidden"}
-              </button>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="So what">
-              <button
-                onClick={() => setBlufOpen((v) => !v)}
-                aria-pressed={blufOpen}
-                aria-label={`So what: ${blufOpen ? "Shown" : "Hidden"}`}
-                style={PILL_STYLE} className={pillToggle(blufOpen)}
-              >
-                {blufOpen ? "Shown" : "Hidden"}
-              </button>
-            </OptionsMenuRow>
-            {blufOpen && (
-              <OptionsMenuRow label="So-what fill">
+              <OptionsMenuRow label="Program band">
+                <select
+                  value={topBand.style}
+                  onChange={(e) => topBand.setStyle(e.target.value as TopBandStyle)}
+                  aria-label="Program band style"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {TOP_BAND_STYLES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Year color">
                 <input
                   type="color"
-                  aria-label="So-what fill color"
-                  value={soWhat.color ?? theme.panelBg}
-                  onChange={(e) => soWhat.setColor(e.target.value)}
+                  aria-label="Axis Year color"
+                  value={axisTiers.yearColor}
+                  onChange={(e) => axisTiers.setYearColor(e.target.value)}
                   style={{ borderColor: "var(--wf-border)" }}
                   className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
                 />
               </OptionsMenuRow>
-            )}
-            {blufOpen && (
-              <OptionsMenuRow label="So-what transparency">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={soWhat.transparency}
-                  onChange={(e) => soWhat.setTransparency(parseInt(e.target.value, 10))}
-                  aria-label="So-what transparency"
-                  className="w-24"
-                />
+              <OptionsMenuRow label="Gridlines">
+                <select
+                  value={gridlines.style}
+                  onChange={(e) => gridlines.setStyle(e.target.value as PeriodGridlineStyle)}
+                  aria-label="Period gridline style"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {PERIOD_GRIDLINE_STYLES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </OptionsMenuRow>
-            )}
-            {blufOpen && (soWhat.color !== null || soWhat.transparency !== 0) && (
-              <OptionsMenuRow label="So-what reset">
-                <button onClick={soWhat.reset} style={PILL_STYLE} className={pillToggle(true)}>
-                  Reset to theme
+              <OptionsMenuRow label="So what">
+                <button
+                  onClick={() => setBlufOpen((v) => !v)}
+                  aria-pressed={blufOpen}
+                  aria-label={`So what: ${blufOpen ? "Shown" : "Hidden"}`}
+                  style={PILL_STYLE} className={pillToggle(blufOpen)}
+                >
+                  {blufOpen ? "Shown" : "Hidden"}
                 </button>
               </OptionsMenuRow>
-            )}
-            <OptionsMenuRow label="Import">
-              <button onClick={() => setImportOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                Import a schedule
-              </button>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Executive timeline">
-              <button onClick={timelineSummary.update} style={PILL_STYLE} className={pillToggle(true)}>
-                {timelineSummary.summary ? "Update Executive view" : "Generate"}
-              </button>
-            </OptionsMenuRow>
+              {blufOpen && (
+                <OptionsMenuRow label="So-what fill">
+                  <input
+                    type="color"
+                    aria-label="So-what fill color"
+                    value={soWhat.color ?? theme.panelBg}
+                    onChange={(e) => soWhat.setColor(e.target.value)}
+                    style={{ borderColor: "var(--wf-border)" }}
+                    className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
+                  />
+                </OptionsMenuRow>
+              )}
+              {blufOpen && (
+                <OptionsMenuRow label="So-what transparency">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={soWhat.transparency}
+                    onChange={(e) => soWhat.setTransparency(parseInt(e.target.value, 10))}
+                    aria-label="So-what transparency"
+                    className="w-24"
+                  />
+                </OptionsMenuRow>
+              )}
+              {blufOpen && (soWhat.color !== null || soWhat.transparency !== 0) && (
+                <OptionsMenuRow label="So-what reset">
+                  <button onClick={soWhat.reset} style={PILL_STYLE} className={pillToggle(true)}>
+                    Reset to theme
+                  </button>
+                </OptionsMenuRow>
+              )}
+            </OptionsMenuSection>
+            <OptionsMenuSection id="views" label="Views" open={sections.isOpen("views")} onToggle={() => sections.toggle("views")}>
+              {savedViews.views.map((v) => (
+                <OptionsMenuRow key={v.id} label={v.name}>
+                  <button onClick={() => applyView(v.snapshot)} style={PILL_STYLE} className={pillToggle(true)}>
+                    Apply
+                  </button>
+                  {!v.builtin && (
+                    <button onClick={() => savedViews.removeView(v.id)} className="text-[11px] opacity-60 hover:opacity-100">
+                      Delete
+                    </button>
+                  )}
+                </OptionsMenuRow>
+              ))}
+              <OptionsMenuRow label="Save current as…">
+                {savingViewName !== null ? (
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      autoFocus
+                      value={savingViewName}
+                      onChange={(e) => setSavingViewName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && savingViewName.trim()) {
+                          savedViews.addView(savingViewName.trim(), currentSnapshot(), nanoid());
+                          setSavingViewName(null);
+                        }
+                        if (e.key === "Escape") setSavingViewName(null);
+                      }}
+                      aria-label="New view name"
+                      style={{ borderColor: "var(--wf-border)" }}
+                      className="w-24 rounded border bg-transparent px-1.5 py-0.5 text-xs"
+                    />
+                    <button
+                      onClick={() => {
+                        if (savingViewName.trim()) {
+                          savedViews.addView(savingViewName.trim(), currentSnapshot(), nanoid());
+                          setSavingViewName(null);
+                        }
+                      }}
+                      style={PILL_STYLE}
+                      className={pillToggle(true)}
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setSavingViewName(null)} className="text-[11px] opacity-60 hover:opacity-100">
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button onClick={() => setSavingViewName("")} style={PILL_STYLE} className={pillToggle(true)}>
+                    Save view…
+                  </button>
+                )}
+              </OptionsMenuRow>
+            </OptionsMenuSection>
+            <OptionsMenuSection id="symbols" label="Chart symbols" open={sections.isOpen("symbols")} onToggle={() => sections.toggle("symbols")}>
+              <OptionsMenuRow label="Marker labels">
+                <select
+                  value={labels.density}
+                  onChange={(e) => labels.setDensity(e.target.value as LabelDensity)}
+                  aria-label="Marker label density"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {LABEL_DENSITIES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Ghosts">
+                <button
+                  onClick={() => ghost.setEnabled(!ghost.enabled)}
+                  aria-pressed={ghost.enabled}
+                  aria-label={`Ghosts: ${ghost.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(ghost.enabled)}
+                >
+                  {ghost.enabled ? "On" : "Off"}
+                </button>
+              </OptionsMenuRow>
+              {ghost.enabled && (
+                <OptionsMenuRow label="Ghost style">
+                  <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
+                    {(["badge", "outline"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => ghost.setStyle(s)}
+                        style={ghost.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
+                        className={
+                          "px-2.5 py-1 capitalize " + (ghost.style === s ? "font-semibold" : "opacity-60")
+                        }
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </OptionsMenuRow>
+              )}
+              {(() => {
+                const ghostedCount = box.data.milestones.filter((m) => m.originalDate).length;
+                if (ghostedCount === 0) return null;
+                // Inline count-based confirm (wayframe#62) — mirrors
+                // SwimlaneManager's confirmingId pattern for lane delete: a
+                // single click mutating many milestones at once gets a named
+                // warning, not a silent bulk action.
+                return (
+                  <OptionsMenuRow label="Slipped milestones">
+                    {confirmingAcceptAll ? (
+                      <span className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            box.acceptAllBaselines();
+                            setConfirmingAcceptAll(false);
+                          }}
+                          style={PILL_STYLE}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                        >
+                          {`Accept ${ghostedCount}?`}
+                        </button>
+                        <button onClick={() => setConfirmingAcceptAll(false)} className="text-[11px] opacity-60 hover:opacity-100">
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setConfirmingAcceptAll(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                        {`Accept all (${ghostedCount})`}
+                      </button>
+                    )}
+                  </OptionsMenuRow>
+                );
+              })()}
+              <OptionsMenuRow label="At-risk projection">
+                <button
+                  onClick={() => atRisk.setEnabled(!atRisk.enabled)}
+                  aria-pressed={atRisk.enabled}
+                  aria-label={`At-risk projection: ${atRisk.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(atRisk.enabled)}
+                >
+                  {atRisk.enabled ? "On" : "Off"}
+                </button>
+              </OptionsMenuRow>
+              {atRisk.enabled && (
+                <OptionsMenuRow label="At-risk style">
+                  <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
+                    {(["sibling", "comet", "zone"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => atRisk.setStyle(s)}
+                        style={atRisk.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
+                        className={
+                          "px-2.5 py-1 capitalize " + (atRisk.style === s ? "font-semibold" : "opacity-60")
+                        }
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </OptionsMenuRow>
+              )}
+              <OptionsMenuRow label="Critical path">
+                <button
+                  onClick={() => criticalPath.setVisible(!criticalPath.visible)}
+                  aria-pressed={criticalPath.visible}
+                  aria-label={`Critical path: ${criticalPath.visible ? "Shown" : "Hidden"}`}
+                  style={PILL_STYLE} className={pillToggle(criticalPath.visible)}
+                >
+                  {criticalPath.visible ? "Shown" : "Hidden"}
+                </button>
+              </OptionsMenuRow>
+              {criticalPath.visible && (
+                <OptionsMenuRow label="Critical line">
+                  <select
+                    value={criticalPathLine.style}
+                    onChange={(e) => criticalPathLine.setStyle(e.target.value as CriticalPathStyle)}
+                    aria-label="Critical path line style"
+                    style={PILL_STYLE}
+                    className="rounded-full border px-2 py-1 text-xs"
+                  >
+                    {CRITICAL_PATH_STYLES.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </OptionsMenuRow>
+              )}
+              <OptionsMenuRow label="Last updated">
+                <button
+                  onClick={() => lastUpdated.setVisible(!lastUpdated.visible)}
+                  aria-pressed={lastUpdated.visible}
+                  aria-label={`Last updated: ${lastUpdated.visible ? "Shown" : "Hidden"}`}
+                  style={PILL_STYLE} className={pillToggle(lastUpdated.visible)}
+                >
+                  {lastUpdated.visible ? "Shown" : "Hidden"}
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Connector shape">
+                <select
+                  value={connectorStyle.style}
+                  onChange={(e) => connectorStyle.setStyle(e.target.value as ConnectorStyle)}
+                  aria-label="Connector shape"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {CONNECTOR_STYLES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Connector line">
+                <select
+                  value={connectorLineStyle.dash}
+                  onChange={(e) => connectorLineStyle.setDash(e.target.value as ConnectorDash)}
+                  aria-label="Connector line style"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {CONNECTOR_DASHES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Connector arrow">
+                <select
+                  value={connectorLineStyle.arrow}
+                  onChange={(e) => connectorLineStyle.setArrow(e.target.value as ConnectorArrow)}
+                  aria-label="Connector arrowhead"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {CONNECTOR_ARROWS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Today overlay">
+                <button
+                  onClick={() => todayOverlay.setEnabled(!todayOverlay.enabled)}
+                  aria-pressed={todayOverlay.enabled}
+                  aria-label={`Today overlay: ${todayOverlay.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(todayOverlay.enabled)}
+                >
+                  {todayOverlay.enabled ? "On" : "Off"}
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Pill progress">
+                <select
+                  value={pillProgress.style}
+                  onChange={(e) => pillProgress.setStyle(e.target.value as PillProgressStyle)}
+                  aria-label="Duration-pill percent-complete style"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {PILL_PROGRESS_STYLES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Date labels">
+                <select
+                  value={dateLabelPlacement.placement}
+                  onChange={(e) => dateLabelPlacement.setPlacement(e.target.value as DateLabelPlacement)}
+                  aria-label="Marker date-label placement"
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2 py-1 text-xs"
+                >
+                  {DATE_LABEL_PLACEMENTS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Category fill">
+                <button
+                  onClick={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
+                  aria-pressed={legendCategoryStyle.enabled}
+                  aria-label={`Category fill: ${legendCategoryStyle.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(legendCategoryStyle.enabled)}
+                >
+                  {legendCategoryStyle.enabled ? "On" : "Off"}
+                </button>
+              </OptionsMenuRow>
+            </OptionsMenuSection>
+            <OptionsMenuSection id="layout" label="Layout" open={sections.isOpen("layout")} onToggle={() => sections.toggle("layout")}>
+              <OptionsMenuRow label="Swimlanes">
+                <button onClick={() => setLanesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                  Add / edit lanes
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Swimlane owners">
+                <button
+                  onClick={() => swimlaneOwner.setVisible(!swimlaneOwner.visible)}
+                  aria-pressed={swimlaneOwner.visible}
+                  aria-label={`Swimlane owners: ${swimlaneOwner.visible ? "Shown" : "Hidden"}`}
+                  style={PILL_STYLE} className={pillToggle(swimlaneOwner.visible)}
+                >
+                  {swimlaneOwner.visible ? "Shown" : "Hidden"}
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Categories">
+                <button onClick={() => setCategoriesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                  Add / edit categories
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Auto lane height">
+                <button
+                  onClick={() => autoLaneHeight.setEnabled(!autoLaneHeight.enabled)}
+                  aria-pressed={autoLaneHeight.enabled}
+                  aria-label={`Auto lane height: ${autoLaneHeight.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(autoLaneHeight.enabled)}
+                >
+                  {autoLaneHeight.enabled ? "On" : "Off"}
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Edit lock">
+                <button
+                  onClick={() => editLock.setMode(editLock.mode === "edit" ? "view" : "edit")}
+                  aria-pressed={isViewMode}
+                  aria-label={`Edit lock: ${isViewMode ? "View only" : "Editable"}`}
+                  style={PILL_STYLE} className={pillToggle(isViewMode)}
+                >
+                  {isViewMode ? "View only" : "Editable"}
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Select mode">
+                <button
+                  onClick={() => setSelectMode((v) => !v)}
+                  disabled={isViewMode}
+                  aria-pressed={selectMode}
+                  aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(selectMode) + " disabled:opacity-40"}
+                >
+                  {selectMode ? "On" : "Off"}
+                </button>
+              </OptionsMenuRow>
+            </OptionsMenuSection>
+            <OptionsMenuSection id="data" label="Data" open={sections.isOpen("data")} onToggle={() => sections.toggle("data")}>
+              <OptionsMenuRow label="Correction UI">
+                <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
+                  {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Import">
+                <button onClick={() => setImportOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                  Import a schedule
+                </button>
+              </OptionsMenuRow>
+              <OptionsMenuRow label="Executive timeline">
+                <button onClick={timelineSummary.update} style={PILL_STYLE} className={pillToggle(true)}>
+                  {timelineSummary.summary ? "Update Executive view" : "Generate"}
+                </button>
+              </OptionsMenuRow>
+            </OptionsMenuSection>
           </OptionsMenu>
         </div>
         <div ref={visibleCaptureRef}>
@@ -902,27 +1243,41 @@ export function RoadmapWorkspace({
             theme={theme}
             blufOpen={blufOpen}
             onBlufOpenChange={setBlufOpen}
-            onBlufEdit={box.editBluf}
-            onEditDocument={box.editDocument}
+            onBlufEdit={isViewMode ? undefined : box.editBluf}
+            onEditDocument={isViewMode ? undefined : box.editDocument}
             soWhatFillColor={soWhat.color}
             soWhatFillTransparency={soWhat.transparency}
-            onMilestoneClick={(m) => setSelectedMilestoneId(m.id)}
-            onAddMilestone={handleAddMilestone}
-            onPickShape={handlePickShape}
+            onMilestoneClick={isViewMode ? undefined : (m) => setSelectedMilestoneId(m.id)}
+            onAddMilestone={isViewMode ? undefined : handleAddMilestone}
+            onPickShape={isViewMode ? undefined : handlePickShape}
             placementMode={placement}
-            onAddTopLevelItem={handleAddTopLevelItem}
+            onAddTopLevelItem={isViewMode ? undefined : handleAddTopLevelItem}
             topBandStyle={topBand.style}
             periodGridlineStyle={gridlines.style}
             axisTiers={axisTiers.config}
             axisYearColor={axisTiers.yearColor}
-            onAxisTiersChange={axisTiers.setTiers}
-            onMilestoneDateChange={box.setMilestoneDate}
+            onAxisTiersChange={isViewMode ? undefined : axisTiers.setTiers}
+            onMilestoneDateChange={isViewMode ? undefined : box.setMilestoneDate}
             tracedIds={tracedIds}
             labelDensity={labels.density}
             timelineSummary={timelineSummary.summary}
             fontScale={fontScale.scale}
             fontFamily={fontFamily.fontFamily}
-            onCompanyLogoChange={(patch) => box.setCompanyLogoGeometry(patch.dx, patch.dy, patch.scale)}
+            onCompanyLogoChange={isViewMode ? undefined : (patch) => box.setCompanyLogoGeometry(patch.dx, patch.dy, patch.scale)}
+            connectorStyle={connectorStyle.style}
+            connectorDash={connectorLineStyle.dash}
+            connectorArrow={connectorLineStyle.arrow}
+            todayOverlayEnabled={todayOverlay.enabled}
+            pillProgressStyle={pillProgress.style}
+            autoLaneHeight={autoLaneHeight.enabled}
+            dateLabelPlacement={dateLabelPlacement.placement}
+            legendCategoryFillEnabled={legendCategoryStyle.enabled}
+            swimlaneOwnerVisible={swimlaneOwner.visible}
+            onMilestoneDateRangeChange={isViewMode ? undefined : box.setMilestoneDateRange}
+            selectionModeEnabled={selectMode && !isViewMode}
+            selectedIds={selection.selectedIds}
+            onToggleSelect={selection.toggle}
+            onMarqueeSelect={selection.addAll}
             legend={
               <ChartLegend
                 theme={theme}
@@ -960,11 +1315,21 @@ export function RoadmapWorkspace({
               soWhatFillTransparency={soWhat.transparency}
               fontScale={fontScale.scale}
               fontFamily={fontFamily.fontFamily}
+              connectorStyle={connectorStyle.style}
+              connectorDash={connectorLineStyle.dash}
+              connectorArrow={connectorLineStyle.arrow}
+              todayOverlayEnabled={todayOverlay.enabled}
+              pillProgressStyle={pillProgress.style}
+              autoLaneHeight={autoLaneHeight.enabled}
+              dateLabelPlacement={dateLabelPlacement.placement}
+              legendCategoryFillEnabled={legendCategoryStyle.enabled}
+              swimlaneOwnerVisible={swimlaneOwner.visible}
             />
           </div>
         )}
       </div>
       <CorrectionBoxSwitcher box={box} mode={correctionMode} onNeedsEditor={handleNeedsEditor} />
+      {selectMode && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
       <MilestoneEditorModal
         data={box.data}
         milestone={selectedMilestone}
@@ -978,6 +1343,7 @@ export function RoadmapWorkspace({
           if (selectedMilestoneId) setTrace({ rootId: selectedMilestoneId, direction });
           setSelectedMilestoneId(null);
         }}
+        onSetCategory={box.setMilestoneCategory}
       />
       <TopLevelItemEditorModal
         item={selectedTopLevelItem}
@@ -985,7 +1351,7 @@ export function RoadmapWorkspace({
         onClose={() => setSelectedTopLevelItemId(null)}
         onDelete={handleDeleteTopLevelItem}
       />
-      {importOpen && <ImportPanel onExtracted={box.loadDocument} onClose={() => setImportOpen(false)} />}
+      {importOpen && <ImportPanel data={box.data} onExtracted={box.loadDocument} onMerge={box.importMerge} onClose={() => setImportOpen(false)} />}
       {helpOpen && <HelpPanel theme={theme} onClose={() => setHelpOpen(false)} />}
       {lanesOpen && (
         <SwimlaneManager
@@ -999,6 +1365,16 @@ export function RoadmapWorkspace({
           onRagOverride={box.setRagOverride}
           onDensity={box.setLaneDensity}
           onClose={() => setLanesOpen(false)}
+        />
+      )}
+      {categoriesOpen && (
+        <CategoryManager
+          data={box.data}
+          onAdd={box.addCategory}
+          onRename={box.renameCategory}
+          onRecolor={box.recolorCategory}
+          onRemove={box.removeCategory}
+          onClose={() => setCategoriesOpen(false)}
         />
       )}
     </div>

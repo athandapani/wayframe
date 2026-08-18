@@ -126,6 +126,7 @@ export type CorrectionBoxAction =
   | { type: "removeMilestone"; id: string }
   | { type: "removeTopLevelItem"; id: string }
   | { type: "setMilestoneDate"; id: string; date: string }
+  | { type: "setMilestoneDateRange"; id: string; date: string; endDate: string }
   | { type: "toggleDependency"; dependentId: string; dependencyId: string; add: boolean; showConnector?: boolean }
   | { type: "addSwimlane"; swimlaneType: "lane" | "separator"; newId: string }
   | { type: "renameSwimlane"; id: string; name: string }
@@ -136,7 +137,14 @@ export type CorrectionBoxAction =
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
-  | { type: "snapshotRollups"; today: Date };
+  | { type: "snapshotRollups"; today: Date }
+  | { type: "addCategory"; name: string; color: string; newId: string }
+  | { type: "renameCategory"; id: string; name: string }
+  | { type: "recolorCategory"; id: string; color: string }
+  | { type: "removeCategory"; id: string }
+  | { type: "setMilestoneCategory"; id: string; categoryId: string | null }
+  | { type: "importMerge"; newLanes: { id: string; name: string }[]; adds: Milestone[]; updateOps: PatchOp[] }
+  | { type: "bulkEdit"; patchOps: PatchOp[]; laneReassignments: { id: string; laneId: string }[]; acceptBaselineOps: AcceptBaselineOp[] };
 
 /**
  * Stamps `lastUpdatedAt` (wayframe#40/#49) on a document-changing edit —
@@ -449,6 +457,24 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setMilestoneDateRange": {
+      // Pill drag-to-move (Archer delta v1.3.0) — translates a duration
+      // pill's start and end together. `date`'s cascade can still push a
+      // dependent milestone out; `endDate` is a plain field op (nothing
+      // downstream depends on a pill's own finish the way it depends on a
+      // predecessor's date).
+      const ops: PatchOp[] = [
+        { targetId: action.id, field: "date", newValue: action.date, reason: "Moved on the timeline" },
+        { targetId: action.id, field: "endDate", newValue: action.endDate, reason: "Moved on the timeline" },
+      ];
+      const cascaded = applyCascade(state.data.milestones, ops);
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
     case "toggleDependency": {
       // Predecessors and successors are the same edge seen from either end,
       // so one action serves both: the editor flips which id it passes as
@@ -569,6 +595,116 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       });
       return changed ? { ...state, data: { ...state.data, swimlanes } } : state;
     }
+    case "setMilestoneCategory": {
+      // Milestone editor's "Category" select (Archer delta v1.1/v1.3.0) —
+      // mirrors setLaneColor's placement/pattern: not a PatchOpSchema field
+      // (that union is shared with the AI-correction path, which doesn't
+      // reason about categories yet), so a small dedicated action instead.
+      return {
+        ...state,
+        data: stampUpdated({
+          ...state.data,
+          milestones: state.data.milestones.map((m) => (m.id === action.id ? { ...m, categoryId: action.categoryId } : m)),
+        }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "importMerge": {
+      // Deterministic CSV/XLSX import merge (Archer delta v1.2) — one
+      // atomic edit (new lanes + field updates on matched milestones + new
+      // milestones), same undo-stack treatment as any other document
+      // change: a bad import is one Undo away from gone. Ids for newLanes/
+      // adds are resolved by the caller (ImportDiffReview) before dispatch,
+      // same "client resolves ids, reducer just commits them" pattern
+      // apply()'s `adds` already uses for AI-proposed milestones.
+      const swimlanes = [
+        ...state.data.swimlanes,
+        ...action.newLanes.map((l, i) => ({ id: l.id, order: state.data.swimlanes.length + i, type: "lane" as const, name: l.name })),
+      ];
+      const updatedExisting = applyOps(state.data.milestones, action.updateOps);
+      const milestones = [...updatedExisting, ...action.adds];
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, swimlanes, milestones })),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "bulkEdit": {
+      // Mass-edit (Archer delta B-stream) — one atomic edit covering
+      // whichever combination of the three mutation kinds the selection
+      // toolbar built (shift-dates/set-status ride patchOps through the
+      // same cascade every date/field edit already goes through; lane
+      // reassignment and accept-baseline apply directly, same reasoning
+      // setLaneColorOp/applyAcceptBaselineOps already aren't PatchOps).
+      // Single history entry — Undo reverses the whole bulk action at once.
+      const cascaded = applyCascade(state.data.milestones, action.patchOps);
+      let milestones = applyOps(state.data.milestones, cascaded);
+      if (action.laneReassignments.length > 0) {
+        const laneByMilestoneId = new Map(action.laneReassignments.map((r) => [r.id, r.laneId]));
+        milestones = milestones.map((m) => (laneByMilestoneId.has(m.id) ? { ...m, laneId: laneByMilestoneId.get(m.id)! } : m));
+      }
+      if (action.acceptBaselineOps.length > 0) {
+        milestones = applyAcceptBaselineOps(milestones, action.acceptBaselineOps);
+      }
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "addCategory": {
+      // Legend category vocabulary (Archer delta v1.1/v1.3.0) — mirrors
+      // addSwimlaneOp's placement/pattern; CategoryManager.tsx is the
+      // add/rename/recolor/delete surface, same shape as SwimlaneManager.
+      const category = { id: action.newId, name: action.name, color: action.color };
+      return {
+        ...state,
+        data: stampUpdated({ ...state.data, legendCategories: [...(state.data.legendCategories ?? []), category] }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "renameCategory": {
+      return {
+        ...state,
+        data: stampUpdated({
+          ...state.data,
+          legendCategories: (state.data.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, name: action.name } : c)),
+        }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "recolorCategory": {
+      return {
+        ...state,
+        data: stampUpdated({
+          ...state.data,
+          legendCategories: (state.data.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, color: action.color } : c)),
+        }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
+    case "removeCategory": {
+      // Clears the dangling reference on every milestone tagged with this
+      // category, same reasoning removeSwimlaneOp strips dependsOn edges
+      // onto a doomed milestone — nothing should be left pointing at a
+      // category id that no longer exists.
+      return {
+        ...state,
+        data: stampUpdated({
+          ...state.data,
+          legendCategories: (state.data.legendCategories ?? []).filter((c) => c.id !== action.id),
+          milestones: state.data.milestones.map((m) => (m.categoryId === action.id ? { ...m, categoryId: null } : m)),
+        }),
+        history: [...state.history, state.data],
+        error: null,
+      };
+    }
   }
 }
 
@@ -608,6 +744,8 @@ export interface UseCorrectionBoxResult {
   removeMilestone: (id: string) => void;
   removeTopLevelItem: (id: string) => void;
   setMilestoneDate: (id: string, date: string) => void;
+  /** Pill drag-to-move (Archer delta v1.3.0) — commits both ends of a dragged duration pill at once. */
+  setMilestoneDateRange: (id: string, date: string, endDate: string) => void;
   toggleDependency: (dependentId: string, dependencyId: string, add: boolean, showConnector?: boolean) => void;
   addSwimlane: (swimlaneType: "lane" | "separator") => void;
   renameSwimlane: (id: string, name: string) => void;
@@ -621,6 +759,17 @@ export interface UseCorrectionBoxResult {
   clearCompanyLogo: () => void;
   /** Commits a drag/resize gesture's final dx/dy/scale (wayframe#64) — a no-op if there's no logo to move. */
   setCompanyLogoGeometry: (dx: number, dy: number, scale: number) => void;
+  /** Legend category vocabulary management (Archer delta v1.1/v1.3.0) — see CategoryManager.tsx. */
+  addCategory: (name: string, color: string) => void;
+  renameCategory: (id: string, name: string) => void;
+  recolorCategory: (id: string, color: string) => void;
+  removeCategory: (id: string) => void;
+  /** Milestone editor's "Category" select — null clears the tag. */
+  setMilestoneCategory: (id: string, categoryId: string | null) => void;
+  /** Deterministic CSV/XLSX import merge (Archer delta v1.2) — one atomic edit, see ImportDiffReview.tsx. */
+  importMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
+  /** Mass-edit (Archer delta B-stream) — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/apply.ts. */
+  bulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void;
 }
 
 /**
@@ -860,6 +1009,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const removeMilestone = useCallback((id: string) => dispatch({ type: "removeMilestone", id }), []);
   const removeTopLevelItem = useCallback((id: string) => dispatch({ type: "removeTopLevelItem", id }), []);
   const setMilestoneDate = useCallback((id: string, date: string) => dispatch({ type: "setMilestoneDate", id, date }), []);
+  const setMilestoneDateRange = useCallback((id: string, date: string, endDate: string) => dispatch({ type: "setMilestoneDateRange", id, date, endDate }), []);
   const toggleDependency = useCallback(
     (dependentId: string, dependencyId: string, add: boolean, showConnector?: boolean) =>
       dispatch({ type: "toggleDependency", dependentId, dependencyId, add, showConnector }),
@@ -875,6 +1025,20 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
   const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
   const setCompanyLogoGeometry = useCallback((dx: number, dy: number, scale: number) => dispatch({ type: "setCompanyLogoGeometry", dx, dy, scale }), []);
+  const addCategory = useCallback((name: string, color: string) => dispatch({ type: "addCategory", name, color, newId: nanoid() }), []);
+  const renameCategory = useCallback((id: string, name: string) => dispatch({ type: "renameCategory", id, name }), []);
+  const recolorCategory = useCallback((id: string, color: string) => dispatch({ type: "recolorCategory", id, color }), []);
+  const removeCategory = useCallback((id: string) => dispatch({ type: "removeCategory", id }), []);
+  const setMilestoneCategory = useCallback((id: string, categoryId: string | null) => dispatch({ type: "setMilestoneCategory", id, categoryId }), []);
+  const importMerge = useCallback(
+    (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => dispatch({ type: "importMerge", newLanes, adds, updateOps }),
+    [],
+  );
+  const bulkEdit = useCallback(
+    (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) =>
+      dispatch({ type: "bulkEdit", patchOps, laneReassignments, acceptBaselineOps }),
+    [],
+  );
 
   return {
     data: state.data,
@@ -900,6 +1064,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     removeMilestone,
     removeTopLevelItem,
     setMilestoneDate,
+    setMilestoneDateRange,
     toggleDependency,
     addSwimlane,
     renameSwimlane,
@@ -911,5 +1076,12 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     setCompanyLogo,
     clearCompanyLogo,
     setCompanyLogoGeometry,
+    addCategory,
+    renameCategory,
+    recolorCategory,
+    removeCategory,
+    setMilestoneCategory,
+    importMerge,
+    bulkEdit,
   };
 }

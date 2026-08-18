@@ -59,3 +59,46 @@ export function OptionsMenuRow({ label, children }: { label: string; children: R
     </div>
   );
 }
+
+/**
+ * Collapsible grouping for OptionsMenuRow children (Archer delta v1.4.0) —
+ * the flat row-per-setting list got long enough to need sections; this
+ * wraps a group of existing rows under a named, independently
+ * collapsible/expandable header rather than changing OptionsMenuRow itself.
+ * Open/closed state is owned by the caller (see use-options-sections.ts) so
+ * it persists per-viewer like every other display preference.
+ */
+export function OptionsMenuSection({
+  id,
+  label,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border-b pb-3 last:border-b-0 last:pb-0" style={{ borderColor: "var(--wf-border)" }}>
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={`options-section-${id}`}
+        className="mb-2 flex w-full items-center justify-between text-left text-[11px] font-semibold tracking-wide uppercase opacity-70 hover:opacity-100"
+      >
+        {label}
+        <span aria-hidden="true" className="inline-block transition-transform" style={{ transform: open ? "rotate(90deg)" : "none" }}>
+          ›
+        </span>
+      </button>
+      {open && (
+        <div id={`options-section-${id}`} className="space-y-3">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}

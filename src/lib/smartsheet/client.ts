@@ -1,18 +1,13 @@
 import type { ParsedRow } from "@/lib/import/rows-to-text";
+import { requireEnv } from "@/lib/server/env-guard";
 
 // Server-only — SMARTSHEET_API_TOKEN never reaches the client, same reason
 // the Anthropic key doesn't (see src/app/api/extract/route.ts). Personal
 // Access Token per wayframe#12's resolution, not OAuth.
 const SMARTSHEET_BASE = "https://api.smartsheet.com/2.0";
 
-function tokenOrThrow(): string {
-  const token = process.env.SMARTSHEET_API_TOKEN;
-  if (!token) throw new Error("SMARTSHEET_API_TOKEN is not configured on the server.");
-  return token;
-}
-
 function authHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${tokenOrThrow()}` };
+  return { Authorization: `Bearer ${requireEnv("SMARTSHEET_API_TOKEN")}` };
 }
 
 export interface SheetSummary {

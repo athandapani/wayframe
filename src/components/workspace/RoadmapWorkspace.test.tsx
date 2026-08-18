@@ -51,6 +51,13 @@ function openOptionsMenu() {
   fireEvent.click(screen.getByRole("button", { name: "Options" }));
 }
 
+// The options-menu accordion (Archer delta v1.4.0) collapses everything but
+// Appearance by default — tests that need a row from another section expand
+// it first, the same click a real user would make.
+function openSection(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+}
+
 describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -70,10 +77,14 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   it("shows the settings rows once opened, and closes on Escape", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Ghosts:/ })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Import a schedule" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sidebar mode" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument();
+
+    openSection("Chart symbols");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Ghosts:/ })).toBeInTheDocument());
+
+    openSection("Data");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Import a schedule" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Sidebar mode" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument());
@@ -125,6 +136,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   it("defaults to ghosts on, style badge, and shows the slip badge for a slipped milestone", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
+    openSection("Chart symbols");
     await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "badge" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument();
@@ -134,6 +146,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   it("turning ghosts off hides the style switcher and the slip badge", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
+    openSection("Chart symbols");
     await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Ghosts: On" }));
@@ -146,6 +159,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   it("switching style to outline swaps the badge for a dashed outline at the old date", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
+    openSection("Chart symbols");
     await waitFor(() => expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "outline" }));
@@ -214,6 +228,7 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
     // A plain manual edit (setLaneColor) is enough to push undo history —
     // mirrors how the other suites here trigger edits via the Options menu.
     openOptionsMenu();
+    openSection("Layout");
     await waitFor(() => expect(screen.getByRole("button", { name: "Add / edit lanes" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Add / edit lanes" }));
     await waitFor(() => expect(screen.getByLabelText("Colour for Lane 1")).toBeInTheDocument());
@@ -244,6 +259,7 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
     render(<RoadmapWorkspace initialData={data} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
 
     openOptionsMenu();
+    openSection("Layout");
     await waitFor(() => expect(screen.getByRole("button", { name: "Add / edit lanes" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Add / edit lanes" }));
     await waitFor(() => expect(screen.getByLabelText("Colour for Lane 1")).toBeInTheDocument());

@@ -11,9 +11,9 @@
 // the always-on Today line.
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RoadmapData, Swimlane, Milestone, TopLevelItem } from "./types";
+import type { RoadmapData, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken, lighten, contrastText } from "./color-utils";
@@ -29,6 +29,11 @@ import { layoutReferenceLines, type RefLineItem } from "./reference-line-layout"
 import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, tier3OptionsFor, labelStride, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
 import { useLabelOverrides, type LabelOffset } from "./use-label-overrides";
+import type { ConnectorStyle } from "./use-connector-style";
+import { CONNECTOR_DASH_ARRAY, type ConnectorDash, type ConnectorArrow } from "./use-connector-line-style";
+import type { PillProgressStyle } from "./use-pill-progress-style";
+import type { DateLabelPlacement } from "./use-date-label-placement";
+import { stackIntervals } from "@/lib/layout/stack-intervals";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 /**
@@ -36,6 +41,10 @@ const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
  * rather than a single line of initials, and that needs vertical room.
  */
 const LANE_HEIGHT = 132;
+/** Floor a lane can shrink to under auto lane height (Archer delta v1.1) — below this, labels stop being legible. */
+const MIN_AUTO_LANE_HEIGHT = 64;
+/** Extra vertical room reserved per stacked overlapping duration pill within a lane (Archer delta v1.2). */
+const PILL_ROW_HEIGHT = 18;
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
 /** Gap between the marker and the bottom line of its label block. */
@@ -79,12 +88,19 @@ interface RowInfo {
 /** "lean" lanes (Swimlane.density) render at this fraction of the normal lane height. */
 const LEAN_LANE_FACTOR = 0.75;
 
-function computeRows(swimlanes: Swimlane[], laneHeight = LANE_HEIGHT, separatorHeight = SEPARATOR_HEIGHT): RowInfo[] {
+function computeRows(
+  swimlanes: Swimlane[],
+  laneHeight = LANE_HEIGHT,
+  separatorHeight = SEPARATOR_HEIGHT,
+  /** Extra height a lane needs for stacked overlapping duration pills (Archer delta v1.2) — see stack-intervals.ts. */
+  extraHeightByLaneId?: Map<string, number>,
+): RowInfo[] {
   let y = 0;
   let laneIndex = 0;
   const out: RowInfo[] = [];
   for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
-    const height = sl.type === "separator" ? separatorHeight : sl.density === "lean" ? laneHeight * LEAN_LANE_FACTOR : laneHeight;
+    const base = sl.type === "separator" ? separatorHeight : sl.density === "lean" ? laneHeight * LEAN_LANE_FACTOR : laneHeight;
+    const height = sl.type === "lane" ? base + (extraHeightByLaneId?.get(sl.id) ?? 0) : base;
     out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
     if (sl.type === "lane") laneIndex += 1;
     y += height;
@@ -274,6 +290,33 @@ function CushionMarker({
       transform={`rotate(45 ${cx} ${cy})`}
     />
   );
+}
+
+/**
+ * Marker fill/stroke resolution (Archer delta v1.1/v1.3.0) — two rule
+ * changes layered on top of the original "status is the fill, halo is
+ * always the same ring" scheme:
+ *
+ *   - A not-started marker renders hollow (ground-colored fill, its own
+ *     status color as the ring) rather than filled gray. This is a
+ *     conscious deviation from the archer-rebuild-spec.md constraint that
+ *     status is color-only, silhouette-invariant — accepted as-built
+ *     rather than re-derived, per the product owner's call.
+ *   - When legend category-fill encoding is on and this milestone carries a
+ *     category, the category's color takes over the fill and status moves
+ *     to the ring instead — "what track is this" becomes the dominant
+ *     read, "how healthy is it" becomes the secondary one.
+ */
+function resolveMarkerPaint(m: Milestone, theme: Theme, category?: LegendCategory): { fill: string; stroke: string; strokeWidth: number } {
+  const notStarted = m.status === "not-started";
+  if (category) {
+    return { fill: notStarted ? theme.ground : category.color, stroke: theme.statusColor[m.status], strokeWidth: 1.75 };
+  }
+  return {
+    fill: notStarted ? theme.ground : theme.statusColor[m.status],
+    stroke: notStarted ? theme.statusColor[m.status] : theme.markerHalo,
+    strokeWidth: notStarted ? 1.75 : 1.5,
+  };
 }
 
 /**
@@ -552,6 +595,30 @@ function TopBandLabeledButton({
  * as two parallel lines on the orthogonal elbow paths without needing real
  * path insetting.
  */
+/**
+ * Dependency-connector path shape (Archer delta v1.3.0) — a viewer
+ * preference (use-connector-style.ts), independent of the
+ * critical/traced/plain stroke treatment above. "elbow" is the original
+ * orthogonal three-segment path; "s-curve" replaces it with a single cubic
+ * bezier; "rounded" keeps the same three waypoints but arcs the two
+ * corners instead of squaring them off. Degenerate spans (same-lane
+ * dependency, y1 === y2) fall back cleanly since the corner radius floors
+ * at a fixed value rather than dividing by a zero span.
+ */
+function buildConnectorPath(x1: number, y1: number, x2: number, y2: number, midX: number, style: ConnectorStyle): string {
+  if (style === "s-curve") {
+    return `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`;
+  }
+  if (style === "rounded") {
+    const r = Math.min(10, Math.abs(midX - x1) || 10, Math.abs(midX - x2) || 10, Math.abs(y2 - y1) / 2 || 10);
+    const signX1 = midX >= x1 ? 1 : -1;
+    const signX2 = midX >= x2 ? 1 : -1;
+    const signY = y2 >= y1 ? 1 : -1;
+    return `M${x1},${y1} L${midX - signX1 * r},${y1} Q${midX},${y1} ${midX},${y1 + signY * r} L${midX},${y2 - signY * r} Q${midX},${y2} ${midX + signX2 * r},${y2} L${x2},${y2}`;
+  }
+  return `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
+}
+
 function criticalStroke(style: CriticalPathStyle): { width: number; dash?: string; overprint?: number } {
   switch (style) {
     case "solid":
@@ -872,6 +939,9 @@ function MilestoneMarker({
   onDateDragStart,
   ghostOffset = { dx: 0, dy: 0 },
   onGhostDragStart,
+  category,
+  dateLabelPlacement = "below",
+  selected = false,
 }: {
   m: Milestone;
   cx: number;
@@ -902,9 +972,17 @@ function MilestoneMarker({
   onDateDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
   ghostOffset?: LabelOffset;
   onGhostDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
+  /** Legend category tag (Archer delta v1.1/v1.3.0) — resolved from Milestone.categoryId, only when category-fill encoding is on (see resolveMarkerPaint). */
+  category?: LegendCategory;
+  /** Marker date-label placement (Archer delta v1.1) — "inline" skips the tiered below-marker slot entirely for a fixed beside-the-marker position. */
+  dateLabelPlacement?: DateLabelPlacement;
+  /** Rubber-band/click multi-select (Archer delta B-stream) — renders a dashed accent ring, same layering idea as the critical/trace rings below but its own visual so the three never get confused for one another. */
+  selected?: boolean;
 }) {
   const r = 8;
   const dateDy = DATE_TIER_DY[date.tier];
+  const paint = resolveMarkerPaint(m, theme, category);
+  const strikeDate = m.status === "delayed";
   // Label block grows upward from its baseline, so the last line sits
   // closest to the marker and the first line ends up on top. The gap and
   // tier lift scale with fontScale — otherwise a bigger label's lines
@@ -950,7 +1028,8 @@ function MilestoneMarker({
           highest-severity state used to be the least legible. */}
       {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
       {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
-      <CushionMarker cx={cx} cy={cy} r={r} fill={theme.statusColor[m.status]} stroke={theme.markerHalo} strokeWidth={1.5} />
+      {selected && <CushionMarker cx={cx} cy={cy} r={r + 11} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
+      <CushionMarker cx={cx} cy={cy} r={r} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
       {primary && (
         <g
           transform={titleOffset.dx || titleOffset.dy ? `translate(${titleOffset.dx} ${titleOffset.dy})` : undefined}
@@ -972,15 +1051,25 @@ function MilestoneMarker({
           ))}
         </g>
       )}
-      <g
-        transform={dateOffset.dx || dateOffset.dy ? `translate(${dateOffset.dx} ${dateOffset.dy})` : undefined}
-        className={onDateDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
-        onPointerDown={onDateDragStart}
-      >
-        <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * fontScale} fill="currentColor" opacity={0.6}>
+      {dateLabelPlacement === "inline" ? (
+        // Inline placement (Archer delta v1.1) — a fixed slot beside the
+        // marker rather than the tiered below-marker system, so it opts out
+        // of drag-to-reposition (dateOffset) entirely; there's no collision
+        // math to escalate against here.
+        <text x={cx + r + 6} y={cy + 3} textAnchor="start" fontSize={9 * fontScale} fill="currentColor" opacity={0.6} textDecoration={strikeDate ? "line-through" : undefined}>
           {date.text}
         </text>
-      </g>
+      ) : (
+        <g
+          transform={dateOffset.dx || dateOffset.dy ? `translate(${dateOffset.dx} ${dateOffset.dy})` : undefined}
+          className={onDateDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
+          onPointerDown={onDateDragStart}
+        >
+          <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * fontScale} fill="currentColor" opacity={0.6} textDecoration={strikeDate ? "line-through" : undefined}>
+            {date.text}
+          </text>
+        </g>
+      )}
       {hasGhost && ghostMode === "badge" && (
         <GhostBadge
           m={m}
@@ -1087,6 +1176,35 @@ export interface RoadmapTimelineProps {
   atRiskMode?: AtRiskMode;
   /** Fired once a logo drag or resize gesture ends (wayframe#64) — omit to keep the logo fixed/non-interactive (dev preview / off-screen export capture). */
   onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
+  // --- Archer delta v1.1–v1.4.0 additions ---
+  /** Dependency-connector shape (Archer delta v1.3.0) — a viewer preference, see use-connector-style.ts. */
+  connectorStyle?: ConnectorStyle;
+  /** Ordinary connector dash pattern — a viewer preference, see use-connector-line-style.ts. Critical-path/traced connectors keep their own fixed treatment regardless. */
+  connectorDash?: ConnectorDash;
+  /** Ordinary connector arrowhead — a viewer preference, see use-connector-line-style.ts. */
+  connectorArrow?: ConnectorArrow;
+  /** Today progress overlay: translucent elapsed-time fill + axis caret (Archer delta v1.3.0) — off by default. */
+  todayOverlayEnabled?: boolean;
+  /** Duration-pill %-complete visualization (Archer delta v1.2) — a viewer preference, see use-pill-progress-style.ts. */
+  pillProgressStyle?: PillProgressStyle;
+  /** Shrinks lane height to fit more of the programme in the viewport (Archer delta v1.1) — a viewer preference. Only ever shrinks below the normal LANE_HEIGHT, never grows past it. */
+  autoLaneHeight?: boolean;
+  /** Marker date-label placement — a viewer preference, see use-date-label-placement.ts. */
+  dateLabelPlacement?: DateLabelPlacement;
+  /** Legend category-fill / status-outline encoding (Archer delta v1.1/v1.3.0) — a viewer preference, see use-legend-category-style.ts and Milestone.categoryId. */
+  legendCategoryFillEnabled?: boolean;
+  /** Shows each lane's Swimlane.owner below its name (Archer delta v1.3.0) — a viewer preference, see use-swimlane-owner-visibility.ts. */
+  swimlaneOwnerVisible?: boolean;
+  /** Fired once a duration pill is dragged to a new date range, both ends shifted by the same delta (Archer delta v1.3.0) — omit to keep pills reschedule-only via the editor. */
+  onMilestoneDateRangeChange?: (milestoneId: string, isoDate: string, isoEndDate: string) => void;
+  /** Rubber-band/click multi-select (Archer delta B-stream — mass-edit) — when on, a marker click toggles selection instead of opening its editor, and empty lane space can be marquee-dragged. */
+  selectionModeEnabled?: boolean;
+  /** Currently selected milestone ids — rendered with a distinct selection ring. */
+  selectedIds?: Set<string>;
+  /** Fired when a marker is clicked while selection mode is on. */
+  onToggleSelect?: (id: string) => void;
+  /** Fired once a marquee drag completes, with every milestone id it covered. */
+  onMarqueeSelect?: (ids: string[]) => void;
 }
 
 export function RoadmapTimeline({
@@ -1118,11 +1236,78 @@ export function RoadmapTimeline({
   onEditDocument,
   atRiskMode = "off",
   onCompanyLogoChange,
+  connectorStyle = "elbow",
+  connectorDash = "solid",
+  connectorArrow = "standard",
+  todayOverlayEnabled = false,
+  pillProgressStyle = "off",
+  autoLaneHeight = false,
+  dateLabelPlacement = "below",
+  legendCategoryFillEnabled = false,
+  swimlaneOwnerVisible = true,
+  onMilestoneDateRangeChange,
+  selectionModeEnabled = false,
+  selectedIds,
+  onToggleSelect,
+  onMarqueeSelect,
 }: RoadmapTimelineProps) {
-  const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale);
+  // Auto lane height (Archer delta v1.1) — only ever shrinks the fixed
+  // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
+  // than an unbounded resize. Measures window height, not the container's
+  // own (the container's height is driven BY the chart, not the other way
+  // around — there's nothing else to measure it against).
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!autoLaneHeight || typeof window === "undefined") return;
+    const measure = () => setViewportHeight(window.innerHeight);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [autoLaneHeight]);
+  const rawLaneCount = data.swimlanes.filter((l) => l.type === "lane").length;
+  // Rough chrome budget above the first lane row (margin + a 2-row axis +
+  // the PROGRAM band + some slack for reference-line chips) — an estimate,
+  // not the real lanesTop, which isn't computable yet this early (it
+  // depends on refTopMarginExtra, computed further down from state this
+  // function hasn't built yet). Good enough for "fit more in," which only
+  // needs to be approximately right, not pixel-exact.
+  const reservedChromeEstimate = MARGIN.top + AXIS_ROW_HEIGHT * 2 * boxScale + TOP_BAND_HEIGHT * boxScale + MARGIN.bottom + 80;
+  const laneHeightPx =
+    autoLaneHeight && viewportHeight && rawLaneCount > 0
+      ? Math.min(LANE_HEIGHT * boxScale, Math.max(MIN_AUTO_LANE_HEIGHT, (viewportHeight - reservedChromeEstimate) / rawLaneCount))
+      : LANE_HEIGHT * boxScale;
+
+  // Phase & pill vertical stacking (Archer delta v1.2) — overlapping
+  // duration pills within the same lane get their own sub-row instead of
+  // rendering on top of each other; a lane that needs it grows to fit (see
+  // stack-intervals.ts). Point milestones never participate.
+  const pillSubRowByLaneId = new Map<string, Map<string, number>>();
+  const extraHeightByLaneId = new Map<string, number>();
+  for (const lane of data.swimlanes) {
+    if (lane.type !== "lane") continue;
+    const pills = data.milestones.filter((m) => m.laneId === lane.id && m.endDate);
+    if (pills.length < 2) continue;
+    const { subRowById, subRowCount } = stackIntervals(pills.map((m) => ({ id: m.id, start: parseDate(m.date), end: parseDate(m.endDate!) })));
+    if (subRowCount > 1) {
+      pillSubRowByLaneId.set(lane.id, subRowById);
+      extraHeightByLaneId.set(lane.id, (subRowCount - 1) * PILL_ROW_HEIGHT * boxScale);
+    }
+  }
+
+  const rows = computeRows(data.swimlanes, laneHeightPx, SEPARATOR_HEIGHT * boxScale, extraHeightByLaneId);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
+  const categoryById = new Map((data.legendCategories ?? []).map((c) => [c.id, c]));
+  /** Vertical offset for a pill's cy within its (possibly grown) lane — 0 for every lane that isn't stacking. */
+  function pillSubRowOffset(laneId: string, milestoneId: string): number {
+    const subRowById = pillSubRowByLaneId.get(laneId);
+    if (!subRowById) return 0;
+    const subRowCount = (extraHeightByLaneId.get(laneId) ?? 0) / (PILL_ROW_HEIGHT * boxScale) + 1;
+    const subRow = subRowById.get(milestoneId) ?? 0;
+    const bandTop = -((subRowCount * PILL_ROW_HEIGHT * boxScale) / 2);
+    return bandTop + subRow * PILL_ROW_HEIGHT * boxScale + (PILL_ROW_HEIGHT * boxScale) / 2;
+  }
   /**
    * Drag-to-reschedule. Pointer capture on the marker's <g>, x translated
    * back to a date through the inverse of the x scale and snapped to a
@@ -1387,7 +1572,12 @@ export function RoadmapTimeline({
   }
 
   function beginDrag(m: Milestone, evt: React.PointerEvent<SVGGElement>) {
-    if (!onMilestoneDateChange) return;
+    // A pill (m.endDate set) drags via onMilestoneDateRangeChange (Archer
+    // delta v1.3.0 — translates both ends together); a point marker drags
+    // via onMilestoneDateChange as before. Guard on whichever one this
+    // milestone actually needs, not just onMilestoneDateChange, or pills
+    // silently stop being draggable when only the range handler is wired.
+    if (m.endDate ? !onMilestoneDateRangeChange : !onMilestoneDateChange) return;
     evt.currentTarget.setPointerCapture(evt.pointerId);
     setDrag({ id: m.id, startX: evt.clientX, dx: 0, moved: false });
   }
@@ -1401,9 +1591,15 @@ export function RoadmapTimeline({
   function endDrag() {
     if (!drag) return;
     const m = milestoneById.get(drag.id);
-    if (m && drag.moved && onMilestoneDateChange) {
-      const next = dateAtX(x(m.date) + drag.dx);
-      if (next !== m.date) onMilestoneDateChange(m.id, next);
+    if (m && drag.moved) {
+      if (m.endDate && onMilestoneDateRangeChange) {
+        const nextDate = dateAtX(x(m.date) + drag.dx);
+        const nextEndDate = dateAtX(x(m.endDate) + drag.dx);
+        if (nextDate !== m.date || nextEndDate !== m.endDate) onMilestoneDateRangeChange(m.id, nextDate, nextEndDate);
+      } else if (!m.endDate && onMilestoneDateChange) {
+        const next = dateAtX(x(m.date) + drag.dx);
+        if (next !== m.date) onMilestoneDateChange(m.id, next);
+      }
     }
     setDrag(null);
   }
@@ -1501,6 +1697,10 @@ export function RoadmapTimeline({
     const rect = svgRef.current?.getBoundingClientRect();
     return rect ? clientX - rect.left : clientX;
   }
+  function localY(clientY: number): number {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return rect ? clientY - rect.top : clientY;
+  }
   function beginCreateDrag(laneId: string, evt: React.PointerEvent<SVGRectElement>) {
     if (placementMode?.laneId !== laneId || placementMode.shape !== "phase" || !onAddMilestone) return;
     evt.currentTarget.setPointerCapture(evt.pointerId);
@@ -1521,6 +1721,44 @@ export function RoadmapTimeline({
       if (endDate > date) onAddMilestone?.(createDrag.laneId, date, endDate);
     }
     setCreateDrag(null);
+  }
+
+  // Rubber-band marquee select (Archer delta B-stream — mass-edit): a
+  // pointer-down on empty lane background while selection mode is armed
+  // draws a rect; on release, every point milestone whose marker center
+  // falls inside it gets added to the selection. Mirrors createDrag's
+  // shape/lifecycle above (own state, doesn't touch the document — the
+  // eventual bulk edit is what goes through undo, not the selection act
+  // itself). Duration pills don't participate — the plan scopes mass-edit
+  // to milestones, matching SelectionToolbar's own selection type.
+  const [marquee, setMarquee] = useState<{ startX: number; startY: number; curX: number; curY: number } | null>(null);
+  function beginMarquee(evt: React.PointerEvent<SVGRectElement>) {
+    if (!selectionModeEnabled || placementMode) return;
+    evt.currentTarget.setPointerCapture(evt.pointerId);
+    const x0 = localX(evt.clientX);
+    const y0 = localY(evt.clientY);
+    setMarquee({ startX: x0, startY: y0, curX: x0, curY: y0 });
+  }
+  function moveMarquee(evt: React.PointerEvent<SVGSVGElement>) {
+    if (!marquee) return;
+    setMarquee({ ...marquee, curX: localX(evt.clientX), curY: localY(evt.clientY) });
+  }
+  function endMarquee() {
+    if (!marquee) return;
+    const lo = { x: Math.min(marquee.startX, marquee.curX), y: Math.min(marquee.startY, marquee.curY) };
+    const hi = { x: Math.max(marquee.startX, marquee.curX), y: Math.max(marquee.startY, marquee.curY) };
+    if (hi.x - lo.x > DRAG_THRESHOLD_PX || hi.y - lo.y > DRAG_THRESHOLD_PX) {
+      const hits = data.milestones
+        .filter((m) => !m.endDate)
+        .filter((m) => {
+          const cx = x(m.date);
+          const cy = laneY(m.laneId);
+          return cx >= lo.x && cx <= hi.x && cy >= lo.y && cy <= hi.y;
+        })
+        .map((m) => m.id);
+      if (hits.length > 0) onMarqueeSelect?.(hits);
+    }
+    setMarquee(null);
   }
 
   // Level 1 is the picked (or theme-default) axis color; Levels 2/3 are
@@ -1594,32 +1832,35 @@ export function RoadmapTimeline({
         height={height}
         style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
         onPointerMove={
-          drag || createDrag || labelDrag || logoDrag
+          drag || createDrag || labelDrag || logoDrag || marquee
             ? (e) => {
                 moveDrag(e);
                 moveCreateDrag(e);
                 moveLabelDrag(e);
                 moveLogoDrag(e);
+                moveMarquee(e);
               }
             : undefined
         }
         onPointerUp={
-          drag || createDrag || labelDrag || logoDrag
+          drag || createDrag || labelDrag || logoDrag || marquee
             ? () => {
                 endDrag();
                 endCreateDrag();
                 endLabelDrag();
                 endLogoDrag();
+                endMarquee();
               }
             : undefined
         }
         onPointerCancel={
-          drag || createDrag || labelDrag || logoDrag
+          drag || createDrag || labelDrag || logoDrag || marquee
             ? () => {
                 setDrag(null);
                 setCreateDrag(null);
                 setLabelDrag(null);
                 setLogoDrag(null);
+                setMarquee(null);
               }
             : undefined
         }
@@ -1982,8 +2223,8 @@ export function RoadmapTimeline({
                 height={row.height - LANE_GUTTER * 2}
                 fill={tint}
                 fillOpacity={theme.laneWashOpacity}
-                style={placementMode?.laneId === row.swimlane.id ? { cursor: "crosshair" } : undefined}
-                onPointerDown={placementMode?.laneId === row.swimlane.id ? (e) => beginCreateDrag(row.swimlane.id, e) : undefined}
+                style={placementMode?.laneId === row.swimlane.id ? { cursor: "crosshair" } : selectionModeEnabled ? { cursor: "crosshair" } : undefined}
+                onPointerDown={placementMode?.laneId === row.swimlane.id ? (e) => beginCreateDrag(row.swimlane.id, e) : selectionModeEnabled ? beginMarquee : undefined}
                 onClick={
                   placementMode?.laneId === row.swimlane.id && placementMode.shape === "milestone"
                     ? (e) => onAddMilestone?.(row.swimlane.id, dateAtX(localX(e.clientX)))
@@ -2008,17 +2249,49 @@ export function RoadmapTimeline({
               <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
               <text fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink}>
                 {laneNameLines.map((line, i) => (
-                  <tspan key={i} x={16} y={y0 + row.height / 2 + (i - (laneNameLines.length - 1) / 2) * 15 * fontScale} dominantBaseline="middle">
+                  <tspan
+                    key={i}
+                    x={16}
+                    y={y0 + row.height / 2 + (i - (laneNameLines.length - 1) / 2 - (swimlaneOwnerVisible && row.swimlane.owner ? 0.5 : 0)) * 15 * fontScale}
+                    dominantBaseline="middle"
+                  >
                     {line}
                   </tspan>
                 ))}
               </text>
+              {/* Per-lane owner (Archer delta v1.3.0) — a viewer-toggleable
+                  second line under the lane name, same muted-caption
+                  treatment as the header's owner line. */}
+              {swimlaneOwnerVisible && row.swimlane.owner && (
+                <text
+                  x={16}
+                  y={y0 + row.height / 2 + ((laneNameLines.length - 1) / 2 + 1) * 15 * fontScale}
+                  fontSize={10 * fontScale}
+                  fill={theme.inkMuted}
+                >
+                  {row.swimlane.owner}
+                </text>
+              )}
               {onAddMilestone && onPickShape && (
                 <AddLanePicker x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} fontScale={fontScale} onPick={(shape) => onPickShape(row.swimlane.id, shape)} />
               )}
             </g>
           );
         })}
+
+        {/* Today progress overlay (Archer delta v1.3.0) — a second, denser
+            reading of "what's elapsed" layered on top of the always-on
+            Today reference line: a translucent wash from the plot's left
+            edge up to today, plus a caret notch on the axis row itself.
+            Painted after the lane washes/rails but before gridlines and
+            markers, so it reads as ground-level context rather than
+            competing with content. */}
+        {todayOverlayEnabled && todayVisible && (
+          <>
+            <rect x={MARGIN.left} y={lanesTop} width={Math.max(0, xTs(todayTs) - MARGIN.left)} height={bodyHeight} fill="#e11d48" fillOpacity={0.05} />
+            <path d={`M${xTs(todayTs) - 5},${chartTopMargin + axisHeight} L${xTs(todayTs) + 5},${chartTopMargin + axisHeight} L${xTs(todayTs)},${chartTopMargin + axisHeight - 8} Z`} fill="#e11d48" />
+          </>
+        )}
 
         {/* Opt-in period-boundary gridlines (wayframe#44/#53) — painted after
             the lane washes but before connectors/markers, so the grid reads
@@ -2077,11 +2350,15 @@ export function RoadmapTimeline({
               const x2 = x(m.date);
               const y2 = laneY(m.laneId);
               const midX = x1 + (x2 - x1) / 2;
-              const path = `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
+              const path = buildConnectorPath(x1, y1, x2, y2, midX, connectorStyle);
               if (!critical) {
                 // Critical wins the line where the two overlap; the trace
                 // still lifts the markers, so a traced critical edge
-                // doesn't lose which one it is.
+                // doesn't lose which one it is. Dash/arrowhead choice
+                // (Archer delta v1.1) only applies to this plain treatment —
+                // critical/traced connectors keep their own fixed look
+                // below, same reasoning theme.criticalPathColor is never
+                // overridable per-viewer.
                 return (
                   <path
                     key={`${d.id}->${m.id}`}
@@ -2091,7 +2368,8 @@ export function RoadmapTimeline({
                     stroke={traced ? theme.traceColor : theme.connector}
                     strokeOpacity={traced ? 0.95 : 0.55}
                     strokeWidth={traced ? 2.5 : 1.25}
-                    markerEnd={traced ? "url(#roadmap-arrow-trace)" : "url(#roadmap-arrow-connector)"}
+                    strokeDasharray={traced ? undefined : CONNECTOR_DASH_ARRAY[connectorDash]}
+                    markerEnd={traced ? "url(#roadmap-arrow-trace)" : `url(#roadmap-arrow-connector-${connectorArrow})`}
                   />
                 );
               }
@@ -2116,7 +2394,6 @@ export function RoadmapTimeline({
               rather than sitting grey on a red path. */}
           {(
             [
-              ["connector", theme.connector, 0.55],
               ["critical", theme.criticalPathColor, 1],
               ["trace", theme.traceColor, 0.95],
             ] as const
@@ -2135,6 +2412,27 @@ export function RoadmapTimeline({
               <path d="M0,1.5 L9,5 L0,8.5 z" fill={color} opacity={opacity} />
             </marker>
           ))}
+          {/* Ordinary-connector arrowhead choice (Archer delta v1.1) — three
+              variants of the same fixed-size, userSpaceOnUse marker above,
+              selected per viewer preference (use-connector-line-style.ts).
+              Critical/trace connectors never use these — see the dash/arrow
+              comment at the connector render call site. */}
+          <marker id="roadmap-arrow-connector-standard" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+            <path d="M0,1.5 L9,5 L0,8.5 z" fill={theme.connector} opacity={0.55} />
+          </marker>
+          <marker id="roadmap-arrow-connector-open" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+            <path d="M0,1.5 L9,5 L0,8.5" fill="none" stroke={theme.connector} strokeWidth={1.5} opacity={0.55} />
+          </marker>
+          <marker id="roadmap-arrow-connector-circle" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+            <circle cx="5" cy="5" r="3.2" fill={theme.connector} opacity={0.55} />
+          </marker>
+          {/* Duration-pill %-complete "hatch" style (Archer delta v1.2) —
+              diagonal-line pattern applied to the completed portion of a
+              pill instead of a flat fill/bar, see use-pill-progress-style.ts. */}
+          <pattern id="pill-hatch" width={5} height={5} patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+            <rect width={5} height={5} fill="#ffffff" fillOpacity={0.85} />
+            <line x1={0} y1={0} x2={0} y2={5} stroke={theme.ink} strokeOpacity={0.55} strokeWidth={2} />
+          </pattern>
         </defs>
 
         {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
@@ -2142,9 +2440,13 @@ export function RoadmapTimeline({
           .filter((m) => m.endDate)
           .map((m) => {
             const pillHeightSm = PILL_HEIGHT_SM * boxScale;
+            const pillDragging = drag?.id === m.id;
+            const pillDx = pillDragging ? drag.dx : 0;
             const px = x(m.date);
             const w = Math.max(pillHeightSm, x(m.endDate!) - px);
-            const cy = laneY(m.laneId);
+            // Sub-row offset (Archer delta v1.2, stack-intervals.ts) — 0 for
+            // every lane that isn't stacking overlapping pills.
+            const cy = laneY(m.laneId) + pillSubRowOffset(m.laneId, m.id);
             const fill = darken(laneTint(m.laneId), 0.4);
             // Pills carry the same critical/trace state as point markers.
             // They didn't before, so a duration on the critical path — which
@@ -2156,14 +2458,34 @@ export function RoadmapTimeline({
             // end — a long title used to overrun the chart's right edge.
             const labelChars = Math.floor((w - pillHeightSm) / (4.8 * metricsScale));
             const label = labelChars >= 6 ? wrapText(m.title, labelChars, 1)[0] : null;
+            // %-complete visualization (Archer delta v1.2) — only draws
+            // anything when a style is chosen and the milestone actually
+            // carries a percentComplete; a pill with no progress tracked
+            // renders exactly as before.
+            const pct = m.percentComplete;
+            const completeW = pct !== undefined ? Math.max(0, Math.min(w, (w * pct) / 100)) : 0;
             return (
               <g
                 key={m.id}
-                className={onMilestoneClick ? "cursor-pointer" : undefined}
-                opacity={traceState === "out" ? 0.22 : 1}
+                className={onMilestoneClick || onMilestoneDateRangeChange ? "cursor-pointer" : undefined}
+                opacity={traceState === "out" ? 0.22 : pillDragging ? 0.85 : 1}
+                transform={pillDx ? `translate(${pillDx} 0)` : undefined}
                 onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}
+                onPointerDown={onMilestoneDateRangeChange ? (e) => beginDrag(m, e) : undefined}
               >
                 <rect x={px} y={cy - pillHeightSm / 2} width={w} height={pillHeightSm} rx={pillHeightSm / 2} fill={fill} />
+                {pillProgressStyle === "fill" && pct !== undefined && (
+                  <rect x={px} y={cy - pillHeightSm / 2} width={completeW} height={pillHeightSm} rx={pillHeightSm / 2} fill={lighten(fill, 0.35)} />
+                )}
+                {pillProgressStyle === "hatch" && pct !== undefined && (
+                  <rect x={px} y={cy - pillHeightSm / 2} width={completeW} height={pillHeightSm} rx={pillHeightSm / 2} fill="url(#pill-hatch)" fillOpacity={0.5} />
+                )}
+                {pillProgressStyle === "bar" && pct !== undefined && (
+                  <>
+                    <rect x={px} y={cy + pillHeightSm / 2 + 2} width={w} height={3} rx={1.5} fill={theme.rowDivider} />
+                    <rect x={px} y={cy + pillHeightSm / 2 + 2} width={completeW} height={3} rx={1.5} fill={theme.accent} />
+                  </>
+                )}
                 {critical && (
                   <rect
                     x={px - 2}
@@ -2223,7 +2545,8 @@ export function RoadmapTimeline({
               theme={theme}
               primary={primaryPlacement.get(m.id) ?? null}
               date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
-              onClick={onMilestoneClick}
+              onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
+              selected={selectedIds?.has(m.id)}
               ghostMode={ghostMode}
               ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
               ghostTier={ghostPlacement.get(m.id)?.tier ?? 0}
@@ -2240,6 +2563,8 @@ export function RoadmapTimeline({
               onDateDragStart={(evt) => beginLabelDrag(`date-${m.id}`, evt)}
               ghostOffset={placementFor(`ghost-${m.id}`)}
               onGhostDragStart={(evt) => beginLabelDrag(`ghost-${m.id}`, evt)}
+              category={legendCategoryFillEnabled && m.categoryId ? categoryById.get(m.categoryId) : undefined}
+              dateLabelPlacement={dateLabelPlacement}
             />
           ))}
 
@@ -2330,6 +2655,22 @@ export function RoadmapTimeline({
             metricsScale={metricsScale}
             onDragStart={(evt) => beginLabelDrag("today", evt)}
             {...placementFor("today", refPlacements.get("today"))}
+          />
+        )}
+
+        {/* Rubber-band marquee (Archer delta B-stream — mass-edit) — live
+            preview rect while dragging; selection itself commits on
+            pointer-up (endMarquee above). */}
+        {marquee && (
+          <rect
+            x={Math.min(marquee.startX, marquee.curX)}
+            y={Math.min(marquee.startY, marquee.curY)}
+            width={Math.abs(marquee.curX - marquee.startX)}
+            height={Math.abs(marquee.curY - marquee.startY)}
+            fill={theme.accent}
+            fillOpacity={0.1}
+            stroke={theme.accent}
+            strokeDasharray="3 2"
           />
         )}
       </svg>
