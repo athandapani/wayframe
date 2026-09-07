@@ -1,0 +1,528 @@
+<title>Wayframe Wayfinder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --ground: #f4f5f3;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --line: #dde1e6;
+    --line-soft: #e8eaed;
+    --text-hi: #1a2027;
+    --text-lo: #5b6472;
+    --text-faint: #8891a0;
+    --accent: #2f8c81;
+    --accent-soft: #e4f2ef;
+    --gold: #b5791f;
+    --gold-soft: #faf1de;
+    --green: #2f8f5c;
+    --green-soft: #e7f5ec;
+    --violet: #6a6f93;
+    --violet-soft: #eeeef5;
+    --shadow: 0 1px 2px rgba(20,24,30,0.04), 0 1px 1px rgba(20,24,30,0.03);
+    --font-display: "Fraunces", Georgia, serif;
+    --font-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10141c;
+      --panel: #161c26;
+      --card: #1a212c;
+      --line: #2a3241;
+      --line-soft: #232a37;
+      --text-hi: #eef1f6;
+      --text-lo: #98a2b3;
+      --text-faint: #6b7383;
+      --accent: #5fbdb1;
+      --accent-soft: #1c3230;
+      --gold: #e2a63b;
+      --gold-soft: #332812;
+      --green: #6fbf8b;
+      --green-soft: #1a3226;
+      --violet: #9195c0;
+      --violet-soft: #232840;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #10141c;
+    --panel: #161c26;
+    --card: #1a212c;
+    --line: #2a3241;
+    --line-soft: #232a37;
+    --text-hi: #eef1f6;
+    --text-lo: #98a2b3;
+    --text-faint: #6b7383;
+    --accent: #5fbdb1;
+    --accent-soft: #1c3230;
+    --gold: #e2a63b;
+    --gold-soft: #332812;
+    --green: #6fbf8b;
+    --green-soft: #1a3226;
+    --violet: #9195c0;
+    --violet-soft: #232840;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text-hi);
+    font-family: var(--font-body);
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  ::selection { background: var(--accent-soft); }
+
+  .wrap {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 4rem;
+  }
+
+  /* ---------- header ---------- */
+  header.top {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    margin-bottom: 2.25rem;
+  }
+  .eyebrow {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 3vw, 2.6rem);
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  .destination {
+    max-width: 62ch;
+    color: var(--text-lo);
+    font-size: 1rem;
+  }
+  .top-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem;
+    margin-top: 0.25rem;
+    font-size: 0.82rem;
+    color: var(--text-faint);
+  }
+  .top-meta a {
+    color: var(--text-lo);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1px;
+  }
+  .top-meta a:hover { color: var(--accent); border-color: var(--accent); }
+  .top-meta .sep { color: var(--line); }
+
+  /* ---------- progress ---------- */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  .progress-track {
+    flex: 1;
+    height: 8px;
+    border-radius: 5px;
+    background: var(--line-soft);
+    overflow: hidden;
+    display: flex;
+  }
+  .progress-seg.resolved { background: var(--green); }
+  .progress-seg.frontier { background: var(--gold); }
+  .progress-label {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-lo);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* ---------- stat tiles ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem 1.25rem;
+    box-shadow: var(--shadow);
+  }
+  .stat .n {
+    font-family: var(--font-mono);
+    font-size: 2rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .stat .lbl {
+    margin-top: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--text-lo);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .stat.resolved { border-left: 3px solid var(--green); }
+  .stat.resolved .n { color: var(--green); }
+  .stat.frontier { border-left: 3px solid var(--gold); }
+  .stat.frontier .n { color: var(--gold); }
+  .stat.blocked { border-left: 3px solid var(--violet); }
+  .stat.blocked .n { color: var(--violet); }
+
+  /* ---------- board ---------- */
+  h2.section-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin: 0 0 0.9rem;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 3rem;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .col-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-bottom: 0.6rem;
+    border-bottom: 2px solid var(--line);
+    margin-bottom: 0.2rem;
+  }
+  .col-head .title {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .col-head .count {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-faint);
+  }
+  .col.resolved .col-head { border-color: var(--green); }
+  .col.frontier .col-head { border-color: var(--gold); }
+  .col.blocked .col-head { border-color: var(--violet); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.75rem 0.85rem;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: border-color 0.12s ease, transform 0.12s ease;
+    border-left-width: 3px;
+    border-left-style: solid;
+  }
+  .card:hover { transform: translateY(-1px); }
+  .col.resolved .card { border-left-color: var(--green); }
+  .col.frontier .card { border-left-color: var(--gold); }
+  .col.blocked .card { border-left-color: var(--violet); }
+  .col.resolved .card:hover { border-color: var(--green); }
+  .col.frontier .card:hover { border-color: var(--gold); }
+  .col.blocked .card:hover { border-color: var(--violet); }
+
+  .card-top {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+  }
+  .num {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .type-pill {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.12rem 0.45rem;
+    border-radius: 99px;
+  }
+  .type-pill.grilling { background: var(--accent-soft); color: var(--accent); }
+  .type-pill.prototype { background: var(--gold-soft); color: var(--gold); }
+  .type-pill.research { background: var(--violet-soft); color: var(--violet); }
+  .type-pill.task { background: var(--line-soft); color: var(--text-lo); }
+
+  .card-title {
+    font-size: 0.88rem;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  .card-gist {
+    margin-top: 0.4rem;
+    font-size: 0.79rem;
+    color: var(--text-lo);
+    line-height: 1.4;
+  }
+  .card-blockers {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+  }
+  .card-blockers .lbl {
+    font-size: 0.68rem;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 0.15rem;
+  }
+  .blocker-chip {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    background: var(--line-soft);
+    color: var(--text-lo);
+    padding: 0.08rem 0.4rem;
+    border-radius: 5px;
+  }
+
+  /* ---------- graph section ---------- */
+  .graph-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.25rem 1.25rem 1rem;
+    margin-bottom: 2.5rem;
+  }
+  .graph-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .legend {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.76rem;
+    color: var(--text-lo);
+  }
+  .legend span { display: flex; align-items: center; gap: 0.35rem; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .legend .r i { background: var(--green); }
+  .legend .f i { background: var(--gold); }
+  .legend .b i { background: var(--violet); }
+  .graph-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    background: var(--card);
+    padding: 1rem;
+  }
+  .graph-scroll pre.mermaid { margin: 0; }
+
+  /* ---------- footer ---------- */
+  footer {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.78rem;
+    color: var(--text-faint);
+  }
+  footer a { color: var(--text-lo); text-decoration: none; border-bottom: 1px solid var(--line); }
+  footer a:hover { color: var(--accent); border-color: var(--accent); }
+
+  @media (max-width: 880px) {
+    .board { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="top">
+    <div class="eyebrow"><span class="dot"></span> Wayfinder Map · athandapani/wayframe</div>
+    <h1>Wayframe: multi-program, scenario &amp; collaborative rebuild</h1>
+    <p class="destination">A locked, dependency-ordered backlog of decision tickets rebuilding wayframe as a hosted, multi-tenant, collaborative portfolio showcase — Portfolios of Programs, Scenarios, Snapshots, and realtime editing. Planning only; sequenced in strict dependency order.</p>
+    <div class="progress-row">
+      <div class="progress-track" id="progress-track"></div>
+      <div class="progress-label" id="progress-label"></div>
+    </div>
+    <div class="top-meta">
+      <a href="https://github.com/athandapani/wayframe/issues/74" target="_blank" rel="noopener">Map #74 on GitHub ↗</a>
+      <span class="sep">/</span>
+      <a href="https://github.com/athandapani/wayframe/blob/master/CONTEXT.md" target="_blank" rel="noopener">Domain glossary (CONTEXT.md) ↗</a>
+      <span class="sep">/</span>
+      <a href="https://github.com/athandapani/wayframe/blob/master/docs/rebuild-spec.md" target="_blank" rel="noopener">Current-app baseline spec ↗</a>
+      <span class="sep">/</span>
+      <span id="updated-stamp"></span>
+    </div>
+  </header>
+
+  <section class="stats" id="stats"></section>
+
+  <section>
+    <h2 class="section-title">Ticket board</h2>
+    <div class="board" id="board"></div>
+  </section>
+
+  <section class="graph-section">
+    <div class="graph-head">
+      <h2 class="section-title" style="margin:0;">Dependency shape</h2>
+      <div class="legend">
+        <span class="r"><i></i>resolved</span>
+        <span class="f"><i></i>frontier — takeable now</span>
+        <span class="b"><i></i>blocked</span>
+      </div>
+    </div>
+    <div class="graph-scroll">
+      <pre class="mermaid" id="mermaid-graph"></pre>
+    </div>
+  </section>
+
+  <footer>
+    <span>Regenerated after each wayfinder session — not live-synced to GitHub.</span>
+    <span id="last-count"></span>
+  </footer>
+
+</div>
+
+<script id="tickets-data" type="application/json">
+__TICKETS_JSON__
+</script>
+
+<script id="mermaid-source" type="text/plain">
+__MERMAID_SOURCE__
+</script>
+
+<script>
+  const tickets = JSON.parse(document.getElementById('tickets-data').textContent);
+  const REPO = "https://github.com/athandapani/wayframe/issues/";
+
+  function statusOf(t) {
+    if (t.state === "closed") return "resolved";
+    if (t.blockedByCount === 0) return "frontier";
+    return "blocked";
+  }
+
+  const resolved = tickets.filter(t => statusOf(t) === "resolved");
+  const frontier = tickets.filter(t => statusOf(t) === "frontier");
+  const blocked = tickets.filter(t => statusOf(t) === "blocked");
+
+  // ---- progress bar ----
+  const total = tickets.length;
+  const track = document.getElementById('progress-track');
+  const pctResolved = (resolved.length / total) * 100;
+  const pctFrontier = (frontier.length / total) * 100;
+  const segR = document.createElement('div');
+  segR.className = 'progress-seg resolved';
+  segR.style.width = pctResolved + '%';
+  const segF = document.createElement('div');
+  segF.className = 'progress-seg frontier';
+  segF.style.width = pctFrontier + '%';
+  track.appendChild(segR);
+  track.appendChild(segF);
+  document.getElementById('progress-label').textContent = `${resolved.length} / ${total} resolved`;
+  document.getElementById('last-count').textContent = `${total} tickets charted`;
+
+  const stamp = new Date("__UPDATED_AT__");
+  document.getElementById('updated-stamp').textContent =
+    "updated " + stamp.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+  // ---- stat tiles ----
+  const stats = document.getElementById('stats');
+  const tileData = [
+    { cls: 'resolved', n: resolved.length, lbl: 'Resolved' },
+    { cls: 'frontier', n: frontier.length, lbl: 'Frontier — takeable now' },
+    { cls: 'blocked', n: blocked.length, lbl: 'Blocked' },
+  ];
+  stats.innerHTML = tileData.map(s => `
+    <div class="stat ${s.cls}">
+      <div class="n">${s.n}</div>
+      <div class="lbl">${s.lbl}</div>
+    </div>
+  `).join('');
+
+  // ---- board ----
+  function typeLabel(t) {
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  function card(t) {
+    const st = statusOf(t);
+    let extra = '';
+    if (st === 'resolved' && t.gist) {
+      extra = `<div class="card-gist">${t.gist}</div>`;
+    } else if (st === 'blocked' && t.blockers.length) {
+      extra = `<div class="card-blockers"><span class="lbl">waiting on</span>${t.blockers.map(b => `<span class="blocker-chip">#${b}</span>`).join('')}</div>`;
+    }
+    return `
+      <a class="card" href="${REPO}${t.number}" target="_blank" rel="noopener">
+        <div class="card-top">
+          <span class="num">#${t.number}</span>
+          <span class="type-pill ${t.type}">${typeLabel(t.type)}</span>
+        </div>
+        <div class="card-title">${t.title}</div>
+        ${extra}
+      </a>`;
+  }
+
+  function column(id, label, items) {
+    return `
+      <div class="col ${id}">
+        <div class="col-head">
+          <span class="title">${label}</span>
+          <span class="count">${items.length}</span>
+        </div>
+        ${items.map(card).join('')}
+      </div>`;
+  }
+
+  document.getElementById('board').innerHTML =
+    column('resolved', 'Resolved', resolved.sort((a,b)=>a.number-b.number)) +
+    column('frontier', 'Frontier — takeable now', frontier.sort((a,b)=>a.number-b.number)) +
+    column('blocked', 'Blocked', blocked.sort((a,b)=>a.number-b.number));
+
+  // ---- mermaid ----
+  document.getElementById('mermaid-graph').textContent =
+    document.getElementById('mermaid-source').textContent.trim();
+</script>
