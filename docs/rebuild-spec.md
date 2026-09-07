@@ -918,9 +918,17 @@ open/closed, BLUF panel position, every manual per-label drag override (§7.1).
 
 **Contrast with document content:** lane color, lane RAG override, lane density, lane owner,
 company-logo placement, BLUF box size, and the legend-category vocabulary are all *document*
-content (§4) specifically because they're editorial calls the document owner makes that everyone
-opening the file should see identically — don't accidentally implement any of those as per-viewer
-preferences.
+content (§4) for the same reason Style Override, Theme, Snapshot, and swimlane visibility are (see
+`CONTEXT.md` Doctrine, #76): changing them is an editorial act on the shared plan, not a personal
+reading preference. Restated test: *"Do I want this true of the plan for every collaborator, live,
+and for every future viewer — or only true of my screen right now?"* Yes → document content; no →
+viewer preference. Under realtime collaboration any collaborator with edit access can make that
+call — there is no single "document owner" distinct from everyone else. Document-content changes
+propagate exactly like any other document edit: instant, silent, CRDT-synced, undoable via the
+normal per-Program undo stack, with no special notification beyond the general collaborator-
+presence UI (cursors/avatars) realtime collab already requires. There is no per-viewer override of
+document content — don't implement a shadow "render it differently for just me" path for any of
+these fields.
 
 ### 10.1 Saved Views
 
@@ -930,10 +938,14 @@ snapshots, and apply one back by writing every field it contains through that pr
 setter (an unset field in a snapshot leaves the corresponding preference untouched, so a snapshot
 only needs to name what it actually cares about).
 
-- **Built-in presets** — three read-only, non-deletable starting points shipped with the app
-  (e.g. **Presentation**: high-contrast theme, larger font, gridlines/today-overlay off, legend
-  collapsed; **Dense**: smaller font, sparser label density, auto lane height on; **Minimal**: BLUF
-  panel and legend hidden, gridlines off, critical-path line simplified).
+- **Built-in presets** — three read-only, non-deletable starting points shipped with the app,
+  scoped strictly to viewer preferences and never a document field (§10, #76), so applying one
+  never mutates anything another collaborator sees (e.g. **Presentation**: larger font,
+  gridlines/today-overlay off, legend collapsed; **Dense**: smaller font, sparser label density,
+  auto lane height on; **Minimal**: BLUF panel and legend hidden, gridlines off, critical-path line
+  simplified). A shared look change — e.g. switching the Program's actual Theme — is a direct
+  document edit made through the Theme editor, visible to everyone immediately; it is never
+  bundled into a personal preset.
 - **Custom views** — the viewer names the current combination of preferences and saves it;
   deletable, unlike the built-ins.
 - Legend open/closed is a defensible field to leave out of the snapshot if the legend's

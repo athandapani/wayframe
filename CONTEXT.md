@@ -37,3 +37,15 @@ _Avoid_: Separator (the existing flat-band concept, kept distinct from Swimlane 
 **Lane Row**:
 A structural sub-division of a Swimlane that a milestone or phase can be assigned to, letting items be placed at different vertical positions within one lane. A Swimlane owns a variable-length list of Lane Rows (starting at 2, growing as needed) independent of any single milestone's placement.
 _Avoid_: Row (ambiguous with table/UI rows elsewhere), Track
+
+## Doctrine
+
+**Document content vs. viewer preference** (#76):
+A knob is *document content* if changing it is an editorial act on the shared plan — true for every collaborator, live, and for anyone who later opens, exports, or snapshots the document. A knob is a *viewer preference* if it only affects how one person is personally reading an otherwise-unchanged plan, with no bearing on what anyone else sees. Test: *"Do I want this true of the plan, or only true of my screen, right now?"*
+
+This restates the older single-user rule (`docs/rebuild-spec.md` §10 — "editorial calls the document owner makes that everyone opening the file should see identically") for a world with no single owner: under realtime CRDT collaboration, any collaborator with edit access can make the editorial call, and "everyone opening the file" now includes everyone already looking at it live. It's why Style Override, Theme, Snapshot, and swimlane visibility are all document content, alongside the pre-existing list (lane color, lane density, lane owner, BLUF box size, etc.) — none of that is a case-by-case list to re-derive per field, it's one test.
+
+Consequences settled alongside the rule:
+- **Live propagation**: document-content changes sync exactly like any other document edit — instant, silent, CRDT-synced, undoable via the normal per-Program undo stack. No bespoke "someone changed the theme" notification; the general collaborator-presence UI (cursors/avatars) already required by realtime collab covers "who did this."
+- **No per-viewer override layer**: document content is single-source-of-truth WYSIWYG for every collaborator. There is no "hide this lane for just me" or "render in my own theme regardless of the document's" shadow-rendering path. Known gap, left open rather than silently dropped: this leaves no accessibility escape hatch (e.g. a colorblind-safe override of Theme's RAG colors) for a future ticket to pick up.
+- **Saved Views narrow to viewer-prefs-only**: since Theme/visibility are no longer viewer preferences at all, Saved Views (`docs/rebuild-spec.md` §10.1) can never capture or re-apply them — applying a personal view must never mutate the document. The built-in presets had their content-field clauses (e.g. "Presentation"'s theme swap) rewritten out for this reason.
