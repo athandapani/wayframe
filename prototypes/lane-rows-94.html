@@ -215,13 +215,16 @@
 
   // Row 1's floor is no longer the flat LANE_HEIGHT=132 constant (that
   // never scaled with what's actually on the lane). It's now derived: the
-  // tallest a pill can be, plus the vertical clearance a milestone's title
-  // (above) and date (below) labels actually need — RoadmapTimeline.tsx's
-  // real label offsets are LABEL_BASE_DY=-14 + LABEL_LINE_H=11 above center,
-  // and label-layout.ts's DATE_TIER_DY[0]=20 (+ line height) below center.
-  const LABEL_BUFFER_TOP = 25;
-  const LABEL_BUFFER_BOTTOM = 28;
-  const ROW1_CONTENT_FLOOR = PHASE_HEIGHT.tall + LABEL_BUFFER_TOP + LABEL_BUFFER_BOTTOM; // 79px, was a flat 132
+  // tallest a pill can be, plus exactly one line of label text above and
+  // one below — not the baseline-offset-plus-glyph math the first pass
+  // used, which conflated an internal SVG positioning detail with the
+  // row's actual space requirement. RoadmapTimeline.tsx's own
+  // LABEL_LINE_H=11 is the real "one line of title-label text" constant;
+  // the closest real analog for the date label is the 12px gap production
+  // already reserves per tier (DATE_TIER_DY: 20, 32, 44 — 12px apart).
+  const LABEL_BUFFER_TOP = 11;    // LABEL_LINE_H — one line of title text
+  const LABEL_BUFFER_BOTTOM = 12; // DATE_TIER_DY's per-tier gap — one line of date text
+  const ROW1_CONTENT_FLOOR = PHASE_HEIGHT.tall + LABEL_BUFFER_TOP + LABEL_BUFFER_BOTTOM; // 49px, was a flat 132
 
   // Level 2 allocator (existing, unchanged): greedy interval partitioning.
   // Ported 1:1 from stack-intervals.ts's algorithm.
@@ -512,11 +515,11 @@
   const scenarios = [
     {
       name: "1. Happy path — content-driven floor, not a flat constant",
-      desc: "A lane with a single small item still gets a floor on Row 1 — but now it's derived (tall pill height 26 + label clearance 25 above + 28 below = 79px), not the old flat, content-blind 132px. Add bigger content later and it scales past 79 on its own.",
+      desc: "A lane with a single small item still gets a floor on Row 1 — but now it's derived (tall pill height 26 + one line of title text 11 above + one line of date text 12 below = 49px), not the old flat, content-blind 132px. Add bigger content later and it scales past 49 on its own.",
       steps: [
         { label: "Reset", run: () => dispatch({ type: "RESET" }) },
         { label: "Add item A (day 0–6, normal)", run: () => addItem(0, 6, "normal", null) },
-        { label: "Observe: 1 row, 1 sub-row, height = 79px (26 tall-pill + 25 + 28 label clearance) — was a flat 132px", run: () => {} },
+        { label: "Observe: 1 row, 1 sub-row, height = 49px (26 tall-pill + 11 + 12 label lines) — was a flat 132px", run: () => {} },
       ],
     },
     {
