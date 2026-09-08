@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PROTOTYPE — Theme document model &amp; collaborative edits (wayframe#88)</title>
+<style>
+  :root {
+    --ink: #1b1f24; --sub: #5b6470; --line: #dfe3e8; --bg: #fafbfc; --panel: #ffffff;
+    --accent: #7c5cff; --accent-weak: #efeaff; --good: #1f8a4c; --warn: #b5750a; --bad: #c23b3b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --peerA: #2f6fd6; --peerA-weak: #e8f0fd;
+    --peerB: #c2410c; --peerB-weak: #fdece1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.45; }
+  header { padding: 28px 32px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0 0 8px; font-size: 20px; }
+  header .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--bad); border: 1px solid var(--bad); border-radius: 4px; padding: 2px 6px; margin-bottom: 10px; }
+  header p { max-width: 900px; color: var(--sub); margin: 6px 0; font-size: 14px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 24px 32px 60px; }
+
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .panel h2 { margin: 0 0 4px; font-size: 14px; }
+  .panel .hint { color: var(--sub); font-size: 12px; margin: 0 0 12px; }
+  .panel.peerA { border-top: 3px solid var(--peerA); }
+  .panel.peerB { border-top: 3px solid var(--peerB); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+  td.mono, th.mono { font-family: var(--mono); }
+  .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); vertical-align: -1px; margin-right: 5px; }
+  .owner { font-size: 10px; padding: 1px 5px; border-radius: 4px; font-weight: 600; }
+  .owner.A { background: var(--peerA-weak); color: var(--peerA); }
+  .owner.B { background: var(--peerB-weak); color: var(--peerB); }
+  .owner.seed { background: var(--line); color: var(--sub); }
+
+  .full { grid-column: 1 / -1; }
+
+  tr.diverges { background: #fff8ea; }
+  tr.diverges td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+
+  .conflicts { min-height: 20px; }
+  .conflict { border-left: 3px solid var(--bad); background: #fdecec; padding: 8px 10px; border-radius: 4px; font-size: 12.5px; margin-bottom: 8px; }
+  .none { color: var(--good); font-size: 12.5px; }
+
+  .actions { display: flex; flex-direction: column; gap: 6px; }
+  button { font: inherit; font-size: 12.5px; padding: 7px 11px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; color: var(--ink); text-align: left; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .panel.peerA button:hover { border-color: var(--peerA); color: var(--peerA); }
+  .panel.peerB button:hover { border-color: var(--peerB); color: var(--peerB); }
+  button.refresh { border-style: dashed; }
+
+  .tabs { display: flex; gap: 4px; margin: 30px 0 0; border-bottom: 2px solid var(--line); flex-wrap: wrap; }
+  .tab-btn { border: none; border-radius: 6px 6px 0 0; background: transparent; padding: 9px 14px; font-size: 12.5px; color: var(--sub); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab-panel { display: none; background: var(--panel); border: 1px solid var(--line); border-top: none; border-radius: 0 0 10px 10px; padding: 16px 18px; }
+  .tab-panel.active { display: block; }
+  .tab-panel p.desc { color: var(--sub); font-size: 13px; margin-top: 0; }
+  .steps { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .step { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .step.done { background: #f4f4f7; opacity: 0.6; }
+  .step.next { border-color: var(--accent); background: var(--accent-weak); }
+  .step .n { width: 20px; height: 20px; border-radius: 50%; background: var(--line); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step.done .n { background: var(--good); }
+  .step.next .n { background: var(--accent); }
+  .step button { flex-shrink: 0; text-align: center; }
+  .step .label { font-size: 12.5px; flex: 1; }
+  .watch { font-size: 12px; color: var(--warn); margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+
+  .log { font-family: var(--mono); font-size: 11px; color: var(--sub); background: #f4f5f7; border-radius: 6px; padding: 8px 10px; max-height: 110px; overflow-y: auto; margin-top: 12px; }
+  .log div { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">Throwaway prototype — not production code</div>
+  <h1>Theme document model &amp; collaborative edits — wayframe#88</h1>
+  <p>
+    <strong>Question this demo answers:</strong> once Theme is Portfolio document content (#76/#82),
+    how does storing it as <strong>one field-level model</strong> (a base preset id plus a sparse
+    override map, resolved live — same idiom #87 settled for Scenarios) compare against the naive
+    alternative of storing the whole resolved Theme as <strong>one JSON blob field</strong>, when two
+    collaborators edit the shared Theme at the same time? And does the OKLCH <code>laneRamp</code>
+    generator (3 numbers: lightness, chroma, start hue — not per-lane hex values) survive becoming
+    a hand-editable field under either model?
+  </p>
+  <p>
+    Two peers below each hold their own local view of the Portfolio's Theme and fire edits
+    independently. Watch the two converged results diverge — that divergence <em>is</em> the
+    answer to "who wins."
+  </p>
+</header>
+
+<main>
+
+  <div class="cols2">
+    <div class="panel peerA">
+      <h2>Peer A's editor</h2>
+      <p class="hint">Edits apply immediately to the field-level model. Under the blob model, each edit is written on top of whatever Peer A last saw — <button class="refresh" style="display:inline;padding:1px 6px;" disabled>Refresh</button> pulls the latest blob first.</p>
+      <div class="actions" id="peerA-actions"></div>
+    </div>
+    <div class="panel peerB">
+      <h2>Peer B's editor</h2>
+      <p class="hint">Same mechanism, independent peer. Neither peer sees the other's edit until they explicitly refresh (blob model) — the field-level model needs no refresh at all.</p>
+      <div class="actions" id="peerB-actions"></div>
+    </div>
+  </div>
+
+  <div class="cols2">
+    <div class="panel">
+      <h2>Converged — field-level model <span style="color:var(--good);font-weight:600;">(proposed)</span></h2>
+      <p class="hint"><code>{ baseId, overrides: {field → value} }</code>, each key merged independently by whichever edit has the latest logical clock — exactly the base+override idiom #87 used for Scenario deltas.</p>
+      <table id="fields-table"></table>
+    </div>
+    <div class="panel">
+      <h2>Converged — whole-blob model <span style="color:var(--bad);font-weight:600;">(rejected)</span></h2>
+      <p class="hint">One field holds the entire resolved Theme as a single JSON value. Merged by last-write-wins on that <em>whole</em> value — whoever's write lands last overwrites the entire object, not just what they touched.</p>
+      <table id="blob-table"></table>
+    </div>
+  </div>
+
+  <div class="panel full">
+    <h2>Peer snapshots <span style="font-weight:400;color:var(--sub);">(blob model only — this is why it loses edits)</span></h2>
+    <p class="hint">Each peer's write under the blob model is built from their own last-seen snapshot, not the live server state. A stale snapshot at write time is what causes a silent overwrite.</p>
+    <div class="cols2" style="margin-bottom:0;">
+      <table id="peerA-snapshot"></table>
+      <table id="peerB-snapshot"></table>
+    </div>
+  </div>
+
+  <div class="panel full">
+    <h2>Where the two models disagree</h2>
+    <p class="hint">Any row highlighted above is a field the field-level model preserved and the blob model silently lost (or vice-versa isn't possible — the blob model never has data the field model lacks).</p>
+    <div class="conflicts" id="conflicts-list"></div>
+  </div>
+
+  <div class="panel full">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div>
+        <h2 style="margin:0;">Free play</h2>
+        <p class="hint" style="margin:2px 0 0;">Reset and try your own edit orderings.</p>
+      </div>
+      <button id="reset-btn" style="width:auto;">↺ Reset to seed state</button>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <h2 style="margin: 30px 0 0; font-size:16px;">Guided walkthroughs</h2>
+  <div class="tabs" id="tabs"></div>
+  <div id="tab-panels"></div>
+
+</main>
+
+<script>
+// ============================================================================
+// PURE MODULE — this is the part meant to lift into the real codebase once
+// the question below is settled. No DOM, no button handlers reach in here.
+// ============================================================================
+
+/** The 3 built-in presets, trimmed to the fields this demo actually varies
+ *  (a stand-in for the full Theme shape in src/components/timeline/theme.ts,
+ *  now including the tokens #82 identified as missing: todayColor, plus the
+ *  laneGutter px this ticket's question calls out by name). */
+const THEMES = {
+  blueprint: { id: "blueprint", accent: "#1f4e79", todayColor: "#e11d48", laneWashOpacity: 0.075, laneGutter: 7, laneRamp: { L: 0.58, C: 0.115, startHue: 250 } },
+  graphite: { id: "graphite", accent: "#4fa6e9", todayColor: "#e11d48", laneWashOpacity: 0.075, laneGutter: 7, laneRamp: { L: 0.72, C: 0.135, startHue: 250 } },
+  press: { id: "press", accent: "#101010", todayColor: "#e11d48", laneWashOpacity: 0.07, laneGutter: 7, laneRamp: { L: 0.55, C: 0.165, startHue: 255 } },
+};
+
+const FIELDS = ["baseId", "accent", "todayColor", "laneWashOpacity", "laneGutter", "laneRamp"];
+
+/**
+ * Field-level model: { baseId: Cell, overrides: Record<field, Cell> }
+ * Cell = { value, clock, peer } — a per-key LWW register, exactly Yjs's
+ * native per-key merge semantics inside a Y.Map (no bespoke CRDT needed).
+ */
+function createInitialFieldsDoc() {
+  return { baseId: { value: "blueprint", clock: 0, peer: "seed" }, overrides: {} };
+}
+
+function applyFieldEdit(doc, field, value, clock, peer) {
+  const cell = { value, clock, peer };
+  if (field === "baseId") {
+    if (wins(cell, doc.baseId)) doc.baseId = cell;
+  } else {
+    const existing = doc.overrides[field];
+    if (!existing || wins(cell, existing)) doc.overrides[field] = cell;
+  }
+  return doc;
+}
+
+function clearOverrides(doc, clock, peer) {
+  // Reset-to-defaults: each existing override key gets tombstoned at the new
+  // clock, same LWW register per key as any other edit — not a special op.
+  for (const field of Object.keys(doc.overrides)) {
+    const cell = { value: undefined, clock, peer };
+    if (wins(cell, doc.overrides[field])) delete doc.overrides[field];
+  }
+  return doc;
+}
+
+function wins(candidate, existing) {
+  if (!existing) return true;
+  if (candidate.clock !== existing.clock) return candidate.clock > existing.clock;
+  return candidate.peer > existing.peer; // tie-break, mirrors Yjs client-id ordering
+}
+
+function resolveFieldsDoc(doc) {
+  const base = THEMES[doc.baseId.value];
+  const resolved = { ...base };
+  for (const [field, cell] of Object.entries(doc.overrides)) resolved[field] = cell.value;
+  return { resolved, ownerOf: (field) => (field === "baseId" ? doc.baseId.peer : doc.overrides[field]?.peer ?? "seed") };
+}
+
+/**
+ * Whole-blob model: ONE Cell whose value is the entire {baseId, overrides}
+ * object. A peer's write always carries forward whatever that peer's own
+ * local snapshot last held for every OTHER field — which is stale the
+ * instant another peer has written something this peer hasn't pulled yet.
+ */
+function createInitialBlobDoc() {
+  return { value: { baseId: "blueprint", overrides: {} }, clock: 0, peer: "seed" };
+}
+
+function applyBlobEdit(blobDoc, peerLocalSnapshot, field, value, clock, peer) {
+  const nextLocal = { baseId: peerLocalSnapshot.baseId, overrides: { ...peerLocalSnapshot.overrides } };
+  if (field === "baseId") nextLocal.baseId = value;
+  else if (value === undefined) nextLocal.overrides = {};
+  else nextLocal.overrides[field] = value;
+  const cell = { value: nextLocal, clock, peer };
+  const next = wins(cell, blobDoc) ? cell : blobDoc;
+  return { blobDoc: next, newLocalSnapshot: nextLocal };
+}
+
+function resolveBlobDoc(blobDoc) {
+  const base = THEMES[blobDoc.value.baseId];
+  return { ...base, ...blobDoc.value.overrides };
+}
+
+// ============================================================================
+// PAGE SHELL — throwaway. Calls into the pure module above and re-renders.
+// ============================================================================
+
+let clock = 0;
+let fieldsDoc, blobDoc, peerLocal, logLines;
+
+function resetAll() {
+  clock = 0;
+  fieldsDoc = createInitialFieldsDoc();
+  blobDoc = createInitialBlobDoc();
+  peerLocal = { A: { baseId: "blueprint", overrides: {} }, B: { baseId: "blueprint", overrides: {} } };
+  logLines = ["--- reset to seed state (both peers synced on Blueprint, no overrides) ---"];
+}
+
+function log(line) { logLines.unshift(line); logLines = logLines.slice(0, 60); }
+
+function peerEdit(peer, field, value, label) {
+  clock += 1;
+  fieldsDoc = applyFieldEdit(fieldsDoc, field, value, clock, peer);
+  const { blobDoc: nextBlob, newLocalSnapshot } = applyBlobEdit(blobDoc, peerLocal[peer], field, value, clock, peer);
+  blobDoc = nextBlob;
+  peerLocal[peer] = newLocalSnapshot;
+  log(`Peer ${peer}: ${label} (clock ${clock})`);
+  render();
+}
+
+function peerReset(peer, label) {
+  clock += 1;
+  fieldsDoc = clearOverrides(fieldsDoc, clock, peer);
+  const { blobDoc: nextBlob, newLocalSnapshot } = applyBlobEdit(blobDoc, peerLocal[peer], "__clear__", undefined, clock, peer);
+  blobDoc = nextBlob;
+  peerLocal[peer] = newLocalSnapshot;
+  log(`Peer ${peer}: ${label} (clock ${clock})`);
+  render();
+}
+
+function peerRefresh(peer) {
+  peerLocal[peer] = { baseId: blobDoc.value.baseId, overrides: { ...blobDoc.value.overrides } };
+  log(`Peer ${peer}: refreshed — pulled the latest blob before their next edit`);
+  render();
+}
+
+function fmtVal(field, v) {
+  if (v === undefined) return "<em>(inherits base)</em>";
+  if (field === "laneRamp") return `L ${v.L} · C ${v.C} · hue ${v.startHue}°`;
+  if (field === "accent" || field === "todayColor") return `<span class="swatch" style="background:${v}"></span>${v}`;
+  return String(v);
+}
+
+function render() {
+  const { resolved: fieldsResolved, ownerOf } = resolveFieldsDoc(fieldsDoc);
+  const blobResolved = resolveBlobDoc(blobDoc);
+
+  const diverging = new Set(FIELDS.filter((f) => f !== "baseId" && JSON.stringify(fieldsResolved[f]) !== JSON.stringify(blobResolved[f])));
+  if (fieldsDoc.baseId.value !== blobDoc.value.baseId) diverging.add("baseId");
+
+  document.getElementById("fields-table").innerHTML =
+    `<tr><th>field</th><th>resolved value</th><th>set by</th></tr>` +
+    FIELDS.map((f) => {
+      const owner = f === "baseId" ? fieldsDoc.baseId.peer : ownerOf(f);
+      return `<tr class="${diverging.has(f) ? "diverges" : ""}"><td class="mono">${f}</td><td>${fmtVal(f, fieldsResolved[f])}</td><td><span class="owner ${owner}">${owner}</span></td></tr>`;
+    }).join("");
+
+  document.getElementById("blob-table").innerHTML =
+    `<tr><th>field</th><th>resolved value</th><th>set by</th></tr>` +
+    FIELDS.map((f) => {
+      const owner = blobDoc.peer;
+      return `<tr class="${diverging.has(f) ? "diverges" : ""}"><td class="mono">${f}</td><td>${fmtVal(f, blobResolved[f])}</td><td><span class="owner ${owner}">${owner} (whole blob)</span></td></tr>`;
+    }).join("");
+
+  for (const peer of ["A", "B"]) {
+    document.getElementById(`peer${peer}-snapshot`).innerHTML =
+      `<tr><th colspan="2">Peer ${peer}'s last-seen snapshot</th></tr>` +
+      `<tr><td class="mono">baseId</td><td>${peerLocal[peer].baseId}</td></tr>` +
+      FIELDS.filter((f) => f !== "baseId")
+        .map((f) => `<tr><td class="mono">overrides.${f}</td><td>${fmtVal(f, peerLocal[peer].overrides[f])}</td></tr>`)
+        .join("");
+  }
+
+  document.getElementById("conflicts-list").innerHTML =
+    diverging.size === 0
+      ? `<div class="none">Both models agree on every field — no edit has been lost yet.</div>`
+      : [...diverging]
+          .map(
+            (f) =>
+              `<div class="conflict"><span style="font-weight:700;">"${f}" diverges</span> — field-level model resolves to <code>${JSON.stringify(fieldsResolved[f])}</code>, whole-blob model resolves to <code>${JSON.stringify(blobResolved[f])}</code>. The blob model silently discarded whichever peer's edit to this field wasn't reflected in the last writer's stale local snapshot.</div>`
+          )
+          .join("");
+
+  document.getElementById("log").innerHTML = logLines.map((l) => `<div>${l}</div>`).join("");
+  renderActions();
+  renderTabs();
+}
+
+const PEER_ACTIONS = {
+  A: [
+    { label: "Switch base theme → Graphite", run: () => peerEdit("A", "baseId", "graphite", "switched base theme to Graphite") },
+    { label: "Override accent → teal (#0bb0a8)", run: () => peerEdit("A", "accent", "#0bb0a8", "overrode accent → teal") },
+    { label: "Override todayColor → hot pink (#ff2d78)", run: () => peerEdit("A", "todayColor", "#ff2d78", "overrode todayColor → hot pink") },
+    { label: "Override lane ramp → warm family (L .60 C .14 hue 10°)", run: () => peerEdit("A", "laneRamp", { L: 0.6, C: 0.14, startHue: 10 }, "overrode laneRamp → warm family") },
+    { label: "Reset all overrides", run: () => peerReset("A", "reset overrides to defaults") },
+    { label: "Refresh (pull latest blob)", run: () => peerRefresh("A"), refresh: true },
+  ],
+  B: [
+    { label: "Switch base theme → Press", run: () => peerEdit("B", "baseId", "press", "switched base theme to Press") },
+    { label: "Override accent → orange (#ff8800)", run: () => peerEdit("B", "accent", "#ff8800", "overrode accent → orange") },
+    { label: "Override laneWashOpacity → 0.15", run: () => peerEdit("B", "laneWashOpacity", 0.15, "overrode laneWashOpacity → 0.15") },
+    { label: "Override lane ramp → cool family (L .50 C .20 hue 200°)", run: () => peerEdit("B", "laneRamp", { L: 0.5, C: 0.2, startHue: 200 }, "overrode laneRamp → cool family") },
+    { label: "Reset all overrides", run: () => peerReset("B", "reset overrides to defaults") },
+    { label: "Refresh (pull latest blob)", run: () => peerRefresh("B"), refresh: true },
+  ],
+};
+
+function renderActions() {
+  for (const peer of ["A", "B"]) {
+    const el = document.getElementById(`peer${peer}-actions`);
+    el.innerHTML = "";
+    PEER_ACTIONS[peer].forEach((a) => {
+      const btn = document.createElement("button");
+      btn.textContent = a.label;
+      if (a.refresh) btn.className = "refresh";
+      btn.onclick = a.run;
+      el.appendChild(btn);
+    });
+  }
+}
+
+document.getElementById("reset-btn").onclick = () => {
+  resetAll();
+  render();
+};
+
+// ---- Guided walkthroughs ----
+
+const WALKTHROUGHS = [
+  {
+    title: "1. Different fields, no refresh",
+    desc: "Both peers edit at once, but touch different fields. This is the ordinary case — most concurrent edits don't collide on the exact same field.",
+    watch: "Field-level model keeps both edits. Whole-blob model loses Peer A's accent override — Peer B's write carries forward B's stale (pre-edit) snapshot, silently reverting A's change even though B never touched accent.",
+    steps: [
+      { label: "Peer A: Override accent → teal", run: () => peerEdit("A", "accent", "#0bb0a8", "overrode accent → teal") },
+      { label: "Peer B: Override laneWashOpacity → 0.15", run: () => peerEdit("B", "laneWashOpacity", 0.15, "overrode laneWashOpacity → 0.15") },
+    ],
+  },
+  {
+    title: "2. Same field, no refresh",
+    desc: "Both peers pick a theme accent at the same time — a genuine same-key conflict, the case the ticket names explicitly.",
+    watch: "Both models agree here: later clock wins outright on that one field. Field-level scoping isn't magic conflict-avoidance — it only helps when edits don't actually collide.",
+    steps: [
+      { label: "Peer A: Override accent → teal", run: () => peerEdit("A", "accent", "#0bb0a8", "overrode accent → teal") },
+      { label: "Peer B: Override accent → orange", run: () => peerEdit("B", "accent", "#ff8800", "overrode accent → orange") },
+    ],
+  },
+  {
+    title: "3. Base swap racing an override tweak",
+    desc: "Peer A picks a whole new built-in theme while Peer B, unaware, tweaks one override field on the theme A is about to replace.",
+    watch: "Field-level model: both land — baseId and overrides.accent are independent keys, so B's accent override survives the base swap and now applies on top of Graphite. Whole-blob model: same loss pattern as #1 — B's stale write erases A's base swap.",
+    steps: [
+      { label: "Peer A: Switch base theme → Graphite", run: () => peerEdit("A", "baseId", "graphite", "switched base theme to Graphite") },
+      { label: "Peer B: Override accent → orange", run: () => peerEdit("B", "accent", "#ff8800", "overrode accent → orange") },
+    ],
+  },
+  {
+    title: "4. Refreshing before editing avoids the loss",
+    desc: "The manual workaround a single-blob field would force on every editor: pull the latest state before writing your own change.",
+    watch: "After A's edit, B refreshes (pulling A's change into B's local snapshot) before making their own edit. Now even the whole-blob model keeps both — at the cost of every write site remembering to refresh first, which per-key CRDT merge needs no one to remember.",
+    steps: [
+      { label: "Peer A: Override accent → teal", run: () => peerEdit("A", "accent", "#0bb0a8", "overrode accent → teal") },
+      { label: "Peer B: Refresh (pull latest blob)", run: () => peerRefresh("B") },
+      { label: "Peer B: Override laneWashOpacity → 0.15", run: () => peerEdit("B", "laneWashOpacity", 0.15, "overrode laneWashOpacity → 0.15") },
+    ],
+  },
+  {
+    title: "5. laneRamp is one atomic field, by design",
+    desc: "The theme editor exposes lightness/chroma/start-hue as one “colour family” control, not three separately-saved inputs — so a laneRamp override is a single key even under the field-level model.",
+    watch: "Even the field-level model behaves like the blob model for this one key: the later ramp edit fully replaces the earlier one. That's expected, not a gap — it matches the editor's own save granularity, the same way overwriting one colour swatch would.",
+    steps: [
+      { label: "Peer A: Override lane ramp → warm family", run: () => peerEdit("A", "laneRamp", { L: 0.6, C: 0.14, startHue: 10 }, "overrode laneRamp → warm family") },
+      { label: "Peer B: Override lane ramp → cool family", run: () => peerEdit("B", "laneRamp", { L: 0.5, C: 0.2, startHue: 200 }, "overrode laneRamp → cool family") },
+    ],
+  },
+  {
+    title: "6. Reset-to-defaults doesn't fight a concurrent base swap",
+    desc: "Clearing overrides is its own explicit action, distinct from picking a new base theme — verify the two don't stomp each other when they happen concurrently.",
+    watch: "Field-level model: Peer A's base swap and Peer B's override-clear land independently — the resolved theme is Graphite with no overrides, exactly what both peers intended. Whole-blob model loses whichever happened first, same pattern as #1/#3.",
+    steps: [
+      { label: "Peer A: Switch base theme → Graphite", run: () => peerEdit("A", "baseId", "graphite", "switched base theme to Graphite") },
+      { label: "Peer B: Reset all overrides", run: () => peerReset("B", "reset overrides to defaults") },
+    ],
+  },
+];
+
+let activeTab = 0;
+let stepIndex = 0;
+
+function renderTabs() {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.innerHTML = WALKTHROUGHS.map((w, i) => `<button class="tab-btn ${i === activeTab ? "active" : ""}" data-tab="${i}">${w.title}</button>`).join("");
+  tabsEl.querySelectorAll("[data-tab]").forEach((btn) => {
+    btn.onclick = () => {
+      activeTab = Number(btn.getAttribute("data-tab"));
+      stepIndex = 0;
+      resetAll();
+      render();
+    };
+  });
+
+  const panelsEl = document.getElementById("tab-panels");
+  const w = WALKTHROUGHS[activeTab];
+  const stepsHtml = w.steps
+    .map((s, i) => {
+      const state = i < stepIndex ? "done" : i === stepIndex ? "next" : "";
+      const disabled = i !== stepIndex;
+      return `<div class="step ${state}"><span class="n">${i + 1}</span><span class="label">${s.label}</span><button data-step="${i}" ${disabled ? "disabled" : ""}>${i < stepIndex ? "done" : "run"}</button></div>`;
+    })
+    .join("");
+  panelsEl.innerHTML = `<div class="tab-panel active"><p class="desc">${w.desc}</p><div class="steps">${stepsHtml}</div><div class="watch">\u{1F441} ${w.watch}</div></div>`;
+  panelsEl.querySelectorAll("[data-step]").forEach((btn) => {
+    btn.onclick = () => {
+      const i = Number(btn.getAttribute("data-step"));
+      w.steps[i].run();
+      stepIndex = i + 1;
+      render();
+    };
+  });
+}
+
+resetAll();
+render();
+</script>
+</body>
+</html>
