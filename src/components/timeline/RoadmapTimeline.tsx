@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RoadmapData, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
+import type { RoadmapData, Swimlane, SwimlaneGroup, Milestone, TopLevelItem, LegendCategory } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken, lighten, contrastText } from "./color-utils";
@@ -58,6 +58,12 @@ const LABEL_TIER_LIFT = 27;
  */
 const LANE_GUTTER = 7;
 const SEPARATOR_HEIGHT = 30;
+/** PROTOTYPE (wayframe#100): "rail" variant's dedicated left column width — wide enough for a single line of rotated 10.5px uppercase text plus padding on both sides. */
+const GROUP_RAIL_BAND_W = 28;
+/** PROTOTYPE (wayframe#100): "hybrid" variant's persistent spine width — a color cue only, no room for text. */
+const GROUP_HYBRID_SPINE_W = 10;
+/** PROTOTYPE (wayframe#100): "hybrid" rotates its label only once a group spans at least this many lane rows — below that, rotated text reads as noise, not a label. */
+const GROUP_HYBRID_ROTATE_MIN_LANES = 3;
 const TOP_BAND_HEIGHT = 90;
 /** Company-logo header slot (wayframe#46/#54) — reserved above the programName block only when data.companyLogo is set. */
 const COMPANY_LOGO_HEIGHT = 26;
@@ -88,24 +94,91 @@ interface RowInfo {
 /** "lean" lanes (Swimlane.density) render at this fraction of the normal lane height. */
 const LEAN_LANE_FACTOR = 0.75;
 
-function computeRows(
+/** PROTOTYPE (wayframe#100, throwaway): one SwimlaneGroup's vertical band extent, alongside the RowInfo[] of its (and every ungrouped) Swimlane. */
+interface GroupBandInfo {
+  group: SwimlaneGroup;
+  relY: number;
+  height: number;
+  collapsed: boolean;
+}
+
+/**
+ * PROTOTYPE (wayframe#100, throwaway): replaces the old flat computeRows —
+ * with zero SwimlaneGroups this produces the identical RowInfo[] computeRows
+ * did (every Swimlane sorted by `order`, no group items in the mix), so the
+ * zero-groups render path is provably unchanged, not just visually similar.
+ * Ungrouped Swimlanes and SwimlaneGroups share one order space at the top
+ * level (mirrors today's flat separator/lane order space); a group's member
+ * lanes sort by their own `order`, scoped to that group, and render
+ * contiguously wherever the group sits in top-level order.
+ *
+ * "header" reserves its own separatorHeight-tall row above its members,
+ * same as today's separator band, so the header variant is a same-viewport
+ * generalization of what already renders. "rail"/"hybrid" don't consume
+ * extra vertical space for the label — it sits beside the members, not
+ * above them — so a collapsed or empty group still reserves separatorHeight
+ * (enough room for a caret) even though there's no side label to draw yet.
+ */
+function computeRowsAndBands(
   swimlanes: Swimlane[],
+  groups: SwimlaneGroup[],
+  groupBandVariant: "rail" | "header" | "hybrid",
+  collapsedGroupIds: Set<string>,
   laneHeight = LANE_HEIGHT,
   separatorHeight = SEPARATOR_HEIGHT,
-  /** Extra height a lane needs for stacked overlapping duration pills — see stack-intervals.ts. */
   extraHeightByLaneId?: Map<string, number>,
-): RowInfo[] {
+): { rows: RowInfo[]; bands: GroupBandInfo[] } {
+  const groupById = new Map(groups.map((g) => [g.id, g]));
+  const membersByGroup = new Map<string, Swimlane[]>();
+  for (const sl of swimlanes) {
+    if (sl.groupId && groupById.has(sl.groupId)) {
+      if (!membersByGroup.has(sl.groupId)) membersByGroup.set(sl.groupId, []);
+      membersByGroup.get(sl.groupId)!.push(sl);
+    }
+  }
+  for (const members of membersByGroup.values()) members.sort((a, b) => a.order - b.order);
+
+  const topLevel: Array<{ order: number; kind: "swimlane"; sl: Swimlane } | { order: number; kind: "group"; group: SwimlaneGroup }> = [
+    ...swimlanes.filter((sl) => !sl.groupId || !groupById.has(sl.groupId)).map((sl) => ({ order: sl.order, kind: "swimlane" as const, sl })),
+    ...groups.map((g) => ({ order: g.order, kind: "group" as const, group: g })),
+  ];
+  topLevel.sort((a, b) => a.order - b.order);
+
   let y = 0;
   let laneIndex = 0;
-  const out: RowInfo[] = [];
-  for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
+  const rows: RowInfo[] = [];
+  const bands: GroupBandInfo[] = [];
+  const pushSwimlane = (sl: Swimlane) => {
     const base = sl.type === "separator" ? separatorHeight : sl.density === "lean" ? laneHeight * LEAN_LANE_FACTOR : laneHeight;
     const height = sl.type === "lane" ? base + (extraHeightByLaneId?.get(sl.id) ?? 0) : base;
-    out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
+    rows.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
     if (sl.type === "lane") laneIndex += 1;
     y += height;
+  };
+  for (const item of topLevel) {
+    if (item.kind === "swimlane") {
+      pushSwimlane(item.sl);
+      continue;
+    }
+    const collapsed = collapsedGroupIds.has(item.group.id);
+    const members = membersByGroup.get(item.group.id) ?? [];
+    if (groupBandVariant === "header") {
+      const bandY = y;
+      y += separatorHeight;
+      if (!collapsed) for (const sl of members) pushSwimlane(sl);
+      bands.push({ group: item.group, relY: bandY, height: separatorHeight, collapsed });
+    } else {
+      const bandY = y;
+      if (collapsed || members.length === 0) {
+        y += separatorHeight;
+        bands.push({ group: item.group, relY: bandY, height: separatorHeight, collapsed: true });
+      } else {
+        for (const sl of members) pushSwimlane(sl);
+        bands.push({ group: item.group, relY: bandY, height: y - bandY, collapsed: false });
+      }
+    }
   }
-  return out;
+  return { rows, bands };
 }
 
 function computeDomain(data: RoadmapData): { domainMin: number; domainMax: number } {
@@ -1205,6 +1278,18 @@ export interface RoadmapTimelineProps {
   onToggleSelect?: (id: string) => void;
   /** Fired once a marquee drag completes, with every milestone id it covered. */
   onMarqueeSelect?: (ids: string[]) => void;
+  /**
+   * PROTOTYPE (wayframe#100, throwaway): which of three group-band layouts
+   * to render for data.swimlaneGroups. "rail" reserves a dedicated
+   * 270°-rotated left column; "header" spans full-width like today's
+   * separator but nests real group semantics under it; "hybrid" keeps a
+   * thin persistent color spine and only rotates a label when a group is
+   * tall enough to read one. Omit/undefined = "header" (closest to today's
+   * rendering, safest default until #100 resolves).
+   */
+  groupBandVariant?: "rail" | "header" | "hybrid";
+  /** PROTOTYPE (wayframe#100, throwaway): fired when a group band's collapse control is clicked. */
+  onToggleGroupCollapsed?: (groupId: string) => void;
 }
 
 export function RoadmapTimeline({
@@ -1250,6 +1335,8 @@ export function RoadmapTimeline({
   selectedIds,
   onToggleSelect,
   onMarqueeSelect,
+  groupBandVariant = "header",
+  onToggleGroupCollapsed,
 }: RoadmapTimelineProps) {
   // Auto lane height — only ever shrinks the fixed
   // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
@@ -1294,9 +1381,34 @@ export function RoadmapTimeline({
     }
   }
 
-  const rows = computeRows(data.swimlanes, laneHeightPx, SEPARATOR_HEIGHT * boxScale, extraHeightByLaneId);
+  // PROTOTYPE (wayframe#100, throwaway): group bands. collapsedGroupIds
+  // reads straight off document content (SwimlaneGroup.collapsed) rather
+  // than component state — same "document content, not viewer preference"
+  // reasoning as Swimlane.density, so toggling round-trips through the
+  // parent via onToggleGroupCollapsed exactly like onMilestoneDateChange
+  // does for a date edit.
+  const swimlaneGroups = data.swimlaneGroups ?? [];
+  const collapsedGroupIds = new Set(swimlaneGroups.filter((g) => g.collapsed).map((g) => g.id));
+  const { rows, bands: groupBands } = computeRowsAndBands(
+    data.swimlanes,
+    swimlaneGroups,
+    groupBandVariant,
+    collapsedGroupIds,
+    laneHeightPx,
+    SEPARATOR_HEIGHT * boxScale,
+    extraHeightByLaneId,
+  );
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
+  // PROTOTYPE (wayframe#100, throwaway): a collapsed group's lanes are
+  // simply absent from `rows` — but the point-marker/pill/connector layers
+  // below key off laneY(m.laneId), whose existing not-found fallback
+  // (return lanesTop) was written for "this laneId shouldn't happen," not
+  // "this lane is intentionally hidden." Without this filter, a collapsed
+  // group's milestones all stack up as orphaned markers at the very top of
+  // the chart — found by actually clicking collapse on the rendered
+  // prototype, not from reading the code.
+  const visibleMilestones = data.milestones.filter((m) => rowById.has(m.laneId));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
   const categoryById = new Map((data.legendCategories ?? []).map((c) => [c.id, c]));
   /** Vertical offset for a pill's cy within its (possibly grown) lane — 0 for every lane that isn't stacking. */
@@ -1402,12 +1514,25 @@ export function RoadmapTimeline({
   const { domainMin, domainMax } = computeDomain(data);
   const todayTs = today.getTime();
 
-  const innerWidth = width - MARGIN.left - MARGIN.right;
+  // PROTOTYPE (wayframe#100, throwaway): only "rail"/"hybrid" carve a
+  // dedicated left column, and only once the document actually has a group
+  // to show — a document with zero groups renders with the same 220px
+  // gutter as today, unconditionally.
+  const groupBandW =
+    swimlaneGroups.length === 0
+      ? 0
+      : groupBandVariant === "rail"
+        ? GROUP_RAIL_BAND_W * boxScale
+        : groupBandVariant === "hybrid"
+          ? GROUP_HYBRID_SPINE_W * boxScale
+          : 0;
+  const effMarginLeft = MARGIN.left + groupBandW;
+  const innerWidth = width - effMarginLeft - MARGIN.right;
   function x(dateStr: string): number {
-    return MARGIN.left + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
+    return effMarginLeft + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
   }
   function xTs(ts: number): number {
-    return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
+    return effMarginLeft + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
   }
 
   // Every reference line (Today, annotations, showReferenceLine milestones/
@@ -1566,7 +1691,7 @@ export function RoadmapTimeline({
 
   /** Inverse of x(): a pixel position back to an ISO date, snapped to a day. */
   function dateAtX(px: number): string {
-    const ts = domainMin + ((px - MARGIN.left) / innerWidth) * (domainMax - domainMin);
+    const ts = domainMin + ((px - effMarginLeft) / innerWidth) * (domainMax - domainMin);
     const d = new Date(ts);
     return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10);
   }
@@ -2174,7 +2299,7 @@ export function RoadmapTimeline({
             milestone-only, no picker; a phase-only-buildable-from-elsewhere tradeoff accepted in favor of the
             top band's minimal footprint (switch to "border" or "tint" in the options menu to add a phase). */}
         {onAddTopLevelItem && topBandStyle === "chip" && (
-          <AddMilestoneButton laneId="__top__" x={MARGIN.left - RAIL_W - 20} y={topBandY + 16} theme={theme} onAdd={() => onAddTopLevelItem("milestone")} />
+          <AddMilestoneButton laneId="__top__" x={effMarginLeft - RAIL_W - 20} y={topBandY + 16} theme={theme} onAdd={() => onAddTopLevelItem("milestone")} />
         )}
 
         {/* swimlane rows: separators (group headers) + lanes with a solid darker header block */}
@@ -2210,6 +2335,18 @@ export function RoadmapTimeline({
           // that carries the least information.
           const tint = laneColor(row.swimlane, row.laneIndex);
           const laneNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 3, { breakWords: false });
+          // PROTOTYPE (wayframe#100): "header" is the only variant where a
+          // grouped lane's own name needs a visual nesting cue — "rail" and
+          // "hybrid" already show membership via the side band, so indenting
+          // there too would just be double-marking the same fact.
+          // PROTOTYPE (wayframe#100): "header" reserves no side column, so
+          // only a grouped lane's own indent needs adjusting there. "rail"
+          // and "hybrid" reserve a side column for every row (grouped or
+          // not — it's a document-wide gutter change, same as any other
+          // MARGIN.left shift), so every lane's header text has to clear it
+          // or it lands inside the group band's own column instead of the
+          // lane's gutter.
+          const laneTextX = groupBandVariant === "header" ? (row.swimlane.groupId ? 16 + 12 : 16) : 16 + groupBandW;
           return (
             <g key={row.swimlane.id}>
               {/* The wash and rail are inset by LANE_GUTTER so bare ground
@@ -2217,7 +2354,7 @@ export function RoadmapTimeline({
                   continuous field with a hairline in it; a real gap is what
                   makes the lane change register. */}
               <rect
-                x={MARGIN.left}
+                x={effMarginLeft}
                 y={y0 + LANE_GUTTER}
                 width={innerWidth}
                 height={row.height - LANE_GUTTER * 2}
@@ -2246,12 +2383,12 @@ export function RoadmapTimeline({
                   strokeDasharray="3 2"
                 />
               )}
-              <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
+              <rect x={effMarginLeft - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
               <text fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink}>
                 {laneNameLines.map((line, i) => (
                   <tspan
                     key={i}
-                    x={16}
+                    x={laneTextX}
                     y={y0 + row.height / 2 + (i - (laneNameLines.length - 1) / 2 - (swimlaneOwnerVisible && row.swimlane.owner ? 0.5 : 0)) * 15 * fontScale}
                     dominantBaseline="middle"
                   >
@@ -2264,7 +2401,7 @@ export function RoadmapTimeline({
                   treatment as the header's owner line. */}
               {swimlaneOwnerVisible && row.swimlane.owner && (
                 <text
-                  x={16}
+                  x={laneTextX}
                   y={y0 + row.height / 2 + ((laneNameLines.length - 1) / 2 + 1) * 15 * fontScale}
                   fontSize={10 * fontScale}
                   fill={theme.inkMuted}
@@ -2273,7 +2410,114 @@ export function RoadmapTimeline({
                 </text>
               )}
               {onAddMilestone && onPickShape && (
-                <AddLanePicker x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} fontScale={fontScale} onPick={(shape) => onPickShape(row.swimlane.id, shape)} />
+                <AddLanePicker x={effMarginLeft - RAIL_W - 20} y={y0 + 16} theme={theme} fontScale={fontScale} onPick={(shape) => onPickShape(row.swimlane.id, shape)} />
+              )}
+            </g>
+          );
+        })}
+
+        {/* PROTOTYPE (wayframe#100, throwaway): group bands. Painted after
+            every lane row so the band's caret/rail sits on top of lane
+            washes, same stacking order the lane rail (RAIL_W) already uses
+            against its own wash. */}
+        {groupBands.map((band) => {
+          const y0 = lanesTop + band.relY;
+          const groupColor = band.group.color ?? theme.inkMuted;
+          const toggle = () => onToggleGroupCollapsed?.(band.group.id);
+          const caretGlyph = band.collapsed ? "▸" : "▾"; // ▸ collapsed, ▾ expanded
+
+          if (groupBandVariant === "header") {
+            const headerLines = wrapText(band.group.name, Math.max(8, Math.floor(24 / metricsScale)), 2, { breakWords: false });
+            return (
+              <g key={band.group.id} style={{ cursor: "pointer" }} onClick={toggle}>
+                <rect x={0} y={y0} width={width} height={band.height} fill={theme.separatorBg} />
+                <rect x={0} y={y0} width={4} height={band.height} fill={groupColor} />
+                <text fontSize={11 * fontScale} fill={theme.separatorText} dominantBaseline="middle">
+                  <tspan x={16} y={y0 + band.height / 2}>
+                    {caretGlyph}
+                  </tspan>
+                </text>
+                <text
+                  fontSize={10.5 * fontScale}
+                  fontWeight={700}
+                  letterSpacing="0.09em"
+                  fill={theme.separatorText}
+                  style={{ textTransform: "uppercase" }}
+                >
+                  {headerLines.map((line, i) => (
+                    <tspan key={i} x={30} y={y0 + band.height / 2 + (i - (headerLines.length - 1) / 2) * 12 * fontScale} dominantBaseline="middle">
+                      {line}
+                    </tspan>
+                  ))}
+                </text>
+              </g>
+            );
+          }
+
+          // "rail" / "hybrid" share a side column; only its width and
+          // whether the label rotates at all differ.
+          const bandW = (groupBandVariant === "rail" ? GROUP_RAIL_BAND_W : GROUP_HYBRID_SPINE_W) * boxScale;
+          const shouldRotateLabel = groupBandVariant === "rail" || band.height >= GROUP_HYBRID_ROTATE_MIN_LANES * laneHeightPx;
+          const cx = bandW / 2;
+          const cy = y0 + band.height / 2;
+          // Rough estimate (uppercase, 10.5px, 0.09em tracking) — clamps
+          // textLength only when the name would actually overrun the band,
+          // so short names don't get stretched to fill it.
+          const estCharW = 7.4 * fontScale;
+          const estTextPx = band.group.name.length * estCharW;
+          const available = Math.max(0, band.height - 16);
+          const clampTextLength = estTextPx > available ? available : undefined;
+          return (
+            <g key={band.group.id}>
+              <rect
+                x={0}
+                y={y0}
+                width={bandW}
+                height={band.height}
+                fill={groupBandVariant === "rail" ? theme.separatorBg : "transparent"}
+                style={{ cursor: "pointer" }}
+                onClick={toggle}
+              />
+              <rect x={0} y={y0} width={groupBandVariant === "hybrid" ? bandW : 4} height={band.height} fill={groupColor} />
+              {shouldRotateLabel ? (
+                <text
+                  x={cx}
+                  y={cy}
+                  fontSize={10.5 * fontScale}
+                  fontWeight={700}
+                  letterSpacing="0.09em"
+                  fill={groupBandVariant === "hybrid" ? contrastText(groupColor) : theme.separatorText}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  style={{ textTransform: "uppercase", cursor: "pointer" }}
+                  transform={`rotate(-90 ${cx} ${cy})`}
+                  textLength={clampTextLength}
+                  lengthAdjust={clampTextLength ? "spacingAndGlyphs" : undefined}
+                  onClick={toggle}
+                >
+                  {band.group.name}
+                </text>
+              ) : (
+                // Below the rotate-worthiness floor: a short horizontal
+                // abbreviation chip instead of fighting for room a rotated
+                // run doesn't have — the tradeoff this variant is testing.
+                <text
+                  x={bandW / 2}
+                  y={y0 + 12}
+                  fontSize={8.5 * fontScale}
+                  fontWeight={700}
+                  fill={contrastText(groupColor)}
+                  textAnchor="middle"
+                  style={{ textTransform: "uppercase", cursor: "pointer" }}
+                  onClick={toggle}
+                >
+                  {band.group.name.slice(0, 3)}
+                </text>
+              )}
+              {groupBandVariant === "rail" && (
+                <text x={bandW / 2} y={y0 + band.height - 10} fontSize={9 * fontScale} fill={theme.separatorText} textAnchor="middle" style={{ cursor: "pointer" }} onClick={toggle}>
+                  {caretGlyph}
+                </text>
               )}
             </g>
           );
@@ -2288,7 +2532,7 @@ export function RoadmapTimeline({
             competing with content. */}
         {todayOverlayEnabled && todayVisible && (
           <>
-            <rect x={MARGIN.left} y={lanesTop} width={Math.max(0, xTs(todayTs) - MARGIN.left)} height={bodyHeight} fill="#e11d48" fillOpacity={0.05} />
+            <rect x={effMarginLeft} y={lanesTop} width={Math.max(0, xTs(todayTs) - effMarginLeft)} height={bodyHeight} fill="#e11d48" fillOpacity={0.05} />
             <path d={`M${xTs(todayTs) - 5},${chartTopMargin + axisHeight} L${xTs(todayTs) + 5},${chartTopMargin + axisHeight} L${xTs(todayTs)},${chartTopMargin + axisHeight - 8} Z`} fill="#e11d48" />
           </>
         )}
@@ -2326,7 +2570,7 @@ export function RoadmapTimeline({
           ))}
 
         {/* dependency connectors — orthogonal "elbow" steps */}
-        {data.milestones.flatMap((m) =>
+        {visibleMilestones.flatMap((m) =>
           m.dependsOn
             // showConnector curates which ordinary edges are worth drawing
             // (wayframe#5), but a critical edge always draws: the critical
@@ -2342,7 +2586,11 @@ export function RoadmapTimeline({
             })
             .map((d) => {
               const from = milestoneById.get(d.id);
-              if (!from) return null;
+              // PROTOTYPE (wayframe#100): a connector's *source* isn't
+              // covered by visibleMilestones' own filter (that only
+              // guarded `m`, the target) — same orphaned-at-lanesTop
+              // failure mode if `from` sits in a collapsed group's lane.
+              if (!from || !rowById.has(from.laneId)) return null;
               const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
               const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(from.id);
               const x1 = x(from.date);
@@ -2436,7 +2684,7 @@ export function RoadmapTimeline({
         </defs>
 
         {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
-        {data.milestones
+        {visibleMilestones
           .filter((m) => m.endDate)
           .map((m) => {
             const pillHeightSm = PILL_HEIGHT_SM * boxScale;
@@ -2534,7 +2782,7 @@ export function RoadmapTimeline({
           })}
 
         {/* milestones on top of connectors — point-in-time only; endDate milestones render as duration pills above instead */}
-        {data.milestones
+        {visibleMilestones
           .filter((m) => !m.endDate)
           .map((m) => (
             <MilestoneMarker
@@ -2570,7 +2818,7 @@ export function RoadmapTimeline({
 
         {/* Forward-looking slip-risk projection (wayframe#61/#72) — point milestones only; duration pills render their own projection above. */}
         {atRiskMode !== "off" &&
-          data.milestones
+          visibleMilestones
             .filter((m) => !m.endDate && m.potentialDate)
             .map((m) => (
               <AtRiskProjection

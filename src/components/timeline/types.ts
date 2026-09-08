@@ -69,6 +69,50 @@ export interface Swimlane {
    * Document content, same placement reasoning as `color`/`density`.
    */
   owner?: string;
+  /**
+   * PROTOTYPE (wayframe#100, throwaway): FK into RoadmapData.swimlaneGroups.
+   * undefined = ungrouped, renders exactly as today. A lane's containing
+   * group is looked up by this id rather than inferred from its position
+   * relative to `type: "separator"` rows — see SwimlaneGroup's doc for why.
+   */
+  groupId?: string;
+}
+
+/**
+ * PROTOTYPE (wayframe#100, throwaway): the real container that replaces
+ * today's flat `type: "separator"` Swimlane rows. A separator row was never
+ * more than a rendered band marking "everything below this until the next
+ * separator" — nothing associated it with the lanes underneath except
+ * render order. A Group is that same idea made real: an explicit id every
+ * child Swimlane points at via `Swimlane.groupId`, so membership survives
+ * reordering, filtering, or a lane moving to a different position without
+ * needing to stay adjacent to its siblings.
+ *
+ * Ordering mirrors Swimlane.order's existing scheme rather than introducing
+ * a second one: `SwimlaneGroup.order` shares one numeric space with
+ * top-level (ungrouped) Swimlane.order values — a Group and an ungrouped
+ * lane are peers at the top level, exactly like a separator row and a lane
+ * were peers before. Within a group, member lanes keep using their own
+ * `Swimlane.order`, now scoped to siblings sharing the same `groupId`
+ * instead of the whole document.
+ *
+ * Migration from today's flat rows is additive, not a restructuring: a
+ * `type: "separator"` row becomes a SwimlaneGroup with the same name/order,
+ * and every `type: "lane"` row between it and the next separator gets that
+ * group's id written into `groupId`. Documents with zero groups keep
+ * rendering identically to today.
+ */
+export interface SwimlaneGroup {
+  id: string;
+  order: number;
+  name: string;
+  color?: string;
+  /**
+   * Document content, not a viewer preference — same reasoning as
+   * Swimlane.density: a program owner collapsing a group is an editorial
+   * layout call everyone opening the file should see.
+   */
+  collapsed?: boolean;
 }
 
 /**
@@ -241,6 +285,8 @@ export interface RoadmapData {
   };
   actionItems: ActionItem[];
   swimlanes: Swimlane[];
+  /** PROTOTYPE (wayframe#100, throwaway) — see SwimlaneGroup's doc. */
+  swimlaneGroups?: SwimlaneGroup[];
   topLevelItems: TopLevelItem[];
   milestones: Milestone[];
   /**
