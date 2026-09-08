@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PROTOTYPE — CRDT decomposition, invariants &amp; derived data (wayframe#89)</title>
+<style>
+  :root {
+    --ink: #1b1f24; --sub: #5b6470; --line: #dfe3e8; --bg: #fafbfc; --panel: #ffffff;
+    --accent: #7c5cff; --accent-weak: #efeaff; --good: #1f8a4c; --warn: #b5750a; --bad: #c23b3b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.45; }
+  header { padding: 28px 32px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0 0 8px; font-size: 20px; }
+  header .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--bad); border: 1px solid var(--bad); border-radius: 4px; padding: 2px 6px; margin-bottom: 10px; }
+  header p { max-width: 920px; color: var(--sub); margin: 6px 0; font-size: 14px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 32px 60px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; }
+  .panel h2 { margin: 0 0 4px; font-size: 15px; }
+  .panel .hint { color: var(--sub); font-size: 12.5px; margin: 0 0 12px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+  td.mono, th.mono { font-family: var(--mono); }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  button { font: inherit; font-size: 12.5px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; color: var(--ink); }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { color: #fff; opacity: 0.9; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); flex-wrap: wrap; }
+  .tab-btn { border: none; border-radius: 6px 6px 0 0; background: transparent; padding: 9px 14px; font-size: 12.5px; color: var(--sub); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab-panel { display: none; background: var(--panel); border: 1px solid var(--line); border-top: none; border-radius: 0 0 10px 10px; padding: 16px 18px; }
+  .tab-panel.active { display: block; }
+  .tab-panel p.desc { color: var(--sub); font-size: 13px; margin-top: 0; }
+
+  .verdict { border-left: 3px solid var(--line); padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-top: 12px; }
+  .verdict.pass { border-left-color: var(--good); background: #e6f5ea; }
+  .verdict.fail { border-left-color: var(--bad); background: #fdecec; }
+  .verdict .kind { font-weight: 700; font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 3px; }
+  .verdict.pass .kind { color: var(--good); }
+  .verdict.fail .kind { color: var(--bad); }
+
+  .problem { border-left: 3px solid var(--warn); background: #fff8ea; padding: 6px 10px; border-radius: 4px; font-size: 12.5px; margin-bottom: 6px; }
+  .problem.orphan { border-left-color: var(--bad); background: #fdecec; }
+  .none { color: var(--good); font-size: 12.5px; }
+
+  .log { font-family: var(--mono); font-size: 11px; color: var(--sub); background: #f4f5f7; border-radius: 6px; padding: 8px 10px; max-height: 220px; overflow-y: auto; margin-top: 12px; white-space: pre-wrap; }
+
+  #summary { font-size: 13px; margin-top: 14px; }
+  #summary.pass { color: var(--good); font-weight: 600; }
+  #summary.fail { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">Throwaway prototype — not production code</div>
+  <h1>CRDT decomposition, invariants &amp; derived data — wayframe#89</h1>
+  <p>
+    <strong>Questions this demo checks, against a runnable pure module (not the real Yjs library —
+    a hand-rolled per-key LWW simulation standing in for it, same abstraction level #86/#87's
+    prototypes used):</strong> does a Program-scoped clock space (vs. a whole-Portfolio one) let two
+    peers' concurrent edits land without one clobbering the other? Does a referential-invariant
+    scan surface a dangling reference instead of rejecting or silently dropping the op that caused
+    it? Does dropping <code>isCriticalPath</code> persistence actually remove the concurrent-write
+    problem instead of just relocating it? Does switching <code>rollupHistory</code> from an array
+    to a date-keyed map actually fix the duplicate-entry race the array form has?
+  </p>
+</header>
+
+<main>
+
+  <div class="panel">
+    <h2>Run everything</h2>
+    <p class="hint">Executes all four walkthroughs' assertions in one pass, headless — same checks the tabs below run individually with visible before/after state.</p>
+    <button class="primary" onclick="runAll()">Run all checks</button>
+    <div id="summary"></div>
+    <div class="log" id="all-log" style="display:none;"></div>
+  </div>
+
+  <h2 style="font-size:16px;">Guided walkthroughs</h2>
+  <div class="tabs" id="tabs"></div>
+  <div id="tab-panels"></div>
+
+</main>
+
+<script>
+// ============================================================================
+// PURE MODULE — this is the part meant to lift into the real codebase once
+// the shape below is settled. No DOM in here; every function is a plain
+// (state, action) -> state reducer or a pure derivation, so it's testable the
+// same way outside this HTML shell.
+//
+// CRDT semantics are hand-simulated, not the real Yjs library: every write
+// carries a logical clock, and merging two peers' writes to the SAME key
+// keeps whichever has the higher clock (Yjs's own per-key Y.Map LWW rule).
+// Writes to DIFFERENT keys both survive unconditionally — that's the whole
+// point of a Y.Map over a single blob field, already proven in #88.
+// ============================================================================
+
+let clock = 0;
+function tick() { return ++clock; }
+
+/** One Program's Yjs subdocument, modeled as plain per-key maps with an LWW clock per key. */
+function createProgram() {
+  return {
+    lanes: {
+      "lane-1": { v: { id: "lane-1", name: "Platform" }, c: tick() },
+      "lane-2": { v: { id: "lane-2", name: "Growth" }, c: tick() },
+    },
+    milestones: {
+      "m1": { v: { id: "m1", title: "Kickoff", laneId: "lane-1", date: "2026-01-15", dependsOn: [], status: "on-track", rev: 1 }, c: tick() },
+      "m2": { v: { id: "m2", title: "Beta", laneId: "lane-1", date: "2026-04-01", dependsOn: [{ id: "m1" }], status: "on-track", rev: 1 }, c: tick() },
+    },
+    // date-keyed map — the FIX this ticket proposes in place of a plain array
+    rollupHistoryMap: {},
+    // plain array — the NAIVE alternative being disproved
+    rollupHistoryArray: [],
+  };
+}
+
+function cloneProgram(p) { return JSON.parse(JSON.stringify(p)); }
+
+/**
+ * Merge two peers' divergent copies of the same Program back into one converged
+ * state. A delete is a tombstone entry with its own clock (Yjs really does keep
+ * deleted-item metadata for this reason) — plain key-absence can't tell "this
+ * peer never touched the key" apart from "this peer deleted it," which would
+ * let an unrelated peer's stale, never-deleted copy silently resurrect it.
+ */
+function mergeMap(a, b) {
+  const out = {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const av = a[key], bv = b[key];
+    const winner = (!av) ? bv : (!bv) ? av : (bv.c > av.c ? bv : av);
+    if (winner && !winner.deleted) out[key] = winner;
+  }
+  return out;
+}
+
+function mergeProgram(a, b) {
+  const out = cloneProgram(a);
+  out.lanes = mergeMap(a.lanes, b.lanes);
+  out.milestones = mergeMap(a.milestones, b.milestones);
+  // rollupHistoryMap: per-key (per-date) LWW, same rule as any other Y.Map
+  const mergedMap = { ...a.rollupHistoryMap };
+  for (const [date, entry] of Object.entries(b.rollupHistoryMap)) {
+    const existing = mergedMap[date];
+    mergedMap[date] = (!existing || entry.c > existing.c) ? entry : existing;
+  }
+  out.rollupHistoryMap = mergedMap;
+  // rollupHistoryArray: a Y.Array insert has no "same slot" to LWW against —
+  // both peers' inserts survive as separate array entries, by design/by bug.
+  out.rollupHistoryArray = [...a.rollupHistoryArray, ...b.rollupHistoryArray];
+  return out;
+}
+
+function deleteLane(program, laneId) {
+  const p = cloneProgram(program);
+  p.lanes[laneId] = { deleted: true, c: tick() };
+  return p;
+}
+
+function setMilestoneField(program, id, field, value) {
+  const p = cloneProgram(program);
+  const cur = p.milestones[id].v;
+  p.milestones[id] = { v: { ...cur, [field]: value, rev: cur.rev + 1 }, c: tick() };
+  return p;
+}
+
+/** Generalizes #87's Scenario-orphan doctrine to lane/dependsOn/linksToTopLevelMilestone. Surfaces, never mutates. */
+function referentialScan(program) {
+  const problems = [];
+  const laneIds = new Set(Object.keys(program.lanes));
+  const msIds = new Set(Object.keys(program.milestones));
+  for (const [id, entry] of Object.entries(program.milestones)) {
+    const m = entry.v;
+    if (m.laneId && !laneIds.has(m.laneId)) {
+      problems.push({ kind: "orphan", id, message: `Milestone "${m.title}" references deleted lane "${m.laneId}"` });
+    }
+    for (const dep of m.dependsOn ?? []) {
+      if (!msIds.has(dep.id)) {
+        problems.push({ kind: "orphan", id, message: `Milestone "${m.title}" depends on deleted milestone "${dep.id}"` });
+      }
+    }
+  }
+  return problems;
+}
+
+/** isCriticalPath: pure function of dependsOn + dates. Never stored — every peer derives it locally. */
+function deriveIsCriticalPath(program) {
+  const ms = program.milestones;
+  const ids = Object.keys(ms);
+  if (ids.length === 0) return {};
+  let latest = ids[0];
+  for (const id of ids) if (ms[id].v.date > ms[latest].v.date) latest = id;
+  const critical = new Set([latest]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const id of ids) {
+      if (!critical.has(id)) continue;
+      for (const dep of ms[id].v.dependsOn ?? []) {
+        if (!critical.has(dep.id)) { critical.add(dep.id); changed = true; }
+      }
+    }
+  }
+  const out = {};
+  for (const id of ids) out[id] = critical.has(id);
+  return out;
+}
+
+/** Cascade with #87-style rev-staleness check: recompute against current state if a target moved since the correction was drafted. */
+function applyCascadeWithRevCheck(program, draftedRevs, directOps) {
+  const stale = directOps.filter((op) => program.milestones[op.targetId].v.rev !== draftedRevs[op.targetId]);
+  if (stale.length > 0) {
+    return { applied: false, note: `plan moved — ${stale.map((s) => s.targetId).join(", ")} changed since this correction was drafted; recompute before applying`, ops: [] };
+  }
+  return { applied: true, note: null, ops: directOps };
+}
+
+// ============================================================================
+// WALKTHROUGH SCRIPTS — each returns {log: string[], pass: boolean, detail}
+// ============================================================================
+
+function walkthrough1() {
+  const log = [];
+  const base = createProgram();
+  const peerA = deleteLane(base, "lane-1"); // A: delete the lane m2 lives in
+  const peerB = setMilestoneField(base, "m2", "title", "Beta (renamed)"); // B: unrelated edit, unaware
+  log.push("Peer A deletes lane-1.");
+  log.push("Peer B (concurrently, unaware) renames milestone m2 — does NOT touch laneId.");
+  const merged = mergeProgram(peerA, peerB);
+  log.push(`Merged: lanes = [${Object.keys(merged.lanes).join(", ")}], m2.laneId = "${merged.milestones.m2.v.laneId}", m2.title = "${merged.milestones.m2.v.title}"`);
+  const problems = referentialScan(merged);
+  log.push(`Referential scan found ${problems.length} problem(s): ${problems.map((p) => p.message).join(" | ") || "(none)"}`);
+  const m2Survived = !!merged.milestones.m2;
+  const renameLanded = merged.milestones.m2.v.title === "Beta (renamed)";
+  const orphanSurfaced = problems.some((p) => p.id === "m2");
+  const pass = m2Survived && renameLanded && orphanSurfaced;
+  log.push(pass
+    ? "PASS — neither op was rejected (m2 still exists, rename landed); the orphan is surfaced, not silently dropped or auto-healed."
+    : "FAIL");
+  return { log, pass, detail: { problems } };
+}
+
+function walkthrough2() {
+  const log = [];
+  const base = createProgram();
+  // Two peers each independently edit a DIFFERENT unrelated field, then each locally
+  // derives isCriticalPath from their own (temporarily divergent) local state.
+  const peerA = setMilestoneField(base, "m1", "date", "2026-01-10");
+  const peerB = setMilestoneField(base, "m2", "date", "2026-05-01");
+  const localA = deriveIsCriticalPath(peerA);
+  const localB = deriveIsCriticalPath(peerB);
+  log.push(`Before merge — Peer A's local derivation (sees only its own edit): m1=${localA.m1}, m2=${localA.m2}`);
+  log.push(`Before merge — Peer B's local derivation (sees only its own edit): m1=${localB.m1}, m2=${localB.m2}`);
+  log.push("Neither peer WROTE these booleans anywhere — they're query-time values, never a shared key two peers could race on.");
+  const merged = mergeProgram(peerA, peerB);
+  const afterA = deriveIsCriticalPath(merged);
+  const afterB = deriveIsCriticalPath(merged); // second "peer" re-running the same pure fn post-merge
+  log.push(`After merge — both peers re-derive from the SAME converged state: A gets m1=${afterA.m1},m2=${afterA.m2}; B gets m1=${afterB.m1},m2=${afterB.m2}`);
+  const identical = JSON.stringify(afterA) === JSON.stringify(afterB);
+  log.push(identical
+    ? "PASS — post-merge, every peer's local derivation is byte-identical with zero synced writes and zero conflict window to reason about."
+    : "FAIL — derivations diverged after merge, which would mean the pure function itself isn't deterministic.");
+  return { log, pass: identical, detail: { afterA, afterB } };
+}
+
+function walkthrough3() {
+  const log = [];
+  const base = createProgram();
+  const today = "2026-09-08";
+  const snapshot = { v: { date: today, rag: "amber", atRiskCount: 1 }, c: tick() };
+  // Two collaborators both open the Program the same day and both pass the
+  // "no entry for today yet" guard against their OWN local copy before syncing.
+  const peerA = cloneProgram(base);
+  peerA.rollupHistoryArray = [...peerA.rollupHistoryArray, snapshot.v];
+  peerA.rollupHistoryMap = { ...peerA.rollupHistoryMap, [today]: snapshot };
+  const peerB = cloneProgram(base);
+  const snapshotB = { v: { date: today, rag: "amber", atRiskCount: 1 }, c: tick() }; // same pure computation, later clock
+  peerB.rollupHistoryArray = [...peerB.rollupHistoryArray, snapshotB.v];
+  peerB.rollupHistoryMap = { ...peerB.rollupHistoryMap, [today]: snapshotB };
+  log.push(`Peer A and Peer B both append today's (${today}) rollup snapshot, unaware of each other.`);
+  const merged = mergeProgram(peerA, peerB);
+  log.push(`NAIVE (Y.Array) merged result: ${merged.rollupHistoryArray.length} entries for ${today} → [${merged.rollupHistoryArray.map((e) => e.rag).join(", ")}]`);
+  log.push(`FIXED (Y.Map keyed by date) merged result: ${Object.keys(merged.rollupHistoryMap).length} entry for ${today} → ${JSON.stringify(merged.rollupHistoryMap[today].v)}`);
+  const arrayDuplicated = merged.rollupHistoryArray.length === 2;
+  const mapConverged = Object.keys(merged.rollupHistoryMap).length === 1;
+  const pass = arrayDuplicated && mapConverged;
+  log.push(pass
+    ? "PASS — confirms the bug in the current array shape (2 entries for one day) AND confirms the date-keyed map fix converges to exactly 1, with the same rollup value either way since ragForLane is pure."
+    : "FAIL");
+  return { log, pass, detail: { arrayLen: merged.rollupHistoryArray.length, mapLen: Object.keys(merged.rollupHistoryMap).length } };
+}
+
+function walkthrough4() {
+  const log = [];
+  const base = createProgram();
+  // A correction is drafted against m1's CURRENT rev (1), proposing to push m2 out via cascade.
+  const draftedRevs = { m2: 1 };
+  const directOps = [{ targetId: "m2", field: "date", newValue: "2026-04-10" }];
+  log.push("Correction drafted: shift m2 to 2026-04-10 (direct op), recorded against m2.rev=1.");
+  // Concurrently, before the correction is applied, another peer edits m2 directly (bumps its rev).
+  const afterConcurrentEdit = setMilestoneField(base, "m2", "status", "at-risk");
+  log.push(`Concurrently, another peer marks m2 at-risk — m2.rev is now ${afterConcurrentEdit.milestones.m2.v.rev} (was 1).`);
+  const result = applyCascadeWithRevCheck(afterConcurrentEdit, draftedRevs, directOps);
+  log.push(`Apply-time rev check: ${JSON.stringify(result)}`);
+  const pass = result.applied === false && result.note.includes("plan moved") && result.ops.length === 0;
+  log.push(pass
+    ? "PASS — stale cascade is not silently applied on top of a graph that moved; surfaces the same #87 'plan moved' note and forces a recompute rather than corrupting m2's already-updated state."
+    : "FAIL");
+  // Now show the happy path: no concurrent edit, rev matches, cascade applies.
+  const happyResult = applyCascadeWithRevCheck(base, { m2: 1 }, directOps);
+  log.push(`Control case (no concurrent edit): ${JSON.stringify(happyResult)}`);
+  const happyPass = happyResult.applied === true && happyResult.ops.length === 1;
+  log.push(happyPass ? "PASS — unstale cascade applies normally." : "FAIL");
+  return { log, pass: pass && happyPass, detail: { result, happyResult } };
+}
+
+const WALKTHROUGHS = [
+  { id: "w1", title: "Referential scan: concurrent delete-lane vs. set-laneId", run: walkthrough1,
+    desc: "Peer A deletes lane-1 while Peer B, unaware, renames a milestone that lives in lane-1. Neither op is individually invalid. Only after merge does the dangling laneId exist. Checks: the scan surfaces it as an orphan problem, and neither op got rejected or reverted to make it go away." },
+  { id: "w2", title: "isCriticalPath: not persisting removes the race, doesn't relocate it", run: walkthrough2,
+    desc: "Two peers each edit a different milestone's date, then each locally derives isCriticalPath — first from their own pre-merge view (which can legitimately disagree, since they've seen different edits), then again from the converged post-merge state. Checks: post-merge, every peer's derivation is identical with no synced write ever having happened." },
+  { id: "w3", title: "rollupHistory: Y.Array duplicates, date-keyed Y.Map converges", run: walkthrough3,
+    desc: "Two collaborators both pass the same-day guard against their own local copy and both append. Checks: the naive array shape produces 2 entries for one date (the bug this ticket fixes); the date-keyed map shape produces exactly 1 (the fix)." },
+  { id: "w4", title: "Cascade rev-staleness reuses #87's 'plan moved' pattern", run: walkthrough4,
+    desc: "A correction's cascade is drafted against milestone revs at draft time. Checks: if a target's rev advances (a concurrent edit landed) before the correction is applied, the stale cascade is not applied — it surfaces #87's 'plan moved' note instead. A control run with no concurrent edit applies normally." },
+];
+
+// ============================================================================
+// UI GLUE
+// ============================================================================
+
+function renderTabs() {
+  const tabs = document.getElementById("tabs");
+  const panels = document.getElementById("tab-panels");
+  tabs.innerHTML = "";
+  panels.innerHTML = "";
+  WALKTHROUGHS.forEach((w, i) => {
+    const btn = document.createElement("button");
+    btn.className = "tab-btn" + (i === 0 ? " active" : "");
+    btn.textContent = w.title;
+    btn.onclick = () => selectTab(w.id);
+    tabs.appendChild(btn);
+
+    const panel = document.createElement("div");
+    panel.className = "tab-panel" + (i === 0 ? " active" : "");
+    panel.id = "panel-" + w.id;
+    panel.innerHTML = `
+      <p class="desc">${w.desc}</p>
+      <button class="primary" onclick="runOne('${w.id}')">Run this walkthrough</button>
+      <div class="log" id="log-${w.id}" style="display:none;"></div>
+      <div id="verdict-${w.id}"></div>
+    `;
+    panels.appendChild(panel);
+  });
+}
+
+function selectTab(id) {
+  document.querySelectorAll(".tab-btn").forEach((b, i) => b.classList.toggle("active", WALKTHROUGHS[i].id === id));
+  document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + id));
+}
+
+function runOne(id) {
+  const w = WALKTHROUGHS.find((x) => x.id === id);
+  const { log, pass } = w.run();
+  const logEl = document.getElementById("log-" + id);
+  logEl.style.display = "block";
+  logEl.textContent = log.join("\n");
+  const verdictEl = document.getElementById("verdict-" + id);
+  verdictEl.innerHTML = `<div class="verdict ${pass ? "pass" : "fail"}"><span class="kind">${pass ? "Verified" : "Failed"}</span>${w.title}</div>`;
+}
+
+function runAll() {
+  clock = 0;
+  const allLog = [];
+  let allPass = true;
+  for (const w of WALKTHROUGHS) {
+    const { log, pass } = w.run();
+    allLog.push(`### ${w.title} — ${pass ? "PASS" : "FAIL"}`);
+    allLog.push(...log.map((l) => "  " + l));
+    allLog.push("");
+    allPass = allPass && pass;
+  }
+  const summary = document.getElementById("summary");
+  summary.className = allPass ? "pass" : "fail";
+  summary.textContent = allPass
+    ? `All ${WALKTHROUGHS.length} checks passed.`
+    : `${WALKTHROUGHS.filter((w) => !w.run().pass).length} of ${WALKTHROUGHS.length} checks FAILED — see log.`;
+  const logEl = document.getElementById("all-log");
+  logEl.style.display = "block";
+  logEl.textContent = allLog.join("\n");
+}
+
+renderTabs();
+</script>
+</body>
+</html>
