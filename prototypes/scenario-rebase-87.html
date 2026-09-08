@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PROTOTYPE — Scenario representation &amp; rebase (wayframe#87)</title>
+<style>
+  :root {
+    --ink: #1b1f24;
+    --sub: #5b6470;
+    --line: #dfe3e8;
+    --bg: #fafbfc;
+    --panel: #ffffff;
+    --accent: #7c5cff;
+    --accent-weak: #efeaff;
+    --good: #1f8a4c;
+    --warn: #b5750a;
+    --bad: #c23b3b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  header {
+    padding: 28px 32px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header h1 { margin: 0 0 8px; font-size: 20px; }
+  header .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--bad);
+    border: 1px solid var(--bad);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-bottom: 10px;
+  }
+  header p { max-width: 900px; color: var(--sub); margin: 6px 0; font-size: 14px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 32px 60px; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .panel h2 { margin: 0 0 4px; font-size: 14px; }
+  .panel .hint { color: var(--sub); font-size: 12px; margin: 0 0 12px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+  td.mono, th.mono { font-family: var(--mono); }
+  .empty-row td { color: var(--sub); font-style: italic; }
+
+  .full { grid-column: 1 / -1; }
+
+  .resolved-item {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 6px 0; border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .resolved-item:last-child { border-bottom: none; }
+  .resolved-item .tag { font-size: 10px; text-transform: uppercase; color: var(--sub); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .resolved-item .delta-tag { font-size: 10px; text-transform: uppercase; border-radius: 4px; padding: 1px 5px; }
+  .delta-tag.modify { background: var(--accent-weak); color: var(--accent); }
+  .delta-tag.add { background: #e6f5ea; color: var(--good); }
+
+  .conflicts { min-height: 20px; }
+  .conflict {
+    border-left: 3px solid var(--warn);
+    background: #fff8ea;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+  .conflict.orphan { border-left-color: var(--bad); background: #fdecec; }
+  .conflict .kind { font-weight: 700; font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 2px; }
+  .conflict.orphan .kind { color: var(--bad); }
+  .conflict:not(.orphan) .kind { color: var(--warn); }
+  .none { color: var(--good); font-size: 12.5px; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions.baseline button { border-color: #cdd6e0; }
+  button {
+    font: inherit;
+    font-size: 12.5px;
+    padding: 7px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: #fff;
+    cursor: pointer;
+    color: var(--ink);
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { color: #fff; opacity: 0.9; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+
+  .tabs { display: flex; gap: 4px; margin: 30px 0 0; border-bottom: 2px solid var(--line); flex-wrap: wrap; }
+  .tab-btn {
+    border: none; border-radius: 6px 6px 0 0; background: transparent;
+    padding: 9px 14px; font-size: 12.5px; color: var(--sub); border-bottom: 2px solid transparent; margin-bottom: -2px;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab-panel { display: none; background: var(--panel); border: 1px solid var(--line); border-top: none; border-radius: 0 0 10px 10px; padding: 16px 18px; }
+  .tab-panel.active { display: block; }
+  .tab-panel p.desc { color: var(--sub); font-size: 13px; margin-top: 0; }
+  .steps { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  }
+  .step.done { background: #f4f4f7; opacity: 0.6; }
+  .step.next { border-color: var(--accent); background: var(--accent-weak); }
+  .step .n { width: 20px; height: 20px; border-radius: 50%; background: var(--line); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step.done .n { background: var(--good); }
+  .step.next .n { background: var(--accent); }
+  .step button { flex-shrink: 0; }
+  .step .label { font-size: 12.5px; flex: 1; }
+  .watch { font-size: 12px; color: var(--warn); margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+
+  .log { font-family: var(--mono); font-size: 11px; color: var(--sub); background: #f4f5f7; border-radius: 6px; padding: 8px 10px; max-height: 90px; overflow-y: auto; margin-top: 12px; }
+  .log div { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">Throwaway prototype — not production code</div>
+  <h1>Scenario representation &amp; rebase — wayframe#87</h1>
+  <p>
+    <strong>Question this demo answers:</strong> is a Scenario a sparse list of deltas layered
+    over Baseline, or a fully materialized copy? And when a delta's target Baseline milestone
+    or phase is concurrently modified or deleted underneath it, does the model rebase silently,
+    orphan the delta invisibly, or surface a conflict? Two independent editors act on the same
+    world below — a <strong>Baseline</strong> (the plan's live current state, per #85) and a
+    <strong>Scenario</strong> (a set of deltas on top of it) — and the <strong>Resolved Scenario
+    View</strong> shows what a collaborator looking at this Scenario would actually see right now.
+  </p>
+  <p>
+    Push both sides through the awkward orders below: edit a field the scenario already
+    overrode, delete a milestone a scenario delta still targets, delete one a scenario already
+    hid, and add a scenario-only item that depends on something Baseline later removes.
+  </p>
+</header>
+
+<main>
+
+  <div class="cols">
+    <div class="panel">
+      <h2>Baseline (the plan)</h2>
+      <p class="hint">Independently addressable items, per #85. Editing bumps an item's <code>rev</code>; deleting removes it outright.</p>
+      <table id="baseline-table"></table>
+    </div>
+    <div class="panel">
+      <h2>Scenario deltas (stored)</h2>
+      <p class="hint">What's actually persisted for this Scenario — sparse, not a copy of Baseline.</p>
+      <table id="scenario-table"></table>
+    </div>
+  </div>
+
+  <div class="panel full">
+    <h2>Resolved Scenario View</h2>
+    <p class="hint">What a viewer looking at this Scenario sees right now — Baseline merged live with the deltas above.</p>
+    <div id="resolved-list"></div>
+  </div>
+
+  <div class="panel full">
+    <h2>Needs attention</h2>
+    <p class="hint">Surfaced, never silently dropped and never silently resurrected — the scenario owner decides what happens next.</p>
+    <div class="conflicts" id="conflicts-list"></div>
+  </div>
+
+  <div class="panel full">
+    <h2>Free play</h2>
+    <p class="hint">Poke at both editors in any order.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--sub);margin-bottom:6px;">BASELINE EDITS (the plan itself)</div>
+        <div class="actions baseline" id="baseline-actions"></div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--sub);margin-bottom:6px;">SCENARIO EDITS (this what-if)</div>
+        <div class="actions" id="scenario-actions"></div>
+      </div>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <h2 style="margin: 30px 0 0; font-size:16px;">Guided walkthroughs</h2>
+  <div class="tabs" id="tabs"></div>
+  <div id="tab-panels"></div>
+
+</main>
+
+<script>
+// ============================================================================
+// PURE MODULE — this is the part meant to lift into the real codebase once
+// the question below is settled. No DOM, no button handlers reach in here.
+// ============================================================================
+
+/**
+ * @typedef {{id: string, kind: 'milestone', title: string, date: string, status: string, dependsOn?: string[], rev: number}} MilestoneItem
+ * @typedef {{id: string, kind: 'phase', title: string, startDate: string, endDate: string, status: string, rev: number}} PhaseItem
+ * @typedef {MilestoneItem | PhaseItem} BaselineItem
+ */
+
+function createInitialBaseline() {
+  return {
+    items: {
+      m1: { id: "m1", kind: "milestone", title: "Kickoff", date: "2026-01-15", status: "on-track", dependsOn: [], rev: 1 },
+      m2: { id: "m2", kind: "milestone", title: "Beta Ready", date: "2026-04-01", status: "on-track", dependsOn: [], rev: 1 },
+      p1: { id: "p1", kind: "phase", title: "Build Phase", startDate: "2026-01-15", endDate: "2026-03-15", status: "on-track", rev: 1 },
+    },
+  };
+}
+
+/** @param {{items: Record<string, BaselineItem>}} baseline */
+function baselineReducer(baseline, action) {
+  const items = { ...baseline.items };
+  switch (action.type) {
+    case "EDIT_FIELD": {
+      const item = items[action.id];
+      if (!item) return baseline;
+      items[action.id] = { ...item, [action.field]: action.value, rev: item.rev + 1 };
+      return { items };
+    }
+    case "DELETE_ITEM": {
+      delete items[action.id];
+      return { items };
+    }
+    default:
+      return baseline;
+  }
+}
+
+/**
+ * Scenario storage is deliberately split in two, because "add" never rebases
+ * against Baseline (it has no Baseline counterpart to conflict with) while
+ * "modify"/"remove" always target one:
+ *   - overrides: Map<baselineId, {op:'modify', patch, baseRevAtCreation} | {op:'remove'}>
+ *   - additions: Map<newId, BaselineItem>   (scenario-only items, e.g. dependsOn a baseline id)
+ */
+function createInitialScenario() {
+  return { overrides: {}, additions: {} };
+}
+
+function scenarioReducer(scenario, action, baseline) {
+  const overrides = { ...scenario.overrides };
+  const additions = { ...scenario.additions };
+  switch (action.type) {
+    case "MODIFY": {
+      const target = baseline.items[action.targetId];
+      if (!target) return scenario;
+      // Invariant: at most one delta per target. Modifying after a remove
+      // re-activates the target instead of stacking a second delta on it.
+      overrides[action.targetId] = { op: "modify", patch: action.patch, baseRevAtCreation: target.rev };
+      return { overrides, additions };
+    }
+    case "REMOVE": {
+      // Invariant: remove always wins over modify for the same target — a
+      // hidden item's field overrides are meaningless, so any prior modify
+      // delta on this id collapses into the single remove.
+      overrides[action.targetId] = { op: "remove" };
+      return { overrides, additions };
+    }
+    case "ADD": {
+      additions[action.item.id] = action.item;
+      return { overrides, additions };
+    }
+    case "DISMISS_ORPHAN": {
+      delete overrides[action.targetId];
+      return { overrides, additions };
+    }
+    default:
+      return scenario;
+  }
+}
+
+/**
+ * Drops overrides that Baseline has already made moot: a `remove` delta
+ * whose target Baseline already deleted needed nothing from the scenario
+ * owner — both sides already agree the item is gone. Never touches a
+ * `modify` delta this way; that case is a real conflict, handled below.
+ */
+function gcScenario(baseline, scenario) {
+  const overrides = { ...scenario.overrides };
+  for (const [targetId, delta] of Object.entries(overrides)) {
+    if (delta.op === "remove" && !baseline.items[targetId]) {
+      delete overrides[targetId];
+    }
+  }
+  return { ...scenario, overrides };
+}
+
+/**
+ * The core answer to #87: resolve a Scenario as Baseline-merged-live, never
+ * a frozen/materialized copy. Every field Baseline hasn't been overridden on
+ * flows straight through, at whatever its *current* value is — that's what
+ * "sparse delta list" buys you, demonstrated by the walkthroughs below.
+ */
+function resolveScenarioView(baseline, scenario) {
+  const view = [];
+  const conflicts = [];
+
+  for (const item of Object.values(baseline.items)) {
+    const delta = scenario.overrides[item.id];
+    if (!delta) {
+      view.push({ item, deltaTag: null });
+      continue;
+    }
+    if (delta.op === "remove") continue; // hidden in this scenario; no conflict regardless of baseline edits since
+    if (delta.op === "modify") {
+      view.push({ item: { ...item, ...delta.patch }, deltaTag: "modify" });
+      if (item.rev > delta.baseRevAtCreation) {
+        conflicts.push({
+          type: "plan-moved",
+          targetId: item.id,
+          message: `"${item.title}" changed in the plan since this override was set (rev ${delta.baseRevAtCreation} → ${item.rev}). The scenario's override still applies to the field(s) it touches; everything else follows the plan's current value.`,
+        });
+      }
+    }
+  }
+
+  // Orphans: an override targets an id Baseline no longer has.
+  for (const [targetId, delta] of Object.entries(scenario.overrides)) {
+    if (baseline.items[targetId]) continue;
+    if (delta.op === "remove") continue; // intents agree — gcScenario clears these; nothing to surface
+    conflicts.push({
+      type: "orphaned",
+      targetId,
+      message: `A scenario override targets "${targetId}", which no longer exists in the plan. Not shown in this scenario until you decide what to do with it.`,
+    });
+  }
+
+  // Additions are scenario-only — never rebased against Baseline — but can
+  // still dangle if they point at a Baseline id that later disappears.
+  for (const item of Object.values(scenario.additions)) {
+    view.push({ item, deltaTag: "add" });
+    for (const depId of item.dependsOn ?? []) {
+      if (!baseline.items[depId] && !scenario.additions[depId]) {
+        conflicts.push({
+          type: "dangling-reference",
+          targetId: item.id,
+          message: `"${item.title}" (added only in this scenario) depends on "${depId}", which doesn't exist in the plan or this scenario.`,
+        });
+      }
+    }
+  }
+
+  return { view, conflicts };
+}
+
+// ============================================================================
+// PAGE SHELL — throwaway. Everything below calls into the pure module above
+// and re-renders; nothing above reaches back into the DOM.
+// ============================================================================
+
+let baseline = createInitialBaseline();
+let scenario = createInitialScenario();
+let logLines = [];
+
+function log(line) {
+  logLines.unshift(line);
+  logLines = logLines.slice(0, 40);
+}
+
+function dispatchBaseline(action) {
+  baseline = baselineReducer(baseline, action);
+  scenario = gcScenario(baseline, scenario);
+  render();
+}
+function dispatchScenario(action) {
+  scenario = scenarioReducer(scenario, action, baseline);
+  render();
+}
+
+function fmtItem(it) {
+  if (it.kind === "phase") return `${it.title} · ${it.startDate} → ${it.endDate} · ${it.status}`;
+  return `${it.title} · ${it.date} · ${it.status}`;
+}
+
+function render() {
+  // Baseline table
+  const bRows = Object.values(baseline.items)
+    .map(
+      (it) =>
+        `<tr><td class="mono">${it.id}</td><td>${it.kind}</td><td>${fmtItem(it)}</td><td class="mono">rev ${it.rev}</td></tr>`
+    )
+    .join("");
+  document.getElementById("baseline-table").innerHTML =
+    `<tr><th>id</th><th>kind</th><th>fields</th><th>rev</th></tr>` +
+    (bRows || `<tr class="empty-row"><td colspan="4">(empty)</td></tr>`);
+
+  // Scenario deltas table
+  const overrideRows = Object.entries(scenario.overrides).map(([id, d]) => {
+    const detail =
+      d.op === "remove" ? "hide" : `override → ${JSON.stringify(d.patch)} (set at rev ${d.baseRevAtCreation})`;
+    return `<tr><td class="mono">${id}</td><td>${d.op}</td><td>${detail}</td></tr>`;
+  });
+  const addRows = Object.values(scenario.additions).map(
+    (it) => `<tr><td class="mono">${it.id}</td><td>add</td><td>${fmtItem(it)}${it.dependsOn?.length ? ` · depends on ${it.dependsOn.join(", ")}` : ""}</td></tr>`
+  );
+  const sRows = [...overrideRows, ...addRows].join("");
+  document.getElementById("scenario-table").innerHTML =
+    `<tr><th>target / new id</th><th>op</th><th>detail</th></tr>` +
+    (sRows || `<tr class="empty-row"><td colspan="3">(no deltas — scenario is identical to Baseline)</td></tr>`);
+
+  // Resolved view
+  const { view, conflicts } = resolveScenarioView(baseline, scenario);
+  document.getElementById("resolved-list").innerHTML =
+    view
+      .map(
+        (v) =>
+          `<div class="resolved-item"><span class="tag">${v.item.kind}</span><span>${fmtItem(v.item)}</span>${
+            v.deltaTag ? `<span class="delta-tag ${v.deltaTag}">${v.deltaTag}</span>` : ""
+          }</div>`
+      )
+      .join("") || `<div class="resolved-item"><span>(nothing to show)</span></div>`;
+
+  // Conflicts
+  document.getElementById("conflicts-list").innerHTML =
+    conflicts.length === 0
+      ? `<div class="none">No conflicts — this scenario resolves cleanly against the current plan.</div>`
+      : conflicts
+          .map(
+            (c) =>
+              `<div class="conflict ${c.type === "orphaned" ? "orphan" : ""}"><span class="kind">${c.type.replace("-", " ")}</span>${c.message}${
+                c.type === "orphaned"
+                  ? ` <button data-dismiss="${c.targetId}" style="margin-left:8px;">Dismiss</button>`
+                  : ""
+              }</div>`
+          )
+          .join("");
+  document.querySelectorAll("[data-dismiss]").forEach((btn) => {
+    btn.onclick = () => {
+      dispatchScenario({ type: "DISMISS_ORPHAN", targetId: btn.getAttribute("data-dismiss") });
+      log(`scenario: dismissed orphaned override on "${btn.getAttribute("data-dismiss")}"`);
+      render();
+    };
+  });
+
+  // Free-play action buttons
+  document.getElementById("baseline-actions").innerHTML = "";
+  document.getElementById("scenario-actions").innerHTML = "";
+  BASELINE_ACTIONS.forEach((a) => {
+    const btn = document.createElement("button");
+    btn.textContent = a.label;
+    btn.disabled = a.enabled ? !a.enabled() : false;
+    btn.onclick = () => {
+      a.run();
+      log(`baseline: ${a.label}`);
+      render();
+    };
+    document.getElementById("baseline-actions").appendChild(btn);
+  });
+  SCENARIO_ACTIONS.forEach((a) => {
+    const btn = document.createElement("button");
+    btn.textContent = a.label;
+    btn.disabled = a.enabled ? !a.enabled() : false;
+    btn.onclick = () => {
+      a.run();
+      log(`scenario: ${a.label}`);
+      render();
+    };
+    document.getElementById("scenario-actions").appendChild(btn);
+  });
+
+  document.getElementById("log").innerHTML = logLines.map((l) => `<div>${l}</div>`).join("");
+
+  renderTabs();
+}
+
+const BASELINE_ACTIONS = [
+  {
+    label: "Shift Kickoff date → Feb 1",
+    enabled: () => !!baseline.items.m1,
+    run: () => dispatchBaseline({ type: "EDIT_FIELD", id: "m1", field: "date", value: "2026-02-01" }),
+  },
+  {
+    label: "Rename Beta Ready → Beta Ready (GA)",
+    enabled: () => !!baseline.items.m2,
+    run: () => dispatchBaseline({ type: "EDIT_FIELD", id: "m2", field: "title", value: "Beta Ready (GA)" }),
+  },
+  {
+    label: "Shrink Build Phase end → Feb 28",
+    enabled: () => !!baseline.items.p1,
+    run: () => dispatchBaseline({ type: "EDIT_FIELD", id: "p1", field: "endDate", value: "2026-02-28" }),
+  },
+  {
+    label: "Delete Kickoff",
+    enabled: () => !!baseline.items.m1,
+    run: () => dispatchBaseline({ type: "DELETE_ITEM", id: "m1" }),
+  },
+  {
+    label: "Delete Build Phase",
+    enabled: () => !!baseline.items.p1,
+    run: () => dispatchBaseline({ type: "DELETE_ITEM", id: "p1" }),
+  },
+];
+
+const SCENARIO_ACTIONS = [
+  {
+    label: "Override Kickoff date → Jan 22",
+    enabled: () => !!baseline.items.m1,
+    run: () => dispatchScenario({ type: "MODIFY", targetId: "m1", patch: { date: "2026-01-22" } }),
+  },
+  {
+    label: "Override Beta Ready status → at-risk",
+    enabled: () => !!baseline.items.m2,
+    run: () => dispatchScenario({ type: "MODIFY", targetId: "m2", patch: { status: "at-risk" } }),
+  },
+  {
+    label: "Override Build Phase end → Mar 30",
+    enabled: () => !!baseline.items.p1,
+    run: () => dispatchScenario({ type: "MODIFY", targetId: "p1", patch: { endDate: "2026-03-30" } }),
+  },
+  {
+    label: "Hide Kickoff in this scenario",
+    enabled: () => !!baseline.items.m1,
+    run: () => dispatchScenario({ type: "REMOVE", targetId: "m1" }),
+  },
+  {
+    label: "Add “Contingency Review” (depends on Kickoff)",
+    enabled: () => !scenario.additions.s1,
+    run: () =>
+      dispatchScenario({
+        type: "ADD",
+        item: { id: "s1", kind: "milestone", title: "Contingency Review", date: "2026-01-20", status: "not-started", dependsOn: ["m1"], rev: 1 },
+      }),
+  },
+];
+
+function resetAll() {
+  baseline = createInitialBaseline();
+  scenario = createInitialScenario();
+  logLines = [];
+  log("--- reset to seed state ---");
+}
+
+// ---- Guided walkthroughs ----
+
+const WALKTHROUGHS = [
+  {
+    title: "1. Happy path",
+    desc: "Two unrelated fields change on two different sides at once. A sparse delta list means both take effect together — the scenario's override doesn't freeze the rest of the item.",
+    watch: "Watch the Resolved View: Kickoff shows the scenario's overridden date AND Beta Ready shows Baseline's new name, at the same time.",
+    steps: [
+      { label: "Scenario: Override Kickoff date → Jan 22", run: () => dispatchScenario({ type: "MODIFY", targetId: "m1", patch: { date: "2026-01-22" } }) },
+      { label: "Baseline: Rename Beta Ready → Beta Ready (GA)", run: () => dispatchBaseline({ type: "EDIT_FIELD", id: "m2", field: "title", value: "Beta Ready (GA)" }) },
+    ],
+  },
+  {
+    title: "2. Same-field conflict",
+    desc: "The plan moves a field the scenario already overrode. Does the scenario's choice get clobbered, or does it hold — with a heads-up that the ground moved?",
+    watch: "The Resolved View still shows Jan 22 (the scenario's choice), but a “plan moved” note appears under Needs Attention. Not blocking — informational.",
+    steps: [
+      { label: "Scenario: Override Kickoff date → Jan 22", run: () => dispatchScenario({ type: "MODIFY", targetId: "m1", patch: { date: "2026-01-22" } }) },
+      { label: "Baseline: Shift Kickoff date → Feb 1", run: () => dispatchBaseline({ type: "EDIT_FIELD", id: "m1", field: "date", value: "2026-02-01" }) },
+    ],
+  },
+  {
+    title: "3. Baseline deletes a targeted item",
+    desc: "The disqualifying case from the ticket: a scenario delta still targets a milestone the plan just deleted. Silent drop loses the scenario's intent with no explanation; silent resurrection undoes a deliberate deletion behind the plan owner's back. Neither is acceptable.",
+    watch: "Kickoff vanishes from the Resolved View (nothing to show), and an “orphaned” conflict appears — it stays until you explicitly dismiss it.",
+    steps: [
+      { label: "Scenario: Override Kickoff date → Jan 22", run: () => dispatchScenario({ type: "MODIFY", targetId: "m1", patch: { date: "2026-01-22" } }) },
+      { label: "Baseline: Delete Kickoff", run: () => dispatchBaseline({ type: "DELETE_ITEM", id: "m1" }) },
+      { label: "Scenario: Dismiss the orphaned override", run: () => dispatchScenario({ type: "DISMISS_ORPHAN", targetId: "m1" }) },
+    ],
+  },
+  {
+    title: "4. Baseline deletes an already-hidden item",
+    desc: "Contrast with #3: the scenario already wanted this item gone. When Baseline agrees, is there anything left to surface?",
+    watch: "No conflict badge ever appears — both sides already agreed. The now-redundant delta is quietly garbage-collected on the next resolve.",
+    steps: [
+      { label: "Scenario: Hide Kickoff in this scenario", run: () => dispatchScenario({ type: "REMOVE", targetId: "m1" }) },
+      { label: "Baseline: Delete Kickoff", run: () => dispatchBaseline({ type: "DELETE_ITEM", id: "m1" }) },
+    ],
+  },
+  {
+    title: "5. Dangling reference from a scenario-only addition",
+    desc: "An item that exists only in the scenario (never rebased against Baseline) can still point at a Baseline id that later disappears.",
+    watch: "Contingency Review keeps rendering (it's scenario-only), but a dangling-reference problem appears — the same bucket of problem the app already surfaces for broken lane/category/dependsOn references, just detected live instead of at file-open.",
+    steps: [
+      { label: "Scenario: Add “Contingency Review” (depends on Kickoff)", run: () => dispatchScenario({ type: "ADD", item: { id: "s1", kind: "milestone", title: "Contingency Review", date: "2026-01-20", status: "not-started", dependsOn: ["m1"], rev: 1 } }) },
+      { label: "Baseline: Delete Kickoff", run: () => dispatchBaseline({ type: "DELETE_ITEM", id: "m1" }) },
+    ],
+  },
+  {
+    title: "6. Can a scenario both override and hide the same item?",
+    desc: "An attempt at something that should be illegal: stack an override delta and a hide delta on the same target.",
+    watch: "Only one delta survives for Kickoff — a single “remove”. The override silently collapses: hiding always wins, because a hidden item's field overrides are meaningless.",
+    steps: [
+      { label: "Scenario: Override Kickoff date → Jan 22", run: () => dispatchScenario({ type: "MODIFY", targetId: "m1", patch: { date: "2026-01-22" } }) },
+      { label: "Scenario: Hide Kickoff in this scenario", run: () => dispatchScenario({ type: "REMOVE", targetId: "m1" }) },
+    ],
+  },
+];
+
+let activeTab = 0;
+let stepIndex = 0;
+
+function renderTabs() {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.innerHTML = WALKTHROUGHS.map(
+    (w, i) => `<button class="tab-btn ${i === activeTab ? "active" : ""}" data-tab="${i}">${w.title}</button>`
+  ).join("");
+  tabsEl.querySelectorAll("[data-tab]").forEach((btn) => {
+    btn.onclick = () => {
+      activeTab = Number(btn.getAttribute("data-tab"));
+      stepIndex = 0;
+      resetAll();
+      render();
+    };
+  });
+
+  const panelsEl = document.getElementById("tab-panels");
+  const w = WALKTHROUGHS[activeTab];
+  const stepsHtml = w.steps
+    .map((s, i) => {
+      const state = i < stepIndex ? "done" : i === stepIndex ? "next" : "";
+      const disabled = i !== stepIndex;
+      return `<div class="step ${state}"><span class="n">${i + 1}</span><span class="label">${s.label}</span><button data-step="${i}" ${disabled ? "disabled" : ""}>${i < stepIndex ? "done" : "run"}</button></div>`;
+    })
+    .join("");
+  panelsEl.innerHTML = `
+    <div class="tab-panel active">
+      <p class="desc">${w.desc}</p>
+      <div class="steps">${stepsHtml}</div>
+      <div class="watch">\u{1F441} ${w.watch}</div>
+    </div>
+  `;
+  panelsEl.querySelectorAll("[data-step]").forEach((btn) => {
+    btn.onclick = () => {
+      const i = Number(btn.getAttribute("data-step"));
+      w.steps[i].run();
+      log(`walkthrough "${w.title}" step ${i + 1}: ${w.steps[i].label}`);
+      stepIndex = i + 1;
+      render();
+    };
+  });
+}
+
+resetAll();
+render();
+</script>
+</body>
+</html>
