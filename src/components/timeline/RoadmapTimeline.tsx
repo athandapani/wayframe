@@ -942,6 +942,7 @@ function MilestoneMarker({
   category,
   dateLabelPlacement = "below",
   selected = false,
+  remoteColor,
 }: {
   m: Milestone;
   cx: number;
@@ -978,6 +979,8 @@ function MilestoneMarker({
   dateLabelPlacement?: DateLabelPlacement;
   /** Rubber-band/click multi-select — renders a dashed accent ring, same layering idea as the critical/trace rings below but its own visual so the three never get confused for one another. */
   selected?: boolean;
+  /** PROTOTYPE (wayframe#112) — a remote collaborator's selection color, rendered as an extra ring outside the local selection ring. Not a real API; simulated presence only. */
+  remoteColor?: string;
 }) {
   const r = 8;
   const dateDy = DATE_TIER_DY[date.tier];
@@ -1029,6 +1032,7 @@ function MilestoneMarker({
       {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
       {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
       {selected && <CushionMarker cx={cx} cy={cy} r={r + 11} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
+      {remoteColor && <CushionMarker cx={cx} cy={cy} r={r + 15} fill="none" stroke={remoteColor} strokeWidth={2} strokeDasharray="4 2" />}
       <CushionMarker cx={cx} cy={cy} r={r} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
       {primary && (
         <g
@@ -1205,6 +1209,8 @@ export interface RoadmapTimelineProps {
   onToggleSelect?: (id: string) => void;
   /** Fired once a marquee drag completes, with every milestone id it covered. */
   onMarqueeSelect?: (ids: string[]) => void;
+  /** PROTOTYPE (wayframe#112) — milestone id -> remote collaborator's color, rendered as an extra selection ring outside the local one. Simulated presence only, not a real API. */
+  remoteSelections?: Record<string, string>;
 }
 
 export function RoadmapTimeline({
@@ -1250,6 +1256,7 @@ export function RoadmapTimeline({
   selectedIds,
   onToggleSelect,
   onMarqueeSelect,
+  remoteSelections,
 }: RoadmapTimelineProps) {
   // Auto lane height — only ever shrinks the fixed
   // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
@@ -2547,6 +2554,7 @@ export function RoadmapTimeline({
               date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
               onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
               selected={selectedIds?.has(m.id)}
+              remoteColor={remoteSelections?.[m.id]}
               ghostMode={ghostMode}
               ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
               ghostTier={ghostPlacement.get(m.id)?.tier ?? 0}
