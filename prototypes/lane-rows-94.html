@@ -136,13 +136,16 @@
 <h1>Lane Rows &amp; vertical allocation</h1>
 <div class="intro">
   <b>wayframe#94 (t20).</b> Today, one lane auto-stacks overlapping duration pills into
-  sub-rows (<code>stack-intervals.ts</code>) and <code>use-auto-lane-height</code> shrinks every
-  lane's height by dividing viewport space evenly across the raw lane count. This prototype
-  answers: how does a new, explicit <b>Lane Row</b> (row 2, 3, … — created only when an item is
-  assigned to it, gone again once empty) coexist with that? Is it <b>one allocator or two</b>, and
-  does assigning an item to a row <b>override</b> automatic stacking or merely <b>seed</b> it?
-  Push the model with the buttons below and watch the diagram — the interesting moments are
-  when something surprises you.
+  sub-rows (<code>stack-intervals.ts</code>) at a flat <code>LANE_HEIGHT=132</code>, and
+  <code>use-auto-lane-height</code> shrinks every lane's height by dividing viewport space evenly
+  across the raw lane count. This prototype answers: how does a new, explicit <b>Lane Row</b>
+  (row 2, 3, … — created only when an item is assigned to it, gone again once empty) coexist with
+  that? Is it <b>one allocator or two</b>, and does assigning an item to a row <b>override</b>
+  automatic stacking or merely <b>seed</b> it? <i>Revised after first-round feedback: Row 1's
+  floor is now derived from content (tall pill + label clearance) instead of a flat constant, and
+  the old shrink-based auto-lane-height toggle is retired in favor of an expand-only "fit to
+  screen."</i> Push the model with the buttons below and watch the diagram — the interesting
+  moments are when something surprises you.
 </div>
 
 <div class="panel">
@@ -181,8 +184,8 @@
       </select>
     </div>
     <div class="fp-group">
-      <label>Auto-lane-height (viewer shrink)</label>
-      <button id="autoToggleBtn" onclick="dispatch({type:'TOGGLE_AUTO_LANE_HEIGHT'})"></button>
+      <label>Fit to screen (viewer preference, expand-only)</label>
+      <button id="autoToggleBtn" onclick="dispatch({type:'TOGGLE_FIT_TO_SCREEN'})"></button>
       <label style="margin-top:8px">Simulated viewport budget: <span id="viewportVal"></span>px</label>
       <input type="range" id="viewportRange" min="80" max="900" step="10" oninput="dispatch({type:'SET_VIEWPORT_BUDGET', px:Number(this.value)})" />
       <label style="margin-top:8px">Sibling lanes' combined natural height: <span id="othersVal"></span>px</label>
@@ -205,12 +208,20 @@
    * numbers this prototype shows are the numbers production would
    * actually produce.
    * ============================================================ */
-  const LANE_HEIGHT = 132;          // RoadmapTimeline.tsx LANE_HEIGHT
-  const MIN_AUTO_LANE_HEIGHT = 64;  // RoadmapTimeline.tsx MIN_AUTO_LANE_HEIGHT
   const LEAN_LANE_FACTOR = 0.75;    // RoadmapTimeline.tsx LEAN_LANE_FACTOR
   const PILL_ROW_HEIGHT = 18;       // RoadmapTimeline.tsx PILL_ROW_HEIGHT
   const ROW_GAP = 6;                // new: gap between explicit Lane Rows
   const PHASE_HEIGHT = { lean: 14, normal: PILL_ROW_HEIGHT, tall: 26 }; // new: t19's phase-size vocabulary
+
+  // Row 1's floor is no longer the flat LANE_HEIGHT=132 constant (that
+  // never scaled with what's actually on the lane). It's now derived: the
+  // tallest a pill can be, plus the vertical clearance a milestone's title
+  // (above) and date (below) labels actually need — RoadmapTimeline.tsx's
+  // real label offsets are LABEL_BASE_DY=-14 + LABEL_LINE_H=11 above center,
+  // and label-layout.ts's DATE_TIER_DY[0]=20 (+ line height) below center.
+  const LABEL_BUFFER_TOP = 25;
+  const LABEL_BUFFER_BOTTOM = 28;
+  const ROW1_CONTENT_FLOOR = PHASE_HEIGHT.tall + LABEL_BUFFER_TOP + LABEL_BUFFER_BOTTOM; // 79px, was a flat 132
 
   // Level 2 allocator (existing, unchanged): greedy interval partitioning.
   // Ported 1:1 from stack-intervals.ts's algorithm.
@@ -264,10 +275,13 @@
       Math.max(baseSlot, ...subItems.map((i) => PHASE_HEIGHT[i.phaseSize]))
     );
     const contentHeight = slotHeights.reduce((a, b) => a + b, 0);
-    // Row 1 keeps today's full-lane floor (a lane with zero explicit rows
-    // must render exactly as it does today); extra rows have no such
-    // floor — they cost only what their content needs.
-    const floor = rowNumber === 1 ? LANE_HEIGHT * densityFactor : baseSlot;
+    // Row 1 is a lane's always-present "home" row, so it keeps a floor —
+    // but a computed one (tall pill + label clearance), not an arbitrary
+    // constant, and it scales past that floor once content needs more.
+    // Extra rows (2+) are opt-in space the user explicitly created for
+    // this content, so they get no such reservation — cost is exactly
+    // what's stacked into them, same as before.
+    const floor = rowNumber === 1 ? ROW1_CONTENT_FLOOR * densityFactor : baseSlot;
     return { height: Math.max(floor, contentHeight), subRowCount, slotHeights, subRowById };
   }
 
@@ -283,31 +297,25 @@
     return { rows, naturalHeight };
   }
 
-  // TODAY'S auto-lane-height, unchanged: divides viewport evenly by raw
-  // lane count. Ignores every lane's own natural height (row count,
-  // sub-row stacking, phase size) entirely — reproduced here to make its
-  // blind spot visible, not as something to keep.
-  function computeAutoLaneHeightToday({ laneCount, viewportBudget }) {
-    if (!viewportBudget || laneCount <= 0) return LANE_HEIGHT;
-    return Math.min(LANE_HEIGHT, Math.max(MIN_AUTO_LANE_HEIGHT, viewportBudget / laneCount));
-  }
-
-  // FIXED auto-lane-height: shrink is a single ratio applied across every
-  // lane's own natural (rows x sub-rows) height, so a lane with more Lane
-  // Rows gets proportionally more of the shrunk budget instead of being
-  // squashed identically to a one-row sibling.
-  function computeAutoLaneHeightFixed({ thisLaneNatural, otherLanesNaturalTotal, viewportBudget }) {
-    const totalNatural = thisLaneNatural + otherLanesNaturalTotal;
-    if (!viewportBudget || totalNatural <= 0) return thisLaneNatural;
-    if (totalNatural <= viewportBudget) return thisLaneNatural;
-    const ratio = viewportBudget / totalNatural;
-    return Math.max(MIN_AUTO_LANE_HEIGHT, thisLaneNatural * ratio);
+  // "Fit to screen" — expand-only, replacing the old shrink-based
+  // "Auto lane height" viewer toggle entirely. Content is never forced
+  // smaller than its natural (rows x sub-rows) height; if a lane's content
+  // exceeds the viewport, it just scrolls. If there's *surplus* room after
+  // every lane renders at its natural size, that surplus is distributed
+  // proportionally, stretching lanes to fill the screen — the vertical
+  // sibling to #84's horizontal zoom/fit-to-screen mechanism.
+  function computeFitToScreenLaneHeight({ thisLaneNatural, totalNaturalAcrossLanes, viewportBudget }) {
+    if (!viewportBudget || totalNaturalAcrossLanes <= 0) return thisLaneNatural;
+    if (totalNaturalAcrossLanes >= viewportBudget) return thisLaneNatural; // no surplus: never shrink, just scroll
+    const ratio = viewportBudget / totalNaturalAcrossLanes; // > 1: expand
+    return thisLaneNatural * ratio;
   }
 
   window.LaneRowsLogic = {
-    LANE_HEIGHT, MIN_AUTO_LANE_HEIGHT, LEAN_LANE_FACTOR, PILL_ROW_HEIGHT, PHASE_HEIGHT, ROW_GAP,
+    LEAN_LANE_FACTOR, PILL_ROW_HEIGHT, PHASE_HEIGHT, ROW_GAP,
+    LABEL_BUFFER_TOP, LABEL_BUFFER_BOTTOM, ROW1_CONTENT_FLOOR,
     stackIntervals, bucketRows, computeRowHeight, computeLaneModel,
-    computeAutoLaneHeightToday, computeAutoLaneHeightFixed,
+    computeFitToScreenLaneHeight,
   };
 </script>
 
@@ -324,7 +332,7 @@
   function initialState() {
     return {
       density: "normal",
-      autoLaneHeight: false,
+      fitToScreen: false,
       viewportBudget: 400,
       otherLanesNatural: 300,
       items: [],
@@ -350,8 +358,8 @@
         };
       case "SET_DENSITY":
         return { ...s, density: action.density };
-      case "TOGGLE_AUTO_LANE_HEIGHT":
-        return { ...s, autoLaneHeight: !s.autoLaneHeight };
+      case "TOGGLE_FIT_TO_SCREEN":
+        return { ...s, fitToScreen: !s.fitToScreen };
       case "SET_VIEWPORT_BUDGET":
         return { ...s, viewportBudget: action.px };
       case "SET_OTHER_LANES":
@@ -393,10 +401,10 @@
     const model = L.computeLaneModel(state.items, state.density);
     renderDiagram(model);
     renderMetrics(model);
-    renderAutoLaneHeightFinding(model);
+    renderFitToScreenFinding(model);
     renderItemList();
     document.getElementById("densitySelect").value = state.density;
-    document.getElementById("autoToggleBtn").textContent = state.autoLaneHeight ? "ON — click to disable" : "OFF — click to enable";
+    document.getElementById("autoToggleBtn").textContent = state.fitToScreen ? "ON — click to disable" : "OFF — click to enable";
     document.getElementById("viewportRange").value = state.viewportBudget;
     document.getElementById("viewportVal").textContent = state.viewportBudget;
     document.getElementById("othersRange").value = state.otherLanesNatural;
@@ -449,28 +457,27 @@
     `;
   }
 
-  function renderAutoLaneHeightFinding(model) {
+  function renderFitToScreenFinding(model) {
     const el = document.getElementById("autoLaneHeightFinding");
-    if (!state.autoLaneHeight) {
+    if (!state.fitToScreen) {
       el.innerHTML = "";
       return;
     }
-    const laneCount = state.otherLanesNatural > 0 ? Math.max(2, Math.round((state.otherLanesNatural + model.naturalHeight) / Math.max(1, model.naturalHeight))) : 1;
-    const today = L.computeAutoLaneHeightToday({ laneCount, viewportBudget: state.viewportBudget });
-    const fixed = L.computeAutoLaneHeightFixed({
+    const totalNatural = model.naturalHeight + state.otherLanesNatural;
+    const fitted = L.computeFitToScreenLaneHeight({
       thisLaneNatural: model.naturalHeight,
-      otherLanesNaturalTotal: state.otherLanesNatural,
+      totalNaturalAcrossLanes: totalNatural,
       viewportBudget: state.viewportBudget,
     });
-    const clipped = today < model.naturalHeight;
+    const surplus = state.viewportBudget - totalNatural;
     el.innerHTML = `
       <div class="finding">
-        <b>Auto-lane-height, this lane</b><br/>
-        <span class="badge today">today's uniform-divide</span> ${Math.round(today)}px
-        ${clipped ? `<span style="color:var(--warn)"> — clips ${Math.round(model.naturalHeight - today)}px of this lane's own rows/sub-rows, same squeeze a 1-row sibling lane would get</span>` : " — fits"}
-        <br/>
-        <span class="badge fixed">proportional-to-natural-height (fixed)</span> ${Math.round(fixed)}px
-        ${fixed >= model.naturalHeight ? " — no clipping" : ` — shrinks, but proportionally to this lane's own ${Math.round(model.naturalHeight)}px of content`}
+        <b>Fit to screen, this lane</b><br/>
+        Natural height <span class="badge today">${Math.round(model.naturalHeight)}px</span>
+        → fitted <span class="badge fixed">${Math.round(fitted)}px</span>
+        ${surplus > 0
+          ? ` — ${Math.round(surplus)}px of surplus viewport room exists across all lanes, so every lane stretches to fill it.`
+          : ` — content (${Math.round(totalNatural)}px across all lanes) already exceeds the ${state.viewportBudget}px viewport; no shrink happens, the page just scrolls.`}
       </div>`;
   }
 
@@ -504,12 +511,12 @@
 
   const scenarios = [
     {
-      name: "1. Happy path (today, unchanged)",
-      desc: "A lane with no explicit Lane Rows behaves exactly like production today: one item, no overlap, no stacking. Confirms Lane Rows is additive, not a rewrite of the existing model.",
+      name: "1. Happy path — content-driven floor, not a flat constant",
+      desc: "A lane with a single small item still gets a floor on Row 1 — but now it's derived (tall pill height 26 + label clearance 25 above + 28 below = 79px), not the old flat, content-blind 132px. Add bigger content later and it scales past 79 on its own.",
       steps: [
         { label: "Reset", run: () => dispatch({ type: "RESET" }) },
         { label: "Add item A (day 0–6, normal)", run: () => addItem(0, 6, "normal", null) },
-        { label: "Observe: 1 row, 1 sub-row, height = 132px (today's LANE_HEIGHT)", run: () => {} },
+        { label: "Observe: 1 row, 1 sub-row, height = 79px (26 tall-pill + 25 + 28 label clearance) — was a flat 132px", run: () => {} },
       ],
     },
     {
@@ -555,8 +562,8 @@
       ],
     },
     {
-      name: "6. Viewport squeeze — today's bug vs. the fix",
-      desc: "This lane has grown to 3 Lane Rows (via stacking + explicit assignment). Sibling lanes have a lot of their own natural height too, and the simulated viewport is tight. Today's uniform-divide auto-lane-height ignores this lane's own row/sub-row content and squashes it exactly as much as a 1-row sibling — clipping it. The fixed version shrinks proportionally to each lane's own natural height instead.",
+      name: "6. Fit to screen never shrinks — only expands into surplus",
+      desc: "The old 'Auto lane height' toggle shrank lanes to cram into whatever viewport existed, which is what produced the flat, content-blind numbers this feedback round rejected. It's retired. 'Fit to screen' only ever expands: if content already exceeds the viewport, nothing shrinks or clips — it scrolls. Only when there's real surplus room does it stretch lanes to use it, matching #84's horizontal fit-to-screen but for the vertical axis.",
       steps: [
         { label: "Reset", run: () => dispatch({ type: "RESET" }) },
         { label: "Build a 3-row lane (5 items across rows 1, 2, 3)", run: () => {
@@ -565,8 +572,10 @@
             addItem(0,10,"tall",3);
           } },
         { label: "Set sibling lanes' natural height high (900px) and viewport tight (350px)", run: () => { dispatch({type:'SET_OTHER_LANES', px:900}); dispatch({type:'SET_VIEWPORT_BUDGET', px:350}); } },
-        { label: "Turn on auto-lane-height", run: () => { if (!state.autoLaneHeight) dispatch({type:'TOGGLE_AUTO_LANE_HEIGHT'}); } },
-        { label: "Observe the finding panel: today's number clips this lane's content; the fixed number doesn't", run: () => {} },
+        { label: "Turn on fit to screen", run: () => { if (!state.fitToScreen) dispatch({type:'TOGGLE_FIT_TO_SCREEN'}); } },
+        { label: "Observe: content (natural) exceeds the 350px viewport — no shrink happens, it would just scroll", run: () => {} },
+        { label: "Now loosen the viewport to 1400px (real surplus room)", run: () => dispatch({type:'SET_VIEWPORT_BUDGET', px:1400}) },
+        { label: "Observe: this lane now stretches past its natural height to help fill the surplus", run: () => {} },
       ],
     },
   ];
