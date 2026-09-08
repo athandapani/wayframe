@@ -1205,6 +1205,8 @@ export interface RoadmapTimelineProps {
   onToggleSelect?: (id: string) => void;
   /** Fired once a marquee drag completes, with every milestone id it covered. */
   onMarqueeSelect?: (ids: string[]) => void;
+  /** PROTOTYPE (wayframe#84) — forces the rendered date domain instead of deriving it from `data` via computeDomain. Throwaway escape hatch for the zoom prototype; not a real API. */
+  domainOverride?: { min: number; max: number };
 }
 
 export function RoadmapTimeline({
@@ -1250,6 +1252,7 @@ export function RoadmapTimeline({
   selectedIds,
   onToggleSelect,
   onMarqueeSelect,
+  domainOverride,
 }: RoadmapTimelineProps) {
   // Auto lane height — only ever shrinks the fixed
   // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
@@ -1399,7 +1402,7 @@ export function RoadmapTimeline({
     if (!row) return laneColorAt(theme.laneRamp, 0, laneCount);
     return laneColor(row.swimlane, row.laneIndex);
   }
-  const { domainMin, domainMax } = computeDomain(data);
+  const { domainMin, domainMax } = domainOverride ? { domainMin: domainOverride.min, domainMax: domainOverride.max } : computeDomain(data);
   const todayTs = today.getTime();
 
   const innerWidth = width - MARGIN.left - MARGIN.right;
