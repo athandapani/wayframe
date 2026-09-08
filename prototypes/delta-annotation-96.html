@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Unified delta-annotation layer — prototype for wayframe#96</title>
+<style>
+  :root {
+    --ink: #1c2128;
+    --sub: #57606a;
+    --line: #d0d7de;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --accent: #8250df;
+    --accent-soft: #ede7fc;
+    --amber: #b5791f;
+    --amber-soft: #faf1de;
+    --gray: #57606a;
+    --gray-soft: #eaeef2;
+    --warn: #cf222e;
+    --ok: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin: 28px 0 8px; }
+  h3 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sub); }
+  .intro {
+    background: var(--accent-soft);
+    border: 1px solid #d6bbfb;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 14px;
+    color: #3c1a78;
+    margin-bottom: 24px;
+  }
+  .intro b { color: #2f1160; }
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    background: var(--panel);
+    margin-bottom: 18px;
+  }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tab-btn {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--sub);
+  }
+  .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .scenario-desc { font-size: 13.5px; color: var(--sub); margin-bottom: 10px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .step-btn {
+    border: 1px solid var(--accent);
+    background: #fff;
+    color: var(--accent);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .step-btn:disabled { opacity: 0.35; cursor: default; border-color: var(--line); color: var(--sub); }
+  .step-btn.done { background: var(--accent-soft); }
+  .free-play {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px;
+  }
+  .fp-group { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; }
+  .fp-group label { display: block; font-size: 11.5px; color: var(--sub); margin-bottom: 4px; }
+  select, input[type=number], input[type=range] { width: 100%; font-size: 13px; padding: 4px; }
+  .fp-group button {
+    margin-top: 6px;
+    width: 100%;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    cursor: pointer;
+    font-size: 12.5px;
+  }
+  .item-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
+  .item-row:last-child { border-bottom: none; }
+  .item-row .id { width: 46px; font-weight: 600; }
+  .item-row select, .item-row input { width: auto; font-size: 11.5px; padding: 2px 4px; }
+  button.reset {
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    background: #fff;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  /* --- diagram --- */
+  .diagram { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 10px 10px 6px; }
+  .item-band { position: relative; border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; height: 100px; }
+  .item-band:first-child { border-top: none; margin-top: 0; padding-top: 6px; }
+  .item-label { font-size: 10.5px; color: var(--sub); margin-bottom: 3px; }
+  .track { position: relative; height: 84px; }
+  .now-line { position: absolute; top: 68px; left: 0; right: 0; height: 1px; background: var(--line); }
+  .marker {
+    position: absolute;
+    top: 62px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--ink);
+    transform: translateX(-50%);
+  }
+  .phase-bar {
+    position: absolute;
+    top: 63px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--ink);
+  }
+  .ghost {
+    position: absolute;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    border: 2px dashed;
+    background: #fff;
+    transform: translateX(-50%);
+  }
+  .ghost.kind-slip { border-color: var(--gray); }
+  .ghost.kind-at-risk { border-color: var(--amber); }
+  .ghost.kind-scenario-diff { border-color: var(--accent); }
+  .ghost-label {
+    position: absolute;
+    font-size: 9.5px;
+    white-space: nowrap;
+    padding: 1px 4px;
+    border-radius: 4px;
+    transform: translateX(-50%) translateY(-100%);
+  }
+  .ghost-label.kind-slip { background: var(--gray-soft); color: var(--gray); }
+  .ghost-label.kind-at-risk { background: var(--amber-soft); color: var(--amber); }
+  .ghost-label.kind-scenario-diff { background: var(--accent-soft); color: var(--accent); }
+  .overflow-badge {
+    position: absolute;
+    top: -70px;
+    font-size: 9.5px;
+    background: var(--warn);
+    color: #fff;
+    padding: 1px 5px;
+    border-radius: 4px;
+    transform: translateX(-50%);
+  }
+  table.metrics { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 10px; }
+  table.metrics th, table.metrics td { border: 1px solid var(--line); padding: 5px 7px; text-align: left; }
+  table.metrics th { background: #eef1f4; font-weight: 600; }
+  .kind-chip { font-size: 10px; padding: 1px 6px; border-radius: 999px; font-weight: 600; display: inline-block; margin-right: 3px; }
+  .kind-chip.slip { background: var(--gray-soft); color: var(--gray); }
+  .kind-chip.at-risk { background: var(--amber-soft); color: var(--amber); }
+  .kind-chip.scenario-diff { background: var(--accent-soft); color: var(--accent); }
+  .finding { border-left: 3px solid var(--accent); padding: 8px 12px; background: #fff; font-size: 13px; margin-top: 10px; }
+  .badge { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+  .badge.old { background: #ffebe9; color: var(--warn); }
+  .badge.new { background: #dafbe1; color: var(--ok); }
+  code { background: #eef1f4; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Unified delta-annotation layer</h1>
+<div class="intro">
+  <b>wayframe#96 (t23).</b> Today, a slip ghost (<code>originalDate</code>) and an at-risk
+  projection (<code>potentialDate</code>) each run their own independent
+  <code>layoutGhostBadges</code> pass over the same 3 tiers (<code>GHOST_TIER_DY=[-18,-30,-70]</code>),
+  seeded only with title-collision blockers, never with each other — confirmed in #83/t9: a milestone
+  with both can get two badges claiming the same tier-0 slot. This prototype answers: one data shape
+  covering slip + at-risk + the new scenario-diff ghost, extended to phases (which have no
+  <code>originalDate</code> today), and a "smart labeling" rule for when annotation space is scarce.
+  Push the model with the buttons below — the interesting moments are when something surprises you.
+</div>
+
+<div class="panel">
+  <h3>Current state</h3>
+  <div id="diagram" class="diagram"></div>
+  <table class="metrics" id="metrics"></table>
+</div>
+
+<h2>Guided walkthroughs</h2>
+<div class="panel">
+  <div class="tabs" id="tabs"></div>
+  <div class="scenario-desc" id="scenarioDesc"></div>
+  <div class="steps" id="steps"></div>
+</div>
+
+<h2>Free play</h2>
+<div class="panel">
+  <div class="free-play">
+    <div class="fp-group">
+      <label>Add milestone — day, phase-size n/a</label>
+      <input type="number" id="newDay" value="10" min="0" max="60" />
+      <button onclick="addMilestoneFromInputs()">Add milestone</button>
+    </div>
+    <div class="fp-group">
+      <label>Add phase — start / end (days)</label>
+      <input type="number" id="newPhaseStart" value="5" min="0" max="60" />
+      <input type="number" id="newPhaseEnd" value="15" min="1" max="60" />
+      <button onclick="addPhaseFromInputs()">Add phase</button>
+    </div>
+    <div class="fp-group">
+      <label>Viewing a Scenario (viewer-local)</label>
+      <button id="scenarioToggleBtn" onclick="dispatch({type:'TOGGLE_SCENARIO'})"></button>
+      <div style="font-size:11px;color:var(--sub);margin-top:6px">Scenario-diff ghosts are computed live and only ever shown while a viewer has a Scenario open — never persisted, never shared across viewers.</div>
+    </div>
+    <div class="fp-group">
+      <label>Reset everything</label>
+      <button class="reset" onclick="dispatch({type:'RESET'})">Reset to empty</button>
+    </div>
+  </div>
+  <h3 style="margin-top:16px">Items</h3>
+  <div id="itemList"></div>
+</div>
+
+<script id="logic-module">
+  /* ============================================================
+   * PURE MODULE — no DOM access. This is the part meant to be
+   * lifted into the real codebase once the model is validated.
+   * GHOST_TIER_DY mirrors label-layout.ts's real constant, so the
+   * tier count/costs this prototype shows match production.
+   * ============================================================ */
+  const GHOST_TIER_DY = [-18, -30, -70]; // label-layout.ts real constant
+  const MAX_TIERS = GHOST_TIER_DY.length;
+
+  // Priority ladder = the SAME ordering used for both "who gets tier 0"
+  // and "who gets the text label" — they're not two separate rules. The
+  // highest-priority delta on an item always claims the closest slot AND
+  // the label; lower-priority deltas on the same item still render (as an
+  // unlabeled dashed outline), just escalated outward — exactly the same
+  // "push to a farther tier when crowded" idiom today's collision system
+  // already uses, just now resolving same-item crowding, not only
+  // cross-item crowding.
+  const KIND_PRIORITY = { "scenario-diff": 0, "at-risk": 1, "slip": 2 };
+
+  // One shape, three kinds. `from`/`to` are day-integers here (real code:
+  // ISO date strings) to keep the prototype's arithmetic legible.
+  function ghostsForItem(item, viewingScenario) {
+    const ghosts = [];
+    if (item.type === "milestone") {
+      if (item.originalDate != null && item.originalDate !== item.date) {
+        ghosts.push({ itemId: item.id, kind: "slip", field: "date", from: item.originalDate, to: item.date });
+      }
+      if (item.potentialDate != null) {
+        ghosts.push({ itemId: item.id, kind: "at-risk", field: "date", from: item.date, to: item.potentialDate });
+      }
+    } else {
+      // Phase: no single `originalDate` — slip can independently apply to
+      // either edge of the duration pill. potentialDate maps to endDate
+      // (phase risk is almost always "will this overrun"), matching the
+      // one potentialDate field phases already carry today.
+      if (item.originalStartDate != null && item.originalStartDate !== item.startDate) {
+        ghosts.push({ itemId: item.id, kind: "slip", field: "startDate", from: item.originalStartDate, to: item.startDate });
+      }
+      if (item.originalEndDate != null && item.originalEndDate !== item.endDate) {
+        ghosts.push({ itemId: item.id, kind: "slip", field: "endDate", from: item.originalEndDate, to: item.endDate });
+      }
+      if (item.potentialDate != null) {
+        ghosts.push({ itemId: item.id, kind: "at-risk", field: "endDate", from: item.endDate, to: item.potentialDate });
+      }
+    }
+    // Scenario-diff: never persisted. Computed live from a Scenario's own
+    // resolved override (already how #87/t13 resolves Scenarios) against
+    // Baseline's *current* field value, and only surfaced while this
+    // viewer has that Scenario open (viewer-local, per #85/t11).
+    if (viewingScenario && item.scenarioOverride) {
+      const field = item.scenarioOverride.field;
+      const baselineValue = item[field];
+      ghosts.push({ itemId: item.id, kind: "scenario-diff", field, from: baselineValue, to: item.scenarioOverride.value });
+    }
+    return ghosts;
+  }
+
+  // ONE shared placement pass per item (replacing today's two independent
+  // layoutGhostBadges calls). Sorting by priority IS the tier assignment:
+  // index 0 gets tier 0 (closest, GHOST_TIER_DY[0]) and the label; the
+  // rest escalate outward, unlabeled but still visible. Only MAX_TIERS
+  // slots exist — anything beyond that overflows into a count, it doesn't
+  // invent a 4th tier.
+  function layoutItemGhosts(ghosts) {
+    const sorted = [...ghosts].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
+    const placed = sorted.slice(0, MAX_TIERS).map((g, i) => ({ ...g, tier: i, dy: GHOST_TIER_DY[i], labeled: i === 0 }));
+    const overflowCount = Math.max(0, sorted.length - MAX_TIERS);
+    return { placed, overflowCount };
+  }
+
+  function layoutAllGhosts(items, viewingScenario) {
+    const byItem = new Map();
+    for (const item of items) {
+      byItem.set(item.id, layoutItemGhosts(ghostsForItem(item, viewingScenario)));
+    }
+    return byItem;
+  }
+
+  // TODAY'S behavior, reproduced to show the bug: slip and at-risk each
+  // run their OWN independent single-ghost placement, seeded with no
+  // knowledge of each other — both claim GHOST_TIER_DY[0] when both are
+  // present on the same item. (Scenario-diff didn't exist yet, so it's
+  // not part of the old bug — it's the new third pass that would have
+  // made the collision worse without this ticket's fix.)
+  function layoutItemGhostsOldBuggy(ghosts) {
+    const slip = ghosts.find((g) => g.kind === "slip");
+    const atRisk = ghosts.find((g) => g.kind === "at-risk");
+    const placed = [];
+    if (slip) placed.push({ ...slip, tier: 0, dy: GHOST_TIER_DY[0], labeled: true });
+    if (atRisk) placed.push({ ...atRisk, tier: 0, dy: GHOST_TIER_DY[0], labeled: true }); // <- same tier, same dy: collision
+    return { placed, overflowCount: Math.max(0, ghosts.length - placed.length) };
+  }
+
+  function labelFor(ghost) {
+    const delta = ghost.to - ghost.from;
+    const sign = delta >= 0 ? "+" : "";
+    if (ghost.kind === "slip") return `${sign}${delta}d from plan`;
+    if (ghost.kind === "at-risk") return `+${Math.max(delta, 0)}d risk · day ${ghost.to}`;
+    if (ghost.kind === "scenario-diff") return `Scenario: day ${ghost.to}`;
+    return "";
+  }
+
+  window.DeltaGhostLogic = {
+    GHOST_TIER_DY, MAX_TIERS, KIND_PRIORITY,
+    ghostsForItem, layoutItemGhosts, layoutAllGhosts, layoutItemGhostsOldBuggy, labelFor,
+  };
+</script>
+
+<script>
+  /* ============================================================
+   * PAGE SHELL — throwaway. Wires the pure module above to buttons
+   * and a small visual diagram. Nothing here flows back into the
+   * module.
+   * ============================================================ */
+  const L = window.DeltaGhostLogic;
+  let idCounter = 0;
+
+  function initialState() {
+    return { viewingScenario: false, oldBuggyMode: false, items: [] };
+  }
+  let state = initialState();
+
+  function reduce(s, action) {
+    switch (action.type) {
+      case "ADD_ITEM":
+        return { ...s, items: [...s.items, action.item] };
+      case "REMOVE_ITEM":
+        return { ...s, items: s.items.filter((i) => i.id !== action.id) };
+      case "PATCH_ITEM":
+        return { ...s, items: s.items.map((i) => (i.id === action.id ? { ...i, ...action.patch } : i)) };
+      case "TOGGLE_SCENARIO":
+        return { ...s, viewingScenario: !s.viewingScenario };
+      case "TOGGLE_OLD_BUGGY":
+        return { ...s, oldBuggyMode: !s.oldBuggyMode };
+      case "RESET":
+        return initialState();
+      default:
+        return s;
+    }
+  }
+
+  function dispatch(action) {
+    state = reduce(state, action);
+    render();
+  }
+
+  function addMilestone(day, extra) {
+    idCounter += 1;
+    const id = "M" + idCounter;
+    dispatch({ type: "ADD_ITEM", item: { id, type: "milestone", date: day, originalDate: null, potentialDate: null, scenarioOverride: null, ...extra } });
+    return id;
+  }
+  function addPhase(start, end, extra) {
+    idCounter += 1;
+    const id = "P" + idCounter;
+    dispatch({ type: "ADD_ITEM", item: { id, type: "phase", startDate: start, endDate: end, originalStartDate: null, originalEndDate: null, potentialDate: null, scenarioOverride: null, ...extra } });
+    return id;
+  }
+  function addMilestoneFromInputs() {
+    addMilestone(Number(document.getElementById("newDay").value), {});
+  }
+  function addPhaseFromInputs() {
+    addPhase(Number(document.getElementById("newPhaseStart").value), Number(document.getElementById("newPhaseEnd").value), {});
+  }
+
+  /* ---------------- rendering ---------------- */
+
+  const PX_PER_DAY = 12;
+
+  function render() {
+    renderDiagram();
+    renderMetrics();
+    renderItemList();
+    document.getElementById("scenarioToggleBtn").textContent = state.viewingScenario ? "Viewing Scenario — click to close" : "Not viewing a Scenario";
+    renderScenarioStep();
+  }
+
+  function itemCurrentX(item) {
+    return item.type === "milestone" ? item.date * PX_PER_DAY : item.endDate * PX_PER_DAY;
+  }
+
+  function renderDiagram() {
+    const el = document.getElementById("diagram");
+    if (state.items.length === 0) {
+      el.innerHTML = '<div style="font-size:12.5px;color:var(--sub);padding:20px;text-align:center">No items yet — add one below, or run a walkthrough.</div>';
+      return;
+    }
+    const maxDay = Math.max(30, ...state.items.map((i) => (i.type === "milestone" ? Math.max(i.date, i.potentialDate || 0) : Math.max(i.endDate, i.potentialDate || 0))));
+    const width = maxDay * PX_PER_DAY + 60;
+    el.innerHTML = state.items
+      .map((item) => {
+        const ghosts = L.ghostsForItem(item, state.viewingScenario);
+        const { placed, overflowCount } = state.oldBuggyMode ? L.layoutItemGhostsOldBuggy(ghosts) : L.layoutItemGhosts(ghosts);
+        let markerHtml;
+        if (item.type === "milestone") {
+          markerHtml = `<div class="marker" style="left:${item.date * PX_PER_DAY}px"></div>`;
+        } else {
+          const left = item.startDate * PX_PER_DAY;
+          const w = Math.max(20, (item.endDate - item.startDate) * PX_PER_DAY);
+          markerHtml = `<div class="phase-bar" style="left:${left}px;width:${w}px"></div>`;
+        }
+        const ghostHtml = placed
+          .map((g) => {
+            const x = g.from * PX_PER_DAY;
+            const top = 62 + g.dy;
+            const label = g.labeled
+              ? `<div class="ghost-label kind-${g.kind}" style="left:${x}px;top:${top}px">${L.labelFor(g)}</div>`
+              : "";
+            return `<div class="ghost kind-${g.kind}" style="left:${x}px;top:${top}px" title="${g.kind}: ${L.labelFor(g)}"></div>${label}`;
+          })
+          .join("");
+        const overflowHtml = overflowCount > 0 ? `<div class="overflow-badge" style="left:${itemCurrentX(item)}px">+${overflowCount} more</div>` : "";
+        return `<div class="item-band">
+          <div class="item-label">${item.id} (${item.type})</div>
+          <div class="track" style="width:${width}px">
+            <div class="now-line"></div>
+            ${markerHtml}
+            ${ghostHtml}
+            ${overflowHtml}
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  function renderMetrics() {
+    const rows = state.items
+      .map((item) => {
+        const ghosts = L.ghostsForItem(item, state.viewingScenario);
+        const { placed, overflowCount } = state.oldBuggyMode ? L.layoutItemGhostsOldBuggy(ghosts) : L.layoutItemGhosts(ghosts);
+        const chips = ghosts.map((g) => `<span class="kind-chip ${g.kind}">${g.kind}</span>`).join(" ") || "—";
+        const labeled = placed.find((g) => g.labeled);
+        const tiers = placed.map((g) => `${g.kind}:t${g.tier}${g.labeled ? "(labeled)" : ""}`).join(", ") || "—";
+        return `<tr><td>${item.id}</td><td>${chips}</td><td>${tiers}</td><td>${labeled ? labeled.kind : "—"}</td><td>${overflowCount}</td></tr>`;
+      })
+      .join("");
+    document.getElementById("metrics").innerHTML = `
+      <tr><th>Item</th><th>Ghosts present</th><th>Tier assignment</th><th>Labeled kind</th><th>Overflow</th></tr>
+      ${rows || '<tr><td colspan="5" style="color:var(--sub)">—</td></tr>'}
+    `;
+  }
+
+  function renderItemList() {
+    const el = document.getElementById("itemList");
+    if (state.items.length === 0) {
+      el.innerHTML = '<div style="font-size:12.5px;color:var(--sub)">No items.</div>';
+      return;
+    }
+    el.innerHTML = state.items
+      .map((item) => {
+        if (item.type === "milestone") {
+          return `<div class="item-row">
+            <span class="id">${item.id}</span>
+            <span>day ${item.date}</span>
+            <label>slip from <input type="number" style="width:44px" value="${item.originalDate ?? ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{originalDate: this.value===''?null:Number(this.value)}})" placeholder="—"></label>
+            <label>at-risk to <input type="number" style="width:44px" value="${item.potentialDate ?? ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{potentialDate: this.value===''?null:Number(this.value)}})" placeholder="—"></label>
+            <label>scenario→ <input type="number" style="width:44px" value="${item.scenarioOverride ? item.scenarioOverride.value : ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{scenarioOverride: this.value===''?null:{field:'date', value:Number(this.value)}}})" placeholder="—"></label>
+            <button onclick="dispatch({type:'REMOVE_ITEM', id:'${item.id}'})" style="margin-left:auto">remove</button>
+          </div>`;
+        }
+        return `<div class="item-row">
+          <span class="id">${item.id}</span>
+          <span>day ${item.startDate}–${item.endDate}</span>
+          <label>start-slip from <input type="number" style="width:44px" value="${item.originalStartDate ?? ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{originalStartDate: this.value===''?null:Number(this.value)}})" placeholder="—"></label>
+          <label>end-slip from <input type="number" style="width:44px" value="${item.originalEndDate ?? ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{originalEndDate: this.value===''?null:Number(this.value)}})" placeholder="—"></label>
+          <label>at-risk to <input type="number" style="width:44px" value="${item.potentialDate ?? ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{potentialDate: this.value===''?null:Number(this.value)}})" placeholder="—"></label>
+          <label>scenario→ <input type="number" style="width:44px" value="${item.scenarioOverride ? item.scenarioOverride.value : ""}" onchange="dispatch({type:'PATCH_ITEM', id:'${item.id}', patch:{scenarioOverride: this.value===''?null:{field:'endDate', value:Number(this.value)}}})" placeholder="—"></label>
+          <button onclick="dispatch({type:'REMOVE_ITEM', id:'${item.id}'})" style="margin-left:auto">remove</button>
+        </div>`;
+      })
+      .join("");
+  }
+
+  /* ---------------- guided walkthroughs ---------------- */
+
+  const scenarios = [
+    {
+      name: "1. Happy path (today, unchanged)",
+      desc: "A single milestone with just a slip ghost behaves exactly like production today: one ghost, tier 0, labeled.",
+      steps: [
+        { label: "Reset", run: () => dispatch({ type: "RESET" }) },
+        { label: "Add milestone A at day 20", run: () => addMilestone(20, {}) },
+        { label: "Give it a slip: originalDate = day 12", run: () => dispatch({ type: "PATCH_ITEM", id: "M1", patch: { originalDate: 12 } }) },
+        { label: "Observe: 1 ghost, tier 0, labeled '+8d from plan'", run: () => {} },
+      ],
+    },
+    {
+      name: "2. Reproduce #83's collision, then fix it",
+      desc: "One milestone gets BOTH a slip and an at-risk projection. Under today's two-independent-passes model, both claim tier 0 (GHOST_TIER_DY[0] = -18) — a literal collision, exactly what #83/t9 found. Flip to the unified pass and they land on distinct tiers deterministically.",
+      steps: [
+        { label: "Reset", run: () => dispatch({ type: "RESET" }) },
+        { label: "Add milestone B at day 20 with both a slip and an at-risk projection", run: () => { addMilestone(20, { originalDate: 14, potentialDate: 27 }); } },
+        { label: "Turn on 'old buggy mode' (reproduces today's two independent passes)", run: () => dispatch({ type: "TOGGLE_OLD_BUGGY" }) },
+        { label: "Observe: both ghosts render at the same tier — visually overlapping", run: () => {} },
+        { label: "Turn off 'old buggy mode' (the unified shared pass)", run: () => dispatch({ type: "TOGGLE_OLD_BUGGY" }) },
+        { label: "Observe: at-risk takes tier 0 (labeled), slip escalates to tier 1 (unlabeled but visible) — no collision", run: () => {} },
+      ],
+    },
+    {
+      name: "3. Three kinds at once — priority picks the one label",
+      desc: "A milestone with slip + at-risk + scenario-diff all present simultaneously. The priority ladder (scenario-diff > at-risk > slip) decides which single one gets text; the other two still render as unlabeled dashed outlines — nothing silently disappears.",
+      steps: [
+        { label: "Reset", run: () => dispatch({ type: "RESET" }) },
+        { label: "Add milestone C at day 20 with slip + at-risk", run: () => addMilestone(20, { originalDate: 15, potentialDate: 25 }) },
+        { label: "Turn on 'Viewing a Scenario'", run: () => { if (!state.viewingScenario) dispatch({ type: "TOGGLE_SCENARIO" }); } },
+        { label: "Give it a Scenario override to day 30", run: () => dispatch({ type: "PATCH_ITEM", id: "M1", patch: { scenarioOverride: { field: "date", value: 30 } } }) },
+        { label: "Observe: scenario-diff is tier 0 + labeled; at-risk tier 1, slip tier 2 — both visible, unlabeled", run: () => {} },
+      ],
+    },
+    {
+      name: "4. Extends to phases (two independent edges)",
+      desc: "Phases have no originalDate today at all — a real gap. A phase's start and end can each slip independently, plus it can carry its own at-risk (mapped to endDate, since phase risk is almost always 'will this overrun').",
+      steps: [
+        { label: "Reset", run: () => dispatch({ type: "RESET" }) },
+        { label: "Add phase D, day 10–25", run: () => addPhase(10, 25, {}) },
+        { label: "Slip the start: originalStartDate = day 6", run: () => dispatch({ type: "PATCH_ITEM", id: "P1", patch: { originalStartDate: 6 } }) },
+        { label: "Slip the end: originalEndDate = day 20", run: () => dispatch({ type: "PATCH_ITEM", id: "P1", patch: { originalEndDate: 20 } }) },
+        { label: "Add an at-risk projection: potentialDate = day 32", run: () => dispatch({ type: "PATCH_ITEM", id: "P1", patch: { potentialDate: 32 } }) },
+        { label: "Observe: 3 ghosts on one phase, same priority/tier rule as milestones — at-risk labeled, both slips visible but unlabeled", run: () => {} },
+      ],
+    },
+    {
+      name: "5. Scenario-diff is ephemeral, not persisted",
+      desc: "Slip and at-risk are real document fields — they stay put regardless of what any viewer is looking at. Scenario-diff is computed live and only appears while a viewer has that Scenario open. Toggling it off makes the ghost vanish instantly, with nothing to \"revert\" — there was never anything stored.",
+      steps: [
+        { label: "Reset", run: () => dispatch({ type: "RESET" }) },
+        { label: "Add milestone E at day 20 with a slip", run: () => addMilestone(20, { originalDate: 16 }) },
+        { label: "Turn on 'Viewing a Scenario' and give it an override to day 28", run: () => { if (!state.viewingScenario) dispatch({ type: "TOGGLE_SCENARIO" }); dispatch({ type: "PATCH_ITEM", id: "M1", patch: { scenarioOverride: { field: "date", value: 28 } } }); } },
+        { label: "Observe: 2 ghosts now (slip + scenario-diff)", run: () => {} },
+        { label: "Turn off 'Viewing a Scenario'", run: () => dispatch({ type: "TOGGLE_SCENARIO" }) },
+        { label: "Observe: scenario-diff ghost is gone instantly; the slip ghost is untouched — the override data is still there, just not being viewed", run: () => {} },
+      ],
+    },
+    {
+      name: "6. Only 3 tiers exist — overflow, don't invent a 4th",
+      desc: "A phase can plausibly carry all four ghost kinds at once (start-slip, end-slip, at-risk, scenario-diff). GHOST_TIER_DY only defines 3 slots — the lowest-priority one overflows into a count instead of a nonexistent 4th tier.",
+      steps: [
+        { label: "Reset", run: () => dispatch({ type: "RESET" }) },
+        { label: "Add phase F, day 10–25, with both slips and an at-risk", run: () => addPhase(10, 25, { originalStartDate: 6, originalEndDate: 20, potentialDate: 32 }) },
+        { label: "Turn on 'Viewing a Scenario' and add a scenario override to endDate=35", run: () => { if (!state.viewingScenario) dispatch({ type: "TOGGLE_SCENARIO" }); dispatch({ type: "PATCH_ITEM", id: "P1", patch: { scenarioOverride: { field: "endDate", value: 35 } } }); } },
+        { label: "Observe: 4 ghosts, only 3 tiers used — the lowest-priority one (a slip) shows as '+1 more' instead of a 4th tier", run: () => {} },
+      ],
+    },
+  ];
+
+  let activeScenario = 0;
+  let activeStep = -1;
+
+  function renderTabs() {
+    const el = document.getElementById("tabs");
+    el.innerHTML = scenarios
+      .map((s, i) => `<button class="tab-btn ${i === activeScenario ? "active" : ""}" onclick="selectScenario(${i})">${s.name}</button>`)
+      .join("");
+  }
+
+  function selectScenario(i) {
+    activeScenario = i;
+    activeStep = -1;
+    renderTabs();
+    renderScenarioStep();
+  }
+
+  function renderScenarioStep() {
+    const s = scenarios[activeScenario];
+    document.getElementById("scenarioDesc").textContent = s.desc;
+    const el = document.getElementById("steps");
+    el.innerHTML = s.steps
+      .map((step, i) => {
+        const enabled = i === activeStep + 1;
+        const done = i <= activeStep;
+        return `<button class="step-btn ${done ? "done" : ""}" ${enabled ? "" : "disabled"} onclick="runStep(${i})">${i + 1}. ${step.label}</button>`;
+      })
+      .join("");
+  }
+
+  function runStep(i) {
+    const s = scenarios[activeScenario];
+    if (i !== activeStep + 1) return;
+    s.steps[i].run();
+    activeStep = i;
+    render();
+  }
+
+  renderTabs();
+  render();
+</script>
+</body>
+</html>
