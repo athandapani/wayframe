@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Deck IR prototype — wayframe#105</title>
+<style>
+  :root {
+    --ink: #1a2027;
+    --ink-lo: #5b6472;
+    --ink-faint: #8891a0;
+    --line: #dde1e6;
+    --panel: #ffffff;
+    --ground: #f4f5f3;
+    --accent: #2f6f8c;
+    --accent-soft: #e6eef2;
+    --warn: #b5651f;
+    --warn-soft: #faf1e4;
+    --ok: #2f8f5c;
+    --ok-soft: #e7f5ec;
+    --mono: "SF Mono", "IBM Plex Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 2.5rem 1.75rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.35rem; letter-spacing: -0.01em; }
+  .subtitle { color: var(--ink-lo); max-width: 74ch; margin: 0 0 2rem; font-size: 0.95rem; }
+  .subtitle b { color: var(--ink); }
+  h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint); margin: 0 0 0.7rem; }
+  section { margin-bottom: 2rem; }
+  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 1.5rem; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.2rem; }
+
+  .btnrow { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem; }
+  button {
+    font: inherit; font-size: 0.82rem; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    border-radius: 7px; padding: 0.45rem 0.75rem;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { opacity: 0.9; color: #fff; }
+  button.ghost { background: transparent; }
+  select {
+    font: inherit; font-size: 0.82rem; border: 1px solid var(--line); border-radius: 7px;
+    padding: 0.4rem 0.5rem; background: var(--panel); color: var(--ink);
+  }
+  label.field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--ink-lo); margin-bottom: 0.6rem; }
+
+  .shape-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+  .shape-row {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.6rem;
+    background: var(--ground); border-radius: 7px; font-size: 0.83rem;
+  }
+  .shape-row .kind {
+    font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em;
+    background: var(--accent-soft); color: var(--accent); padding: 0.1rem 0.4rem; border-radius: 5px; flex-shrink: 0;
+  }
+  .shape-row .desc { color: var(--ink-lo); flex: 1; }
+  .shape-row .rm { margin-left: auto; background: none; border: none; color: var(--ink-faint); cursor: pointer; font-size: 0.9rem; padding: 0 0.3rem; }
+  .shape-row .rm:hover { color: #b3261e; }
+  .empty { color: var(--ink-faint); font-size: 0.83rem; font-style: italic; padding: 0.4rem 0; }
+
+  .compile-out { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 700px) { .compile-out { grid-template-columns: 1fr; } }
+  .compile-col h3 { font-size: 0.82rem; margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+  .compile-col ol { margin: 0; padding-left: 1.2rem; font-size: 0.81rem; }
+  .compile-col li { margin-bottom: 0.4rem; font-family: var(--mono); font-size: 0.76rem; color: var(--ink-lo); }
+  .badge { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.1rem 0.4rem; border-radius: 99px; }
+  .badge.honored { background: var(--ok-soft); color: var(--ok); }
+  .badge.degraded { background: var(--warn-soft); color: var(--warn); }
+  .degrade-note { font-size: 0.78rem; color: var(--warn); background: var(--warn-soft); border-radius: 7px; padding: 0.5rem 0.65rem; margin-top: 0.5rem; }
+
+  .error { font-size: 0.83rem; color: #b3261e; background: #fbe9e7; border-radius: 7px; padding: 0.5rem 0.65rem; margin-top: 0.5rem; }
+
+  .tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab {
+    font-size: 0.8rem; padding: 0.4rem 0.85rem; border-radius: 99px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink-lo);
+  }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .scenario-body { display: none; }
+  .scenario-body.active { display: block; }
+  .scenario-desc { font-size: 0.87rem; color: var(--ink-lo); margin-bottom: 0.9rem; }
+  .step-list { display: flex; flex-direction: column; gap: 0.4rem; }
+  .step-btn {
+    text-align: left; display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.55rem 0.75rem;
+  }
+  .step-btn .n {
+    width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--ground);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 0.72rem; flex-shrink: 0;
+  }
+  .step-btn.done { opacity: 0.5; }
+  .step-btn.done .n { background: var(--ok-soft); color: var(--ok); }
+  .step-btn:disabled { cursor: default; opacity: 0.4; }
+
+  footer { color: var(--ink-faint); font-size: 0.78rem; margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Deck IR — one shared shape model, two renderers</h1>
+  <p class="subtitle">
+    <b>Question this settles (wayframe#105):</b> a Deck should describe a slide as real,
+    editable shapes and text — not a screenshot, which is all today's export does — and
+    that same description has to drive <b>both</b> a PowerPoint file (via pptxgenjs) and a
+    Google Slides deck. Those two renderers don't support the same things
+    (#t6/#t7's capability probes), so this prototype pins down: what the shared
+    model stores, and how each renderer decides what it can and can't honor.
+    Free-play with the buttons below, or step through the five scenarios that
+    force the fidelity question.
+  </p>
+
+  <div class="grid">
+    <div>
+      <section class="panel">
+        <h2>Build a slide</h2>
+        <div class="btnrow">
+          <button onclick="ui.addRect()">+ Rect</button>
+          <button onclick="ui.addEllipse()">+ Ellipse</button>
+          <button onclick="ui.addDiamond()">+ Diamond (rotated)</button>
+          <button onclick="ui.addStar()">+ Star</button>
+          <button onclick="ui.addFlag()">+ Flag</button>
+        </div>
+        <div class="btnrow">
+          <button onclick="ui.addRichText()">+ Rich text (3 runs)</button>
+        </div>
+        <label class="field">
+          Connector style to request
+          <select id="connStyle">
+            <option value="straight">straight</option>
+            <option value="elbow" selected>elbow</option>
+            <option value="curved">curved</option>
+          </select>
+        </label>
+        <div class="btnrow">
+          <button onclick="ui.addConnector()">+ Connector</button>
+        </div>
+        <div class="btnrow">
+          <button onclick="ui.addInvalid()" class="ghost">Try an illegal shape</button>
+        </div>
+        <div class="btnrow">
+          <button onclick="ui.reset()" class="ghost">Reset slide</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="panel">
+      <h2>Current slide (the shared IR — what both renderers read)</h2>
+      <ul class="shape-list" id="shapeList"></ul>
+      <div id="irError"></div>
+    </div>
+  </div>
+
+  <section class="panel" style="margin-top:1.5rem;">
+    <h2>Compile</h2>
+    <div class="btnrow">
+      <button class="primary" onclick="ui.compile()">Compile this slide to both formats</button>
+    </div>
+    <div class="compile-out" id="compileOut"></div>
+  </section>
+
+  <section>
+    <h2>Guided scenarios</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="panel" id="scenarioPanel"></div>
+  </section>
+
+  <footer>
+    Pure module — <code>DeckIR</code>, <code>compileToPptxOps</code>,
+    <code>compileToSlidesRequests</code> — has no DOM references; everything
+    above this line is a thin page shell driving it. Lift the module directly
+    into <code>src/lib/export/</code> once the shape has been reviewed; this
+    HTML file is throwaway.
+  </footer>
+</div>
+
+<script>
+// =====================================================================
+// PURE MODULE — no DOM, no globals besides what's exported below.
+// This is the part meant to survive past the prototype's own lifetime.
+// =====================================================================
+
+/**
+ * A Deck is a list of Slides; a Slide is a list of Shapes. A Shape stores
+ * full-fidelity INTENT — the richest thing either renderer could possibly
+ * do with it — never pre-flattened to whatever the weaker renderer supports.
+ * Each compiler independently decides how much of that intent it can honor.
+ * The "fidelity floor" wayframe#105 asks about isn't one shared degraded
+ * shape set; it's the guarantee that every Shape kind compiles to SOMETHING
+ * acceptable on both targets, even when the two outputs end up different.
+ *
+ * Shape kinds and the degradation each compiler applies, from #t6 (Slides)
+ * and #t7 (pptxgenjs)'s capability probes:
+ *  - rect / ellipse / diamond / star: native on both, no degradation.
+ *    `rotationDeg` (used for the on-time cushion-diamond marker style, tilted
+ *    45°) is honored natively by both — neither probe flagged rotation as
+ *    unsupported.
+ *  - flag: NEITHER renderer has a native flag/pennant shape (#t6, #t7 both
+ *    hit this) — both compilers independently compose it as a `wave` path
+ *    plus a rectangle staff. Not a degradation of one renderer relative to
+ *    the other; it's the one shape kind where the floor and the ceiling are
+ *    the same composed shape on both sides.
+ *  - text: always an array of styled runs, never raw HTML — #t7's BLUF
+ *    finding ("needs pre-splitting into runs") generalized into the IR
+ *    itself, so there is no HTML-to-runs step to forget on either side.
+ *  - connector: `style` is REQUESTED intent (straight/elbow/curved).
+ *    Slides honors it as-is (#t6: native elbow/curved). pptxgenjs has no
+ *    bent/curved connector support at all (#t7) — its compiler rewrites
+ *    every non-straight request down to "straight" and reports the
+ *    rewrite, rather than silently drawing something misleading. This is
+ *    the one place the two compiled decks visibly diverge.
+ */
+
+const SHAPE_KINDS = ["rect", "ellipse", "diamond", "star", "flag", "text", "connector"];
+
+function assert(cond, msg) {
+  if (!cond) throw new IRValidationError(msg);
+}
+class IRValidationError extends Error {}
+
+/** Validates one shape against the IR contract. Throws IRValidationError, never returns false. */
+function validateShape(shape) {
+  assert(shape && typeof shape === "object", "a shape must be an object");
+  assert(SHAPE_KINDS.includes(shape.kind), `unknown shape kind "${shape.kind}" — must be one of ${SHAPE_KINDS.join(", ")}`);
+  assert(typeof shape.id === "string" && shape.id.length > 0, "a shape needs a non-empty string id");
+  if (shape.kind === "connector") {
+    assert(shape.from && typeof shape.from.x === "number" && typeof shape.from.y === "number", "a connector needs a `from: {x,y}` point");
+    assert(shape.to && typeof shape.to.x === "number" && typeof shape.to.y === "number", "a connector needs a `to: {x,y}` point");
+    assert(["straight", "elbow", "curved"].includes(shape.style), `connector style "${shape.style}" must be straight, elbow, or curved`);
+  } else if (shape.kind === "text") {
+    assert(Array.isArray(shape.runs) && shape.runs.length > 0, "a text shape needs a non-empty `runs` array — never raw HTML");
+    for (const r of shape.runs) assert(typeof r.text === "string", "every text run needs a string `text` field");
+  } else {
+    for (const k of ["x", "y", "w", "h"]) assert(typeof shape[k] === "number", `a ${shape.kind} shape needs a numeric \`${k}\``);
+  }
+  return shape;
+}
+
+/** Human-readable one-liner for the IR panel — domain language, not a JSON dump. */
+function describeShape(shape) {
+  switch (shape.kind) {
+    case "connector":
+      return `from (${shape.from.x}, ${shape.from.y}) to (${shape.to.x}, ${shape.to.y}), requested style: ${shape.style}`;
+    case "text":
+      return shape.runs.map((r) => (r.bold ? `**${r.text}**` : r.text)).join("") + ` (${shape.runs.length} run${shape.runs.length === 1 ? "" : "s"})`;
+    case "diamond":
+      return `${shape.w}×${shape.h} at (${shape.x}, ${shape.y})${shape.rotationDeg ? `, rotated ${shape.rotationDeg}°` : ""}`;
+    default:
+      return `${shape.w}×${shape.h} at (${shape.x}, ${shape.y})`;
+  }
+}
+
+/**
+ * Compiles a slide to the plain-object description of the pptxgenjs calls
+ * that would be made — never calls pptxgenjs itself, so this stays a pure,
+ * dependency-free function usable both here and in export-to-deck.ts later.
+ */
+function compileToPptxOps(slide) {
+  const ops = [];
+  for (const shape of slide) {
+    validateShape(shape);
+    switch (shape.kind) {
+      case "flag":
+        ops.push({ call: "addShape", args: ["wave", { x: shape.x, y: shape.y, w: shape.w, h: shape.h * 0.7, fill: shape.fill }], note: "composed: no native flag/pennant on either renderer" });
+        ops.push({ call: "addShape", args: ["rect", { x: shape.x, y: shape.y, w: shape.w * 0.08, h: shape.h, fill: shape.fill }], note: "composed: staff" });
+        break;
+      case "connector": {
+        const honored = shape.style === "straight";
+        ops.push({
+          call: "addShape",
+          args: ["line", { startPos: shape.from, endPos: shape.to, style: "straight" }],
+          degraded: !honored,
+          note: honored ? undefined : `requested "${shape.style}" — pptxgenjs has no bent/curved connector support (#t7), rewritten to straight`,
+        });
+        break;
+      }
+      case "text":
+        ops.push({ call: "addText", args: [shape.runs.map((r) => ({ text: r.text, options: { bold: !!r.bold, italic: !!r.italic, color: r.color, fontSize: r.sizePt } })), { x: shape.x, y: shape.y, w: shape.w, h: shape.h }] });
+        break;
+      default:
+        ops.push({ call: "addShape", args: [shape.kind, { x: shape.x, y: shape.y, w: shape.w, h: shape.h, fill: shape.fill, rotate: shape.rotationDeg }] });
+    }
+  }
+  return ops;
+}
+
+/**
+ * Compiles a slide to the plain-object description of the Google Slides
+ * batchUpdate requests that would be sent — same "describe, don't call"
+ * shape as compileToPptxOps, and deliberately mirrored op-for-op so the two
+ * outputs are easy to diff by eye.
+ */
+function compileToSlidesRequests(slide) {
+  const reqs = [];
+  for (const shape of slide) {
+    validateShape(shape);
+    switch (shape.kind) {
+      case "flag":
+        reqs.push({ call: "createShape", args: ["WAVE", { x: shape.x, y: shape.y, w: shape.w, h: shape.h * 0.7 }], note: "composed: no native flag/pennant on either renderer" });
+        reqs.push({ call: "createShape", args: ["RECTANGLE", { x: shape.x, y: shape.y, w: shape.w * 0.08, h: shape.h }], note: "composed: staff" });
+        break;
+      case "connector":
+        reqs.push({
+          call: "createLine",
+          args: [{ startConnection: shape.from, endConnection: shape.to, category: shape.style === "straight" ? "STRAIGHT" : shape.style === "elbow" ? "BENT" : "CURVED" }],
+          degraded: false,
+          note: undefined,
+        });
+        break;
+      case "text":
+        reqs.push({ call: "insertText", args: [shape.runs.map((r) => ({ text: r.text, style: { bold: !!r.bold, italic: !!r.italic, foregroundColor: r.color, fontSize: r.sizePt } })), { x: shape.x, y: shape.y, w: shape.w, h: shape.h }] });
+        break;
+      default:
+        reqs.push({ call: "createShape", args: [shape.kind.toUpperCase(), { x: shape.x, y: shape.y, w: shape.w, h: shape.h, fill: shape.fill, rotation: shape.rotationDeg }] });
+    }
+  }
+  return reqs;
+}
+
+function opLine(op) {
+  const target = op.args[0];
+  const targetStr = typeof target === "string" ? `"${target}"` : "[…]";
+  return `${op.call}(${targetStr}, …)`;
+}
+
+// =====================================================================
+// PAGE SHELL — thin, DOM-only, calls into the pure module above.
+// =====================================================================
+
+let slide = [];
+let nextId = 1;
+
+function addShape(shape) {
+  validateShape(shape); // throws IRValidationError on a bad shape — caught by callers
+  slide.push(shape);
+  render();
+}
+
+const ui = {
+  addRect() {
+    addShape({ id: "s" + nextId++, kind: "rect", x: 1, y: 1, w: 2, h: 1, fill: "#2f6f8c" });
+  },
+  addEllipse() {
+    addShape({ id: "s" + nextId++, kind: "ellipse", x: 4, y: 1, w: 1.5, h: 1.5, fill: "#2f8f5c" });
+  },
+  addDiamond() {
+    addShape({ id: "s" + nextId++, kind: "diamond", x: 6.5, y: 1, w: 1, h: 1, fill: "#b5651f", rotationDeg: 45 });
+  },
+  addStar() {
+    addShape({ id: "s" + nextId++, kind: "star", x: 8.5, y: 1, w: 1.2, h: 1.2, points: 5, fill: "#8250df" });
+  },
+  addFlag() {
+    addShape({ id: "s" + nextId++, kind: "flag", x: 10.5, y: 1, w: 1.2, h: 1.2, fill: "#c2255c" });
+  },
+  addRichText() {
+    addShape({
+      id: "s" + nextId++,
+      kind: "text",
+      x: 1,
+      y: 3,
+      w: 6,
+      h: 1,
+      runs: [{ text: "Platform GA " }, { text: "at risk", bold: true, color: "#b3261e" }, { text: " — see comment.", italic: true }],
+    });
+  },
+  addConnector() {
+    const style = document.getElementById("connStyle").value;
+    addShape({ id: "s" + nextId++, kind: "connector", from: { x: 1, y: 5 }, to: { x: 5, y: 4.2 }, style, color: "#5b6472" });
+  },
+  addInvalid() {
+    try {
+      addShape({ id: "s" + nextId++, kind: "hexagon", x: 1, y: 1, w: 1, h: 1 });
+    } catch (e) {
+      if (e instanceof IRValidationError) {
+        document.getElementById("irError").innerHTML = `<div class="error">Rejected: ${e.message}</div>`;
+      } else throw e;
+    }
+  },
+  removeShape(id) {
+    slide = slide.filter((s) => s.id !== id);
+    render();
+  },
+  reset() {
+    slide = [];
+    document.getElementById("compileOut").innerHTML = "";
+    document.getElementById("irError").innerHTML = "";
+    render();
+  },
+  compile() {
+    document.getElementById("irError").innerHTML = "";
+    let pptxOps, slidesReqs, err;
+    try {
+      pptxOps = compileToPptxOps(slide);
+      slidesReqs = compileToSlidesRequests(slide);
+    } catch (e) {
+      err = e;
+    }
+    const out = document.getElementById("compileOut");
+    if (err) {
+      out.innerHTML = `<div class="error">Compile failed: ${err.message}</div>`;
+      return;
+    }
+    const degradedCount = pptxOps.filter((o) => o.degraded).length;
+    out.innerHTML = `
+      <div class="compile-col">
+        <h3>PowerPoint (pptxgenjs) <span class="badge ${degradedCount ? "degraded" : "honored"}">${degradedCount ? degradedCount + " degraded" : "fidelity honored"}</span></h3>
+        <ol>${pptxOps.map((o) => `<li>${opLine(o)}${o.note ? `<div class="degrade-note">${o.note}</div>` : ""}</li>`).join("")}</ol>
+      </div>
+      <div class="compile-col">
+        <h3>Google Slides (batchUpdate) <span class="badge honored">fidelity honored</span></h3>
+        <ol>${slidesReqs.map((o) => `<li>${opLine(o)}${o.note ? `<div class="degrade-note">${o.note}</div>` : ""}</li>`).join("")}</ol>
+      </div>
+    `;
+  },
+};
+
+function render() {
+  const list = document.getElementById("shapeList");
+  if (slide.length === 0) {
+    list.innerHTML = `<li class="empty">Empty slide — add a shape on the left.</li>`;
+    return;
+  }
+  list.innerHTML = slide
+    .map((s) => `<li class="shape-row"><span class="kind">${s.kind}</span><span class="desc">${describeShape(s)}</span><button class="rm" onclick="ui.removeShape('${s.id}')" title="remove">✕</button></li>`)
+    .join("");
+}
+
+// =====================================================================
+// GUIDED SCENARIOS
+// =====================================================================
+
+const scenarios = [
+  {
+    id: "happy",
+    label: "1 — Happy path",
+    desc: "A phase rect, an on-time diamond marker, and a straight connector between them. Compile to both formats and check nothing degrades.",
+    steps: [
+      { label: "Add the phase rect", run: () => ui.addRect() },
+      { label: "Add the milestone diamond", run: () => ui.addDiamond() },
+      { label: "Set connector style to straight", run: () => (document.getElementById("connStyle").value = "straight") },
+      { label: "Add the connector", run: () => ui.addConnector() },
+      { label: "Compile to both formats", run: () => ui.compile() },
+    ],
+  },
+  {
+    id: "flag",
+    label: "2 — The flag shape",
+    desc: "Neither renderer has a native flag/pennant. Add one and compile — watch both compilers independently compose the same wave + rectangle-staff shape, not one degrading relative to the other.",
+    steps: [
+      { label: "Add a flag shape", run: () => ui.addFlag() },
+      { label: "Compile to both formats", run: () => ui.compile() },
+    ],
+  },
+  {
+    id: "curved",
+    label: "3 — The curved connector",
+    desc: "Request an elbow (or curved) connector — the shape RoadmapTimeline actually draws on-screen — and watch PowerPoint silently rewrite it to straight while Slides keeps it. This is the one place the two exported decks will visibly differ for the same source data.",
+    steps: [
+      { label: "Set connector style to elbow", run: () => (document.getElementById("connStyle").value = "elbow") },
+      { label: "Add the connector", run: () => ui.addConnector() },
+      { label: "Compile to both formats", run: () => ui.compile() },
+      { label: "Now try curved instead", run: () => (document.getElementById("connStyle").value = "curved") },
+      { label: "Add another connector", run: () => ui.addConnector() },
+      { label: "Compile again", run: () => ui.compile() },
+    ],
+  },
+  {
+    id: "richtext",
+    label: "4 — Rich BLUF text",
+    desc: "A 3-run styled text block (plain / bold-red / italic) — the shape BLUF's rich text has to survive as, per #t7's finding, instead of one flattened HTML blob. Confirm both compilers preserve all 3 runs distinctly.",
+    steps: [
+      { label: "Add the 3-run text block", run: () => ui.addRichText() },
+      { label: "Compile to both formats", run: () => ui.compile() },
+    ],
+  },
+  {
+    id: "illegal",
+    label: "5 — An illegal shape",
+    desc: "Try adding a shape kind the IR doesn't recognize (a hexagon isn't in the contract). It should be rejected up front with a clear reason, never silently passed through to a compiler that might choke on it later.",
+    steps: [{ label: "Try to add a hexagon", run: () => ui.addInvalid() }],
+  },
+];
+
+let activeScenario = scenarios[0].id;
+let scenarioProgress = {};
+
+function renderTabs() {
+  document.getElementById("tabs").innerHTML = scenarios.map((s) => `<div class="tab ${s.id === activeScenario ? "active" : ""}" onclick="selectScenario('${s.id}')">${s.label}</div>`).join("");
+}
+
+function renderScenario() {
+  const s = scenarios.find((x) => x.id === activeScenario);
+  const done = scenarioProgress[s.id] || 0;
+  document.getElementById("scenarioPanel").innerHTML = `
+    <p class="scenario-desc">${s.desc}</p>
+    <div class="step-list">
+      ${s.steps
+        .map(
+          (step, i) => `<button class="step-btn ${i < done ? "done" : ""}" ${i === done ? "" : "disabled"} onclick="runStep('${s.id}', ${i})">
+            <span class="n">${i < done ? "✓" : i + 1}</span> ${step.label}
+          </button>`,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function selectScenario(id) {
+  activeScenario = id;
+  scenarioProgress[id] = 0;
+  ui.reset();
+  renderTabs();
+  renderScenario();
+}
+
+function runStep(scenarioId, idx) {
+  const s = scenarios.find((x) => x.id === scenarioId);
+  s.steps[idx].run();
+  scenarioProgress[scenarioId] = idx + 1;
+  renderScenario();
+}
+
+// init
+render();
+renderTabs();
+scenarioProgress[activeScenario] = 0;
+renderScenario();
+</script>
+</body>
+</html>
