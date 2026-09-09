@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Milestone editor redesign — prototype for wayframe#102</title>
+<style>
+  :root {
+    --ink: #1c2128;
+    --sub: #57606a;
+    --line: #d0d7de;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --accent: #8250df;
+    --accent-soft: #ede7fc;
+    --green: #1a7f37;
+    --green-soft: #dafbe1;
+    --amber: #b5791f;
+    --amber-soft: #faf1de;
+    --red: #cf222e;
+    --red-soft: #ffebe9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  .intro {
+    background: var(--accent-soft);
+    border: 1px solid #d6bbfb;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 14px;
+    color: #3c1a78;
+    margin-bottom: 20px;
+  }
+  .intro b { color: #2f1160; }
+  .intro code { background: #fff; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--green-soft);
+    border: 1px solid #aceebb;
+    border-radius: 10px;
+    padding: 10px 16px;
+    margin-bottom: 22px;
+    font-size: 13.5px;
+  }
+  .verdict .tag {
+    background: var(--green);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .switcher { display: flex; gap: 8px; margin-bottom: 8px; }
+  .variant-btn {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--sub);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .variant-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .variant-btn .rec {
+    font-size: 9.5px;
+    font-weight: 700;
+    background: var(--green);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 999px;
+    text-transform: uppercase;
+  }
+  .variant-desc { font-size: 13px; color: var(--sub); margin-bottom: 18px; max-width: 80ch; }
+
+  /* ---------------- modal shell ---------------- */
+  .modal-stage { background: var(--panel); border-radius: 14px; padding: 28px; }
+  .modal {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(20,24,30,0.12);
+    overflow: hidden;
+    margin: 0 auto;
+  }
+  .modal.v1 { max-width: 860px; }
+  .modal.v2 { max-width: 620px; }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .modal-header input.title-input {
+    border: none;
+    outline: none;
+    font-size: 17px;
+    font-weight: 600;
+    width: 100%;
+    background: transparent;
+  }
+  .modal-header .close-x { color: var(--sub); font-size: 15px; cursor: pointer; margin-left: 10px; }
+
+  /* ---- variant 1: two-column, sticky preview rail ---- */
+  .v1-body { display: grid; grid-template-columns: 1fr 260px; gap: 0; }
+  .v1-form { padding: 16px 18px; max-height: 560px; overflow-y: auto; }
+  .v1-preview-rail {
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
+
+  /* ---- variant 2: single column, top preview strip + tabs ---- */
+  .v2-strip {
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    padding: 10px 18px;
+  }
+  .v2-tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--line); background: #fff; }
+  .v2-tab {
+    border: none;
+    background: none;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--sub);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .v2-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .v2-form { padding: 16px 18px; max-height: 460px; overflow-y: auto; }
+
+  /* ---------------- form primitives ---------------- */
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { display: block; }
+  .field.span2 { grid-column: 1 / -1; }
+  .field label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--sub);
+    margin-bottom: 3px;
+  }
+  .field input[type=text], .field input[type=date], .field input[type=number], .field select, .field textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #fff;
+  }
+  .field .hint { font-size: 10.5px; color: #8891a0; margin-top: 2px; }
+  .checkbox-field { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--sub); grid-column: 1 / -1; }
+
+  .section { margin-top: 16px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    background: var(--panel);
+    cursor: pointer;
+    user-select: none;
+  }
+  .section-head .title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink); }
+  .section-head .badge {
+    font-size: 10.5px;
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 7px;
+    border-radius: 999px;
+  }
+  .section-head .badge.zero { background: var(--panel); color: #8891a0; border: 1px solid var(--line); }
+  .section-head .chev { font-size: 11px; color: var(--sub); transition: transform 0.15s; }
+  .section-head .chev.open { transform: rotate(90deg); }
+  .section-body { padding: 12px; display: none; }
+  .section-body.open { display: block; }
+
+  .shape-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .shape-swatch {
+    width: 40px; height: 40px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .shape-swatch.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .shape-swatch svg { width: 20px; height: 20px; overflow: visible; }
+
+  .pos-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 30px);
+    grid-template-rows: repeat(3, 30px);
+    gap: 3px;
+    width: fit-content;
+  }
+  .pos-cell {
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 9px;
+    color: var(--sub);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pos-cell.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pos-cell.na { visibility: hidden; }
+
+  .source-tag { font-size: 10px; color: #8891a0; margin-top: 3px; }
+  .source-tag.override { color: var(--accent); font-weight: 600; }
+  .source-tag.category { color: var(--amber); font-weight: 600; }
+
+  .slider-row { display: flex; align-items: center; gap: 8px; }
+  .slider-row input[type=range] { flex: 1; }
+  .slider-row .val { font-family: monospace; font-size: 12px; width: 34px; text-align: right; }
+  .reset-btn {
+    font-size: 10.5px;
+    color: var(--sub);
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+
+  .color-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .swatch { width: 22px; height: 22px; border-radius: 5px; border: 1.5px solid rgba(0,0,0,0.12); cursor: pointer; }
+  .swatch.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .rel-row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .rel-row:last-child { border-bottom: none; }
+
+  .modal-footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .btn { border-radius: 6px; padding: 6px 14px; font-size: 12.5px; cursor: pointer; border: 1px solid var(--line); background: #fff; }
+  .btn.danger { border-color: #ffb3ae; color: var(--red); }
+  .btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
+
+  /* ---------------- preview ---------------- */
+  .preview-card { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .preview-canvas {
+    width: 100%;
+    height: 190px;
+    background: #eef1f6;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    position: relative;
+    overflow: visible;
+  }
+  .preview-caption { font-size: 10.5px; color: var(--sub); text-align: center; }
+  .preview-strip { display: flex; align-items: center; gap: 14px; }
+  .preview-strip .preview-canvas-sm {
+    width: 220px; height: 76px;
+    background: #eef1f6;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .strip-caption { font-size: 11.5px; color: var(--sub); }
+  .strip-caption b { color: var(--ink); }
+
+  .rejected { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .rejected h2 { font-size: 14px; color: var(--sub); }
+  .rejected ul { font-size: 13px; color: var(--sub); padding-left: 20px; }
+  .rejected li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Milestone editor redesign, with live visual preview</h1>
+<div class="intro">
+  Prototype for <b>wayframe#102</b> (ticket <code>t34</code>). #92/t19 already locked the property
+  set this editor needs to expose — <code>markerShape, markerScale, fontScale,
+  titleLabelPosition, dateLabelPosition, hidden, color, phaseShape, phaseSize</code> — and named
+  this ticket the owner of "turning this property set into an actual editor UI without it
+  becoming an unusable wall of controls." Two real layouts below, sharing the same field set and
+  live state — toggle between them.
+</div>
+
+<div class="verdict">
+  <span class="tag">Verdict</span>
+  <span><b>Variant 1 (sticky preview rail + collapsible sections)</b> — the preview needs equal
+  room in all four directions to show <code>titleLabelPosition</code>/<code>dateLabelPosition</code>
+  meaningfully; a slim top strip can't. Collapsible sections also let Content and Appearance stay
+  visible <em>together</em> when a user wants to cross-check, where tabs force a choice.</span>
+</div>
+
+<div class="switcher" id="switcher"></div>
+<div class="variant-desc" id="variantDesc"></div>
+
+<div class="modal-stage">
+  <div id="modalRoot"></div>
+</div>
+
+<div class="rejected">
+  <h2>Rejected alternatives</h2>
+  <ul>
+    <li><b>Variant 2 (top preview strip + tabs)</b>, built above for comparison — the strip is
+    tall enough for the marker itself but not for a label pushed to <code>top</code> or
+    <code>bottom</code>, which is exactly the property this preview most needs to demonstrate.
+    Tabs also hide Content while editing Appearance, adding a click most users won't need — a
+    collapsed section stays inline and multiple sections can be open at once.</li>
+    <li><b>Distributed inline mini-previews</b> (a tiny swatch icon printed next to each
+    control instead of one consolidated canvas) — not built, rejected on inspection: it can show
+    "what does a star look like" but not "what does a scaled star with a category color and a
+    top-attached title look like <em>together</em>," which is the actual point of a live preview
+    once more than one Appearance property is in play at once.</li>
+    <li><b>A dedicated wizard/stepper</b> (Content → Appearance → Relationships as forced
+    sequential steps) — rejected without building: nearly every edit here is a single-field
+    tweak to an existing item, not a first-time creation flow: forcing a multi-step sequence to
+    change one marker shape is strictly worse than either variant above.</li>
+  </ul>
+</div>
+
+<script id="logic-module">
+  /* ============================================================
+   * PURE MODULE — shape geometry + Style Override ladder. No DOM
+   * access. Mirrors label-layout.ts/RoadmapTimeline.tsx's real
+   * CushionMarker geometry for "diamond" so the preview isn't a
+   * guess at what the real chart draws.
+   * ============================================================ */
+  function starPoints(cx, cy, rOuter, rInner, points) {
+    points = points || 5;
+    const pts = [];
+    const step = Math.PI / points;
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? rOuter : rInner;
+      const angle = -Math.PI / 2 + i * step;
+      pts.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)]);
+    }
+    return pts;
+  }
+
+  function shapeSvgProps(shape, cx, cy, r) {
+    switch (shape) {
+      case "circle":
+        return { tag: "circle", attrs: { cx, cy, r } };
+      case "square":
+        return { tag: "rect", attrs: { x: cx - r, y: cy - r, width: r * 2, height: r * 2, rx: r * 0.15 } };
+      case "rectangle":
+        return { tag: "rect", attrs: { x: cx - r * 1.5, y: cy - r * 0.7, width: r * 3, height: r * 1.4, rx: r * 0.15 } };
+      case "star":
+        return { tag: "polygon", attrs: { points: starPoints(cx, cy, r * 1.15, r * 0.45).map((p) => p.join(",")).join(" ") } };
+      case "flag": {
+        const poleX = cx - r * 0.6;
+        const path = [
+          `M ${poleX} ${cy - r}`,
+          `L ${poleX} ${cy + r}`,
+          `M ${poleX} ${cy - r * 0.9}`,
+          `L ${cx + r} ${cy - r * 0.5}`,
+          `Q ${cx + r * 0.4} ${cy} ${cx + r} ${cy + r * 0.5}`,
+          `L ${poleX} ${cy + r * 0.1}`,
+          "Z",
+        ].join(" ");
+        return { tag: "path", attrs: { d: path } };
+      }
+      case "diamond":
+      default:
+        return { tag: "rect", attrs: { x: cx - r, y: cy - r, width: r * 2, height: r * 2, rx: r * 0.4, transform: `rotate(45 ${cx} ${cy})` } };
+    }
+  }
+
+  // Rungs 3-5 of #92/t19's ladder (Program default / Theme / hardcoded
+  // fallback) collapse into one `defaults` object for this single-item
+  // preview. Rung 2 (identity-scoped category color) is modeled directly.
+  function resolveStyle(styleOverride, defaults, categoryColor, categoryFillOn) {
+    const so = styleOverride || {};
+    function pick(prop) {
+      if (so[prop] !== undefined && so[prop] !== null) return { value: so[prop], source: "override" };
+      return { value: defaults[prop], source: "default" };
+    }
+    let color;
+    if (so.color) color = { value: so.color, source: "override" };
+    else if (categoryFillOn && categoryColor) color = { value: categoryColor, source: "category" };
+    else color = { value: defaults.color, source: "default" };
+    return {
+      markerShape: pick("markerShape"),
+      markerScale: pick("markerScale"),
+      fontScale: pick("fontScale"),
+      titleLabelPosition: pick("titleLabelPosition"),
+      dateLabelPosition: pick("dateLabelPosition"),
+      hidden: pick("hidden"),
+      color,
+      phaseShape: pick("phaseShape"),
+      phaseSize: pick("phaseSize"),
+    };
+  }
+
+  function overrideCount(styleOverride) {
+    if (!styleOverride) return 0;
+    return Object.values(styleOverride).filter((v) => v !== undefined && v !== null && v !== false).length;
+  }
+
+  window.EditorLogic = { starPoints, shapeSvgProps, resolveStyle, overrideCount };
+</script>
+
+<script>
+  /* ============================================================
+   * PAGE SHELL — throwaway. Two real, state-driven layouts sharing
+   * one draft/state model, matching #17's Switcher-across-real-
+   * variants precedent rather than a narrated mockup.
+   * ============================================================ */
+  const L = window.EditorLogic;
+  const SVGNS = "http://www.w3.org/2000/svg";
+
+  const SHAPES = ["diamond", "star", "flag", "square", "rectangle", "circle"];
+  const POSITIONS = ["inside", "top", "right", "bottom", "left"];
+  const CATEGORIES = [
+    { id: "reg", name: "Regulatory", color: "#8250df" },
+    { id: "eng", name: "Engineering", color: "#0969da" },
+    { id: "mfg", name: "Manufacturing", color: "#b5791f" },
+  ];
+  const STATUS_COLOR = { "not-started": "#8891a0", "on-track": "#1a7f37", "at-risk": "#b5791f", delayed: "#cf222e", complete: "#57606a" };
+  const DEFAULTS = { markerShape: "diamond", markerScale: 1, fontScale: 1, titleLabelPosition: "top", dateLabelPosition: "bottom", hidden: false, color: null, phaseShape: "pill", phaseSize: "normal" };
+
+  let state = {
+    variant: 1,
+    appearanceOpen: false,
+    relationshipsOpen: false,
+    activeTab: "content",
+    draft: {
+      title: "Hazard Analysis (Preliminary)",
+      date: "2026-03-15",
+      endDate: "",
+      potentialDate: "",
+      status: "at-risk",
+      percentComplete: 40,
+      owner: "R. Alvarez",
+      categoryId: "reg",
+      categoryFillOn: false,
+      shortLabel: "",
+      comment: "",
+      criticalPath: true,
+      showReferenceLine: false,
+      laneRow: 1,
+      styleOverride: {},
+    },
+  };
+
+  function setDraft(patch) {
+    state.draft = Object.assign({}, state.draft, patch);
+    render();
+  }
+  function setStyle(patch) {
+    state.draft.styleOverride = Object.assign({}, state.draft.styleOverride, patch);
+    render();
+  }
+  function clearStyle(prop) {
+    const so = Object.assign({}, state.draft.styleOverride);
+    delete so[prop];
+    state.draft.styleOverride = so;
+    render();
+  }
+
+  function el(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in attrs || {}) {
+      if (k === "class") e.className = attrs[k];
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), attrs[k]);
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach((c) => e.appendChild(typeof c === "string" ? document.createTextNode(c) : c));
+    return e;
+  }
+
+  function svgShape(shape, cx, cy, r, fill, stroke, strokeWidth) {
+    const spec = L.shapeSvgProps(shape, cx, cy, r);
+    const node = document.createElementNS(SVGNS, spec.tag);
+    for (const k in spec.attrs) node.setAttribute(k, spec.attrs[k]);
+    node.setAttribute("fill", fill);
+    node.setAttribute("stroke", stroke || "none");
+    node.setAttribute("stroke-width", strokeWidth || 0);
+    return node;
+  }
+
+  const POS_OFFSET = {
+    inside: { dx: 0, dy: 0, anchor: "middle" },
+    top: { dx: 0, dy: -1, anchor: "middle" },
+    bottom: { dx: 0, dy: 1, anchor: "middle" },
+    left: { dx: -1, dy: 0, anchor: "end" },
+    right: { dx: 1, dy: 0, anchor: "start" },
+  };
+
+  // Renders the marker/pill exactly per the resolved Style Override, into
+  // an <svg> sized to `w`x`h`, centered.
+  function renderPreviewSvg(w, h) {
+    const d = state.draft;
+    const cat = CATEGORIES.find((c) => c.id === d.categoryId);
+    const resolved = L.resolveStyle(d.styleOverride, DEFAULTS, cat ? cat.color : null, d.categoryFillOn);
+    const svg = document.createElementNS(SVGNS, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.style.overflow = "visible";
+
+    // lane wash, for context
+    const wash = document.createElementNS(SVGNS, "rect");
+    wash.setAttribute("x", 0); wash.setAttribute("y", h * 0.35); wash.setAttribute("width", w); wash.setAttribute("height", h * 0.3);
+    wash.setAttribute("fill", "#dde3ec"); wash.setAttribute("opacity", 0.6);
+    svg.appendChild(wash);
+
+    const cx = w / 2, cy = h / 2;
+    const baseR = 11 * resolved.markerScale.value;
+    const isPhase = !!d.endDate;
+    const statusColor = STATUS_COLOR[d.status];
+    const fillColor = resolved.color.value || statusColor;
+    const opacity = resolved.hidden.value ? 0.28 : 1;
+
+    const group = document.createElementNS(SVGNS, "g");
+    group.setAttribute("opacity", opacity);
+
+    if (d.criticalPath) {
+      group.appendChild(svgShape(resolved.markerShape.value, cx, cy, baseR + 5, "none", "#cf222e", 2));
+    }
+
+    if (isPhase) {
+      const shape = resolved.phaseShape.value;
+      const sizeMul = resolved.phaseSize.value === "tall" ? 1.6 : resolved.phaseSize.value === "lean" ? 0.65 : 1;
+      const pw = w * 0.5, ph = 16 * resolved.markerScale.value * sizeMul;
+      const rect = document.createElementNS(SVGNS, "rect");
+      rect.setAttribute("x", cx - pw / 2); rect.setAttribute("y", cy - ph / 2);
+      rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+      rect.setAttribute("rx", shape === "pill" ? ph / 2 : 3);
+      rect.setAttribute("fill", fillColor); rect.setAttribute("fill-opacity", 0.32);
+      rect.setAttribute("stroke", fillColor); rect.setAttribute("stroke-width", 1.5);
+      group.appendChild(rect);
+    } else {
+      group.appendChild(svgShape(resolved.markerShape.value, cx, cy, baseR, fillColor, "#fff", 2));
+    }
+
+    // Title / date labels, positioned per Style Override, sized per
+    // fontScale — the property a slim horizontal strip has no room to show
+    // in all 5 directions.
+    const fs = 10 * resolved.fontScale.value;
+    function labelText(text, posKey, dyBase) {
+      const pos = POS_OFFSET[resolved[posKey].value];
+      const reach = baseR + 14;
+      const tx = cx + pos.dx * reach;
+      const ty = cy + pos.dy * reach + dyBase;
+      const t = document.createElementNS(SVGNS, "text");
+      t.setAttribute("x", tx); t.setAttribute("y", ty);
+      t.setAttribute("text-anchor", pos.anchor);
+      t.setAttribute("font-size", fs);
+      t.setAttribute("font-family", "-apple-system, sans-serif");
+      t.setAttribute("fill", "#1c2128");
+      t.textContent = text;
+      return t;
+    }
+    if (!resolved.hidden.value || true) {
+      group.appendChild(labelText(d.title.length > 22 ? d.title.slice(0, 21) + "…" : d.title, "titleLabelPosition", 0));
+      group.appendChild(labelText(d.date, "dateLabelPosition", 12));
+    }
+
+    svg.appendChild(group);
+    return svg;
+  }
+
+  function sectionBadge(count) {
+    return el("span", { class: "badge" + (count === 0 ? " zero" : "") }, [count === 0 ? "default" : `${count} override${count === 1 ? "" : "s"}`]);
+  }
+
+  function collapsibleSection(title, isOpen, onToggle, bodyBuilder, badgeCount) {
+    const head = el("div", { class: "section-head", onclick: onToggle }, [
+      el("span", { class: "title" }, [title]),
+      el("span", { style: "display:flex;align-items:center;gap:8px" }, [sectionBadge(badgeCount), el("span", { class: "chev" + (isOpen ? " open" : "") }, ["▶"])]),
+    ]);
+    const body = el("div", { class: "section-body" + (isOpen ? " open" : "") });
+    bodyBuilder(body);
+    return el("div", { class: "section" }, [head, body]);
+  }
+
+  function field(labelText, inputEl, span2) {
+    return el("label", { class: "field" + (span2 ? " span2" : "") }, [el("span", {}, [labelText]), inputEl]);
+  }
+
+  function textInput(value, onInput, type) {
+    return el("input", { type: type || "text", value, oninput: (e) => onInput(e.target.value) });
+  }
+
+  function selectInput(value, options, onChange) {
+    const s = el("select", { onchange: (e) => onChange(e.target.value) });
+    options.forEach(([v, label]) => {
+      const o = el("option", { value: v }, [label]);
+      if (v === value) o.selected = true;
+      s.appendChild(o);
+    });
+    return s;
+  }
+
+  function buildContentFields() {
+    const d = state.draft;
+    const grid = el("div", { class: "field-grid" });
+    grid.appendChild(field("Title", textInput(d.title, (v) => setDraft({ title: v })), true));
+    grid.appendChild(field(d.endDate ? "Date (start)" : "Date", textInput(d.date, (v) => setDraft({ date: v }), "date")));
+    grid.appendChild(field("End date", textInput(d.endDate, (v) => setDraft({ endDate: v }), "date")));
+    grid.appendChild(
+      field(
+        "Status",
+        selectInput(
+          d.status,
+          Object.keys(STATUS_COLOR).map((s) => [s, s]),
+          (v) => setDraft({ status: v }),
+        ),
+      ),
+    );
+    grid.appendChild(field("% complete", textInput(String(d.percentComplete), (v) => setDraft({ percentComplete: Number(v) }), "number")));
+    grid.appendChild(field("Owner", textInput(d.owner, (v) => setDraft({ owner: v }))));
+    grid.appendChild(
+      field(
+        "Category",
+        selectInput(
+          d.categoryId || "",
+          [["", "None"], ...CATEGORIES.map((c) => [c.id, c.name])],
+          (v) => setDraft({ categoryId: v || null }),
+        ),
+      ),
+    );
+    grid.appendChild(
+      field(
+        "Lane row",
+        selectInput(
+          String(d.laneRow),
+          [
+            ["1", "Row 1 (home)"],
+            ["2", "Row 2"],
+            ["3", "Row 3"],
+            ["4", "+ New row"],
+          ],
+          (v) => setDraft({ laneRow: Number(v) }),
+        ),
+      ),
+    );
+    const commentField = field("Comment", el("textarea", { rows: 2, oninput: (e) => setDraft({ comment: e.target.value }) }, [d.comment]), true);
+    grid.appendChild(commentField);
+    const cb = el("label", { class: "checkbox-field" });
+    const cbInput = el("input", { type: "checkbox", onchange: (e) => setDraft({ criticalPath: e.target.checked }) });
+    cbInput.checked = d.criticalPath;
+    cb.appendChild(cbInput);
+    cb.appendChild(document.createTextNode("On critical path (override)"));
+    grid.appendChild(cb);
+    return grid;
+  }
+
+  function sourceTag(resolvedField) {
+    return el("div", { class: "source-tag " + resolvedField.source }, [resolvedField.source === "override" ? "your override" : resolvedField.source === "category" ? "from category color" : "theme/program default"]);
+  }
+
+  function buildAppearanceBody(container) {
+    const d = state.draft;
+    const cat = CATEGORIES.find((c) => c.id === d.categoryId);
+    const resolved = L.resolveStyle(d.styleOverride, DEFAULTS, cat ? cat.color : null, d.categoryFillOn);
+
+    // Marker shape
+    const shapeField = el("div", { class: "field span2" });
+    shapeField.appendChild(el("span", {}, ["Marker shape"]));
+    const shapeRow = el("div", { class: "shape-row" });
+    SHAPES.forEach((shape) => {
+      const isSel = resolved.markerShape.value === shape && d.styleOverride.markerShape != null;
+      const btn = el("div", { class: "shape-swatch" + (isSel ? " selected" : ""), title: shape, onclick: () => setStyle({ markerShape: shape }) });
+      const svg = document.createElementNS(SVGNS, "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.appendChild(svgShape(shape, 12, 12, 8, "#57606a", "none", 0));
+      btn.appendChild(svg);
+      shapeRow.appendChild(btn);
+    });
+    shapeField.appendChild(shapeRow);
+    shapeField.appendChild(sourceTag(resolved.markerShape));
+    if (d.styleOverride.markerShape != null) shapeField.appendChild(el("button", { class: "reset-btn", onclick: () => clearStyle("markerShape") }, ["Reset to default"]));
+    container.appendChild(shapeField);
+
+    // Marker scale + font scale sliders
+    function sliderField(label, prop, min, max, step) {
+      const wrap = el("div", { class: "field" });
+      wrap.appendChild(el("span", {}, [label]));
+      const row = el("div", { class: "slider-row" });
+      const cur = resolved[prop].value;
+      const range = el("input", { type: "range", min, max, step, value: cur, oninput: (e) => setStyle({ [prop]: Number(e.target.value) }) });
+      const val = el("span", { class: "val" }, [cur.toFixed(2) + "x"]);
+      range.addEventListener("input", (e) => (val.textContent = Number(e.target.value).toFixed(2) + "x"));
+      row.appendChild(range);
+      row.appendChild(val);
+      wrap.appendChild(row);
+      wrap.appendChild(sourceTag(resolved[prop]));
+      if (d.styleOverride[prop] != null) wrap.appendChild(el("button", { class: "reset-btn", onclick: () => clearStyle(prop) }, ["Reset"]));
+      return wrap;
+    }
+    const scaleGrid = el("div", { class: "field-grid" });
+    scaleGrid.appendChild(sliderField("Marker scale", "markerScale", 0.6, 2.0, 0.05));
+    scaleGrid.appendChild(sliderField("Font scale (composes w/ your viewer scale)", "fontScale", 0.6, 2.0, 0.05));
+    container.appendChild(scaleGrid);
+
+    // Label positions
+    function posField(label, prop) {
+      const wrap = el("div", { class: "field" });
+      wrap.appendChild(el("span", {}, [label]));
+      const grid = el("div", { class: "pos-grid" });
+      const layout = [
+        [null, "top", null],
+        ["left", "inside", "right"],
+        [null, "bottom", null],
+      ];
+      layout.forEach((row) => {
+        row.forEach((pos) => {
+          if (!pos) {
+            grid.appendChild(el("div", { class: "pos-cell na" }));
+            return;
+          }
+          const isSel = resolved[prop].value === pos;
+          grid.appendChild(el("div", { class: "pos-cell" + (isSel ? " selected" : ""), title: pos, onclick: () => setStyle({ [prop]: pos }) }, [pos[0].toUpperCase()]));
+        });
+      });
+      wrap.appendChild(grid);
+      wrap.appendChild(sourceTag(resolved[prop]));
+      if (d.styleOverride[prop] != null) wrap.appendChild(el("button", { class: "reset-btn", onclick: () => clearStyle(prop) }, ["Reset"]));
+      return wrap;
+    }
+    const posGrid = el("div", { class: "field-grid" });
+    posGrid.appendChild(posField("Title label position", "titleLabelPosition"));
+    posGrid.appendChild(posField("Date label position", "dateLabelPosition"));
+    container.appendChild(posGrid);
+
+    // Color
+    const colorField = el("div", { class: "field span2" });
+    colorField.appendChild(el("span", {}, ["Color override"]));
+    const colorRow = el("div", { class: "color-row" });
+    ["#cf222e", "#b5791f", "#1a7f37", "#0969da", "#8250df", "#57606a"].forEach((c) => {
+      const isSel = d.styleOverride.color === c;
+      colorRow.appendChild(el("div", { class: "swatch" + (isSel ? " selected" : ""), style: `background:${c}`, onclick: () => setStyle({ color: c }) }));
+    });
+    colorRow.appendChild(
+      el("label", { class: "checkbox-field", style: "grid-column:auto" }, [
+        (() => {
+          const cb = el("input", { type: "checkbox", onchange: (e) => setDraft({ categoryFillOn: e.target.checked }) });
+          cb.checked = d.categoryFillOn;
+          return cb;
+        })(),
+        "Preview: legend category-fill mode on",
+      ]),
+    );
+    colorField.appendChild(colorRow);
+    colorField.appendChild(sourceTag(resolved.color));
+    if (d.styleOverride.color) colorField.appendChild(el("button", { class: "reset-btn", onclick: () => clearStyle("color") }, ["Clear override"]));
+    container.appendChild(colorField);
+
+    // Hidden
+    const hideField = el("label", { class: "checkbox-field" });
+    const hideCb = el("input", { type: "checkbox", onchange: (e) => setStyle({ hidden: e.target.checked }) });
+    hideCb.checked = !!d.styleOverride.hidden;
+    hideField.appendChild(hideCb);
+    hideField.appendChild(document.createTextNode("Hide from chart (soft-hide, not deleted)"));
+    container.appendChild(hideField);
+
+    // Phase-only sub-group — only rendered when endDate is set, per #92/
+    // t19: "phaseShape/phaseSize only render on phases and duration-pill
+    // milestones."
+    if (d.endDate) {
+      const phaseWrap = el("div", { style: "margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)" });
+      phaseWrap.appendChild(el("div", { style: "font-size:11px;font-weight:700;color:var(--sub);margin-bottom:6px" }, ["PHASE-ONLY (this item has an end date)"]));
+      const pg = el("div", { class: "field-grid" });
+      pg.appendChild(
+        field(
+          "Phase shape",
+          selectInput(resolved.phaseShape.value, [["pill", "pill"], ["rectangle", "rectangle"]], (v) => setStyle({ phaseShape: v })),
+        ),
+      );
+      pg.appendChild(
+        field(
+          "Phase size",
+          selectInput(resolved.phaseSize.value, [["normal", "normal"], ["lean", "lean"], ["tall", "tall"]], (v) => setStyle({ phaseSize: v })),
+        ),
+      );
+      phaseWrap.appendChild(pg);
+      container.appendChild(phaseWrap);
+    }
+  }
+
+  function buildRelationshipsBody(container) {
+    const preds = [{ id: "m1", title: "Design freeze" }];
+    const succs = [{ id: "m2", title: "Pilot build kickoff" }];
+    function relBlock(label, items) {
+      const wrap = el("div", { style: "margin-bottom:10px" });
+      wrap.appendChild(el("div", { style: "font-size:11px;font-weight:700;color:var(--sub);margin-bottom:4px" }, [label]));
+      items.forEach((it) => wrap.appendChild(el("div", { class: "rel-row" }, [it.title, el("button", { class: "reset-btn" }, ["Remove"])])));
+      wrap.appendChild(el("select", { class: "field", style: "margin-top:4px" }, [el("option", {}, [`Add a ${label.toLowerCase().replace(/s$/, "")}…`])]));
+      return wrap;
+    }
+    container.appendChild(relBlock("Predecessors", preds));
+    container.appendChild(relBlock("Successors", succs));
+    const att = el("div", {});
+    att.appendChild(el("div", { style: "font-size:11px;font-weight:700;color:var(--sub);margin-bottom:4px" }, ["Attachments"]));
+    att.appendChild(el("div", { class: "rel-row" }, ["spec-v3.pdf", el("button", { class: "reset-btn" }, ["Remove"])]));
+    att.appendChild(el("button", { class: "reset-btn", style: "margin-top:4px" }, ["+ Add attachment"]));
+    container.appendChild(att);
+  }
+
+  function renderModalHeader(d) {
+    return el("div", { class: "modal-header" }, [
+      el("input", { class: "title-input", value: d.title, oninput: (e) => setDraft({ title: e.target.value }) }),
+      el("span", { class: "close-x" }, ["✕"]),
+    ]);
+  }
+
+  function renderModalFooter() {
+    return el("div", { class: "modal-footer" }, [
+      el("button", { class: "btn danger" }, ["Delete"]),
+      el("div", { style: "display:flex;gap:8px" }, [el("button", { class: "btn" }, ["Cancel"]), el("button", { class: "btn primary" }, ["Save"])]),
+    ]);
+  }
+
+  function renderVariant1() {
+    const d = state.draft;
+    const overrideN = L.overrideCount(d.styleOverride);
+    const modal = el("div", { class: "modal v1" });
+    modal.appendChild(renderModalHeader(d));
+    const body = el("div", { class: "v1-body" });
+    const form = el("div", { class: "v1-form" });
+    form.appendChild(buildContentFields());
+    form.appendChild(collapsibleSection("Appearance", state.appearanceOpen, () => { state.appearanceOpen = !state.appearanceOpen; render(); }, buildAppearanceBody, overrideN));
+    form.appendChild(collapsibleSection("Relationships", state.relationshipsOpen, () => { state.relationshipsOpen = !state.relationshipsOpen; render(); }, buildRelationshipsBody, 2));
+    body.appendChild(form);
+
+    const rail = el("div", { class: "v1-preview-rail" });
+    const card = el("div", { class: "preview-card" });
+    const canvas = el("div", { class: "preview-canvas" });
+    canvas.appendChild(renderPreviewSvg(240, 190));
+    card.appendChild(canvas);
+    card.appendChild(el("div", { class: "preview-caption" }, ["Live — exactly as it will render on the chart"]));
+    rail.appendChild(card);
+    body.appendChild(rail);
+
+    modal.appendChild(body);
+    modal.appendChild(renderModalFooter());
+    return modal;
+  }
+
+  function renderVariant2() {
+    const d = state.draft;
+    const overrideN = L.overrideCount(d.styleOverride);
+    const modal = el("div", { class: "modal v2" });
+    modal.appendChild(renderModalHeader(d));
+
+    const strip = el("div", { class: "v2-strip" });
+    const stripRow = el("div", { class: "preview-strip" });
+    const canvasSm = el("div", { class: "preview-canvas-sm" });
+    canvasSm.appendChild(renderPreviewSvg(220, 76));
+    stripRow.appendChild(canvasSm);
+    stripRow.appendChild(el("div", { class: "strip-caption" }, ["Live preview — stays visible across every tab, but top/bottom labels can clip this strip's fixed height."]));
+    strip.appendChild(stripRow);
+    modal.appendChild(strip);
+
+    const tabs = el("div", { class: "v2-tabs" });
+    ["content", "appearance", "relationships"].forEach((t) => {
+      const label = t === "content" ? "Content" : t === "appearance" ? `Appearance${overrideN ? ` (${overrideN})` : ""}` : "Relationships";
+      tabs.appendChild(el("button", { class: "v2-tab" + (state.activeTab === t ? " active" : ""), onclick: () => { state.activeTab = t; render(); } }, [label]));
+    });
+    modal.appendChild(tabs);
+
+    const form = el("div", { class: "v2-form" });
+    if (state.activeTab === "content") form.appendChild(buildContentFields());
+    else if (state.activeTab === "appearance") buildAppearanceBody(form);
+    else buildRelationshipsBody(form);
+    modal.appendChild(form);
+
+    modal.appendChild(renderModalFooter());
+    return modal;
+  }
+
+  const VARIANT_DESC = {
+    1: "Two-column: form scrolls on the left (Content always open; Appearance and Relationships collapse, badged with an override count so a glance tells you what's actually been customized), preview pinned on the right at all times.",
+    2: "Single column: a fixed-height preview strip stays visible above three tabs (Content / Appearance / Relationships) — narrower footprint, but the strip has no vertical room for a label attached top or bottom.",
+  };
+
+  function render() {
+    const root = document.getElementById("modalRoot");
+    root.innerHTML = "";
+    root.appendChild(state.variant === 1 ? renderVariant1() : renderVariant2());
+    document.getElementById("variantDesc").textContent = VARIANT_DESC[state.variant];
+    document.getElementById("switcher").innerHTML = "";
+    [1, 2].forEach((v) => {
+      const btn = el("button", { class: "variant-btn" + (state.variant === v ? " active" : ""), onclick: () => { state.variant = v; render(); } }, [
+        `Variant ${v}: ${v === 1 ? "Sticky preview rail" : "Top strip + tabs"}`,
+      ]);
+      if (v === 1) btn.appendChild(el("span", { class: "rec" }, ["Recommended"]));
+      document.getElementById("switcher").appendChild(btn);
+    });
+  }
+
+  render();
+</script>
+</body>
+</html>
