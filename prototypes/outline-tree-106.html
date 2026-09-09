@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Outline tree prototype — wayframe#106</title>
+<style>
+  :root {
+    --ink: #1a2027; --ink-lo: #5b6472; --ink-faint: #8891a0;
+    --line: #dde1e6; --panel: #ffffff; --ground: #f4f5f3;
+    --accent: #2f6f8c; --accent-soft: #e6eef2;
+    --warn: #b5651f; --warn-soft: #faf1e4;
+    --ok: #2f8f5c; --ok-soft: #e7f5ec;
+    --mono: "SF Mono", "IBM Plex Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.5; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 2.5rem 1.75rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.35rem; letter-spacing: -0.01em; }
+  .subtitle { color: var(--ink-lo); max-width: 76ch; margin: 0 0 2rem; font-size: 0.95rem; }
+  .subtitle b { color: var(--ink); }
+  h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint); margin: 0 0 0.7rem; }
+  section { margin-bottom: 2rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.2rem; }
+  .grid { display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  /* --- tree --- */
+  .tree { list-style: none; margin: 0; padding: 0; }
+  .tree ul { list-style: none; margin: 0; padding-left: 1.3rem; }
+  .node-row {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.4rem; border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  .node-row:hover { background: var(--ground); }
+  .node-row .caret { width: 1rem; text-align: center; color: var(--ink-faint); cursor: pointer; flex-shrink: 0; font-size: 0.7rem; }
+  .node-row .kind-icon {
+    font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.02em;
+    background: var(--accent-soft); color: var(--accent); padding: 0.05rem 0.35rem; border-radius: 4px; flex-shrink: 0;
+  }
+  .node-row.leaf .kind-icon { background: var(--ok-soft); color: var(--ok); }
+  .node-row .name { flex: 1; cursor: default; }
+  .node-row.leaf .name { cursor: pointer; }
+  .node-row.selected { background: var(--accent-soft); }
+  .node-row.selected .name { font-weight: 600; }
+  .node-row.hidden .name { text-decoration: line-through; color: var(--ink-faint); }
+  .node-row .ctrl {
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink-lo);
+    border-radius: 5px; font-size: 0.68rem; padding: 0.12rem 0.4rem; cursor: pointer; flex-shrink: 0;
+  }
+  .node-row .ctrl:hover { border-color: var(--accent); color: var(--accent); }
+  .node-row .ctrl.warn { color: var(--warn); }
+  .node-row select { font-size: 0.68rem; border: 1px solid var(--line); border-radius: 5px; padding: 0.1rem 0.2rem; }
+  .row-label { font-size: 0.72rem; color: var(--ink-faint); font-style: italic; padding: 0.15rem 0.4rem 0.15rem 1.4rem; }
+
+  .msglog { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; max-height: 220px; overflow-y: auto; }
+  .msg { font-size: 0.79rem; border-radius: 7px; padding: 0.45rem 0.6rem; }
+  .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.err { background: #fbe9e7; color: #b3261e; }
+
+  .selbox { font-family: var(--mono); font-size: 0.8rem; color: var(--ink-lo); background: var(--ground); border-radius: 7px; padding: 0.6rem 0.7rem; min-height: 2.2rem; }
+  .selbox .empty { color: var(--ink-faint); font-style: italic; }
+  .selchip { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 5px; padding: 0.05rem 0.4rem; margin: 0.1rem 0.2rem 0.1rem 0; }
+
+  .tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab { font-size: 0.8rem; padding: 0.4rem 0.85rem; border-radius: 99px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink-lo); }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .scenario-desc { font-size: 0.87rem; color: var(--ink-lo); margin-bottom: 0.9rem; }
+  .step-list { display: flex; flex-direction: column; gap: 0.4rem; }
+  .step-btn { text-align: left; display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.75rem; font: inherit; font-size: 0.82rem; cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 7px; width: 100%; }
+  .step-btn .n { width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--ground); display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.72rem; flex-shrink: 0; }
+  .step-btn.done { opacity: 0.5; }
+  .step-btn.done .n { background: var(--ok-soft); color: var(--ok); }
+  .step-btn:disabled { cursor: default; opacity: 0.4; }
+  button.reset { font: inherit; font-size: 0.8rem; border: 1px solid var(--line); background: transparent; border-radius: 7px; padding: 0.4rem 0.75rem; cursor: pointer; }
+  footer { color: var(--ink-faint); font-size: 0.78rem; margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Outline tree — one hierarchy, shared selection, no new drag machinery</h1>
+  <p class="subtitle">
+    <b>Question this settles (wayframe#106):</b> what does the cascaded outline
+    (Program → Group → Lane → Row → Milestone/Phase/Annotation) actually
+    expose, which mutations does it permit, and does clicking a tree node
+    share <code>useSelection</code>'s <code>Set&lt;string&gt;</code> with the
+    canvas? Free-play with the tree below, or step through the five scenarios
+    that force each question.
+  </p>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Outline tree</h2>
+      <div id="treeRoot"></div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:1rem;">
+        <h2>Shared canvas selection (<code>useSelection.selectedIds</code>)</h2>
+        <div class="selbox" id="selBox"></div>
+      </div>
+      <div class="panel">
+        <h2>Log</h2>
+        <div class="msglog" id="msgLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Guided scenarios</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="panel" id="scenarioPanel"></div>
+  </section>
+
+  <footer>
+    Pure module — <code>createInitialState</code>, <code>selectItem</code>,
+    <code>selectAllInSubtree</code>, <code>reorderSibling</code>,
+    <code>reparent</code>, <code>toggleHidden</code>,
+    <code>toggleCollapsed</code> — has no DOM references and shares
+    <code>use-selection.ts</code>'s exact Set-of-ids semantics for leaf items,
+    so it's liftable directly into a real tree component later. This HTML
+    file is throwaway.
+  </footer>
+</div>
+
+<script>
+// =====================================================================
+// PURE MODULE — no DOM, no globals besides what's exported below.
+// =====================================================================
+
+/**
+ * Node kinds, cascading Program -> Group -> Lane -> (Row, synthetic) ->
+ * leaf item. "row" is deliberately NOT a node kind here: wayframe#94/t20
+ * settled Lane Rows as a plain `laneRow` number on each item, not a
+ * first-class container ("Row 1 is a lane's always-present home row...
+ * Rows 2+ are opt-in space"). The tree therefore can't let you reorder or
+ * reparent a "row" — there is no row entity to move. It renders rows as a
+ * computed, non-interactive grouping label under a lane (min..max laneRow
+ * actually used), and an item's own row assignment is just another field
+ * that changes when the item itself reparents or gets nudged, the same way
+ * changing a milestone's `date` doesn't reparent it.
+ *
+ * Program is a depth-0 SwimlaneGroup (wayframe#104) and Group is any
+ * deeper SwimlaneGroup — both share one `kind: "group"` here except
+ * top-level ones are tagged `programId: null` for family-boundary checks;
+ * a Program is simply a group with no parent.
+ */
+const CONTAINER_KINDS = ["program", "group", "lane"];
+const LEAF_KINDS = ["milestone", "phase", "annotation"];
+
+class IllegalMutation extends Error {}
+
+function familyProgramId(id, nodesById) {
+  let cur = nodesById.get(id);
+  while (cur && cur.parentId !== null) cur = nodesById.get(cur.parentId);
+  return cur ? cur.id : null; // the root program's own id, once parentId chain bottoms out
+}
+
+function siblingsOf(node, nodes) {
+  return nodes.filter((n) => n.parentId === node.parentId && n.kind === node.kind).sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Adjacent-swap only — the same mechanism wayframe#100/t21 already settled
+ * for group ordering ("no drag-and-drop library justified"), generalized to
+ * every reorderable kind instead of invented fresh for the tree.
+ */
+function reorderSibling(state, id, direction) {
+  const node = state.nodesById.get(id);
+  if (!node) throw new IllegalMutation(`no such node "${id}"`);
+  const sibs = siblingsOf(node, state.nodes);
+  const idx = sibs.findIndex((n) => n.id === id);
+  const otherIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (otherIdx < 0 || otherIdx >= sibs.length) throw new IllegalMutation(`"${node.name || node.title}" is already at the ${direction === "up" ? "top" : "bottom"} of its siblings`);
+  const other = sibs[otherIdx];
+  const nodes = state.nodes.map((n) => (n.id === node.id ? { ...n, order: other.order } : n.id === other.id ? { ...n, order: node.order } : n));
+  return withNodes(state, nodes);
+}
+
+/**
+ * Reparent legality, by kind:
+ *  - program: never — Programs are the tree's own top level (wayframe#104:
+ *    a Program IS the top-level group, nothing sits above it to reparent under).
+ *  - group / lane: legal onto another program|group, but ONLY within the
+ *    same family Program — wayframe#104 already ruled out cross-Program
+ *    lane interleaving, and a Group crossing Program boundaries would be
+ *    the same violation one tier up.
+ *  - milestone / phase / annotation: legal onto another `lane`, again only
+ *    within the same family Program (moving an item to a different
+ *    Program crosses a CRDT subdocument boundary per wayframe#89/t14 — a
+ *    real cross-Program move op, not something this tree does).
+ */
+function canReparent(node, newParentId, nodesById) {
+  if (node.kind === "program") return { ok: false, reason: "Programs can't be reparented — they're the tree's own top level." };
+  const newParent = nodesById.get(newParentId);
+  if (!newParent) return { ok: false, reason: `no such parent "${newParentId}"` };
+  if ((node.kind === "group" || node.kind === "lane") && !["program", "group"].includes(newParent.kind)) return { ok: false, reason: `a ${node.kind} can only move under a Program or a Group, not a ${newParent.kind}` };
+  if (LEAF_KINDS.includes(node.kind) && newParent.kind !== "lane") return { ok: false, reason: `a ${node.kind} can only move under a Lane, not a ${newParent.kind}` };
+  const curFamily = familyProgramId(node.id, nodesById);
+  const newFamily = newParentId === newParent.id && newParent.kind === "program" ? newParent.id : familyProgramId(newParentId, nodesById);
+  if (curFamily !== newFamily) return { ok: false, reason: `can't move across Programs (from ${curFamily} to ${newFamily}) — wayframe#104 keeps every lane/item structurally inside one Program` };
+  if (node.id === newParentId) return { ok: false, reason: "can't move a node under itself" };
+  return { ok: true };
+}
+
+function reparent(state, id, newParentId) {
+  const node = state.nodesById.get(id);
+  if (!node) throw new IllegalMutation(`no such node "${id}"`);
+  const check = canReparent(node, newParentId, state.nodesById);
+  if (!check.ok) throw new IllegalMutation(check.reason);
+  const newSiblingOrders = state.nodes.filter((n) => n.parentId === newParentId && n.kind === node.kind).map((n) => n.order);
+  const nextOrder = newSiblingOrders.length ? Math.max(...newSiblingOrders) + 1 : 0;
+  const nodes = state.nodes.map((n) => (n.id === id ? { ...n, parentId: newParentId, order: nextOrder } : n));
+  return withNodes(state, nodes);
+}
+
+/** Lane-hide is document content, EXCLUDED from layout entirely (wayframe#95/t22) — legal only on `lane`. */
+function toggleHidden(state, id) {
+  const node = state.nodesById.get(id);
+  if (!node) throw new IllegalMutation(`no such node "${id}"`);
+  if (node.kind !== "lane") throw new IllegalMutation(`only a Lane can be hidden — ${node.kind} has no hidden flag (that's what Collapse is for on a Program/Group)`);
+  const nodes = state.nodes.map((n) => (n.id === id ? { ...n, hidden: !n.hidden } : n));
+  return withNodes(state, nodes);
+}
+
+/** Collapse is a visual fold only (wayframe#100/t21's SwimlaneGroup.collapsed) — legal only on `program`/`group`. */
+function toggleCollapsed(state, id) {
+  const node = state.nodesById.get(id);
+  if (!node) throw new IllegalMutation(`no such node "${id}"`);
+  if (node.kind !== "program" && node.kind !== "group") throw new IllegalMutation(`only a Program or Group can collapse — ${node.kind} has no collapsed flag (that's what Hide is for on a Lane)`);
+  const nodes = state.nodes.map((n) => (n.id === id ? { ...n, collapsed: !n.collapsed } : n));
+  return withNodes(state, nodes);
+}
+
+/**
+ * Selection sync, the ticket's third question: clicking a LEAF item toggles
+ * it in the exact same Set<string> use-selection.ts already hands the
+ * canvas (selection.toggle's own semantics, not a parallel selection
+ * concept) — so a tree click and a canvas click are indistinguishable to
+ * whatever reads selectedIds downstream (SelectionToolbar's bulk-edit).
+ * A structural node (program/group/lane) has no meaning as a single bulk-
+ * edit target — it's not a milestone — so clicking it never touches
+ * selectedIds directly; `selectAllInSubtree` is the deliberate bridge.
+ */
+function selectItem(state, id) {
+  const node = state.nodesById.get(id);
+  if (!node) throw new IllegalMutation(`no such node "${id}"`);
+  if (!LEAF_KINDS.includes(node.kind)) throw new IllegalMutation(`only a Milestone/Phase/Annotation can be selected directly — a ${node.kind} has no single canvas counterpart. Use "select all" instead.`);
+  const next = new Set(state.selectedIds);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return { ...state, selectedIds: next };
+}
+
+/** Bulk-adds every descendant leaf item — the tree's counterpart to onMarqueeSelect's addAll, not a new selection primitive. */
+function selectAllInSubtree(state, id) {
+  const node = state.nodesById.get(id);
+  if (!node) throw new IllegalMutation(`no such node "${id}"`);
+  if (!CONTAINER_KINDS.includes(node.kind)) throw new IllegalMutation(`"select all" only applies to a Program/Group/Lane subtree, not a ${node.kind}`);
+  const ids = descendantLeafIds(id, state.nodes);
+  if (ids.length === 0) throw new IllegalMutation(`"${node.name}" has no milestones/phases/annotations under it yet`);
+  const next = new Set([...state.selectedIds, ...ids]);
+  return { ...state, selectedIds: next };
+}
+
+function descendantLeafIds(rootId, nodes) {
+  const childrenOf = (pid) => nodes.filter((n) => n.parentId === pid);
+  const out = [];
+  const walk = (pid) => {
+    for (const child of childrenOf(pid)) {
+      if (LEAF_KINDS.includes(child.kind)) out.push(child.id);
+      else walk(child.id);
+    }
+  };
+  walk(rootId);
+  return out;
+}
+
+function withNodes(state, nodes) {
+  return { ...state, nodes, nodesById: new Map(nodes.map((n) => [n.id, n])) };
+}
+
+function createState(nodes, selectedIds) {
+  return withNodes({ selectedIds: selectedIds || new Set() }, nodes);
+}
+
+// =====================================================================
+// FIXTURE — 2 Programs (mirrors wayframe#104's merged-view shape), one
+// nesting a Group and one flat, so reparent-legality has real cases to hit.
+// =====================================================================
+
+function initialNodes() {
+  return [
+    { id: "atlas", kind: "program", parentId: null, order: 0, name: "Atlas Platform" },
+    { id: "atlas__core", kind: "group", parentId: "atlas", order: 0, name: "Core Platform", collapsed: false },
+    { id: "atlas__lane-be", kind: "lane", parentId: "atlas__core", order: 0, name: "Backend", hidden: false },
+    { id: "atlas__lane-data", kind: "lane", parentId: "atlas__core", order: 1, name: "Data", hidden: false },
+    { id: "atlas__lane-design", kind: "lane", parentId: "atlas", order: 1, name: "Design", hidden: false },
+
+    { id: "comet", kind: "program", parentId: null, order: 1, name: "Comet Mobile" },
+    { id: "comet__squads", kind: "group", parentId: "comet", order: 0, name: "Mobile Squads", collapsed: false },
+    { id: "comet__lane-ios", kind: "lane", parentId: "comet__squads", order: 0, name: "iOS", hidden: false },
+    { id: "comet__lane-qa", kind: "lane", parentId: "comet", order: 1, name: "QA", hidden: false },
+
+    { id: "m1", kind: "milestone", parentId: "atlas__lane-be", order: 0, laneRow: 1, title: "Core API frozen" },
+    { id: "m2", kind: "milestone", parentId: "atlas__lane-be", order: 1, laneRow: 2, title: "Auth service split" },
+    { id: "m3", kind: "milestone", parentId: "atlas__lane-data", order: 0, laneRow: 1, title: "Warehouse migration" },
+    { id: "p1", kind: "phase", parentId: "atlas__lane-design", order: 0, laneRow: 1, title: "Design system v2" },
+    { id: "m4", kind: "milestone", parentId: "comet__lane-ios", order: 0, laneRow: 1, title: "iOS beta" },
+    { id: "a1", kind: "annotation", parentId: "comet__lane-qa", order: 0, laneRow: 1, title: "Freeze window" },
+  ];
+}
+
+// =====================================================================
+// PAGE SHELL — thin, DOM-only, calls into the pure module above.
+// =====================================================================
+
+let state = createState(initialNodes());
+let expanded = new Set(state.nodes.filter((n) => CONTAINER_KINDS.includes(n.kind)).map((n) => n.id)); // everything expanded by default
+
+function log(text, ok) {
+  const el = document.getElementById("msgLog");
+  const div = document.createElement("div");
+  div.className = "msg " + (ok ? "ok" : "err");
+  div.textContent = text;
+  el.prepend(div);
+}
+
+function dispatch(fn, ...args) {
+  try {
+    state = fn(state, ...args);
+    render();
+    return true;
+  } catch (e) {
+    if (e instanceof IllegalMutation) {
+      log("Rejected: " + e.message, false);
+      return false;
+    }
+    throw e;
+  }
+}
+
+function containerChildrenOf(id) {
+  return state.nodes.filter((n) => n.parentId === id && CONTAINER_KINDS.includes(n.kind)).sort((a, b) => a.order - b.order);
+}
+function itemChildrenOf(laneId) {
+  return state.nodes.filter((n) => n.parentId === laneId && LEAF_KINDS.includes(n.kind));
+}
+
+function eligibleParents(node) {
+  // Anything of a compatible kind, in the SAME family Program, excluding itself.
+  const family = familyProgramId(node.id, state.nodesById);
+  return state.nodes.filter((n) => {
+    if (n.id === node.id) return false;
+    if ((node.kind === "group" || node.kind === "lane") && !["program", "group"].includes(n.kind)) return false;
+    if (LEAF_KINDS.includes(node.kind) && n.kind !== "lane") return false;
+    return true; // family check happens in canReparent — we deliberately also list cross-Program targets so "illegal" is choosable and demonstrable
+  });
+}
+
+function nodeLabel(n) {
+  return n.kind === "milestone" || n.kind === "phase" || n.kind === "annotation" ? n.title : n.name;
+}
+
+function renderNode(node, depth) {
+  const isContainer = CONTAINER_KINDS.includes(node.kind);
+  const isLeaf = LEAF_KINDS.includes(node.kind);
+  const isOpen = expanded.has(node.id);
+  const li = document.createElement("li");
+
+  const row = document.createElement("div");
+  row.className = "node-row" + (isLeaf ? " leaf" : "") + (isLeaf && state.selectedIds.has(node.id) ? " selected" : "") + (node.kind === "lane" && node.hidden ? " hidden" : "");
+
+  const caret = document.createElement("span");
+  caret.className = "caret";
+  if (isContainer) {
+    caret.textContent = isOpen ? "▾" : "▸";
+    caret.onclick = () => {
+      isOpen ? expanded.delete(node.id) : expanded.add(node.id);
+      render();
+    };
+  }
+  row.appendChild(caret);
+
+  const kindIcon = document.createElement("span");
+  kindIcon.className = "kind-icon";
+  kindIcon.textContent = node.kind;
+  row.appendChild(kindIcon);
+
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = nodeLabel(node);
+  if (isLeaf) name.onclick = () => dispatch(selectItem, node.id) && log(`${state.selectedIds.has(node.id) ? "Selected" : "Deselected"} "${nodeLabel(node)}" — shared with canvas selection`, true);
+  row.appendChild(name);
+
+  // controls — every kind reorders via adjacent-swap, Program included
+  // (peers at the top level, same as #100/t21's group-vs-ungrouped-lane
+  // order space).
+  row.appendChild(ctrl("↑", () => dispatch(reorderSibling, node.id, "up") && log(`Moved "${nodeLabel(node)}" up`, true)));
+  row.appendChild(ctrl("↓", () => dispatch(reorderSibling, node.id, "down") && log(`Moved "${nodeLabel(node)}" down`, true)));
+
+  if (node.kind !== "program") {
+    const sel = document.createElement("select");
+    const optDefault = document.createElement("option");
+    optDefault.textContent = "move to…";
+    optDefault.value = "";
+    sel.appendChild(optDefault);
+    for (const target of eligibleParents(node)) {
+      const opt = document.createElement("option");
+      opt.value = target.id;
+      const family = familyProgramId(target.id, state.nodesById);
+      const curFamily = familyProgramId(node.id, state.nodesById);
+      opt.textContent = nodeLabel(target) + (family !== curFamily ? " (different Program!)" : "");
+      sel.appendChild(opt);
+    }
+    sel.onchange = (e) => {
+      const target = e.target.value;
+      if (!target) return;
+      const okBefore = state;
+      const success = dispatch(reparent, node.id, target);
+      if (success) log(`Moved "${nodeLabel(node)}" under "${nodeLabel(state.nodesById.get(target))}"`, true);
+      e.target.value = "";
+    };
+    row.appendChild(sel);
+  }
+
+  if (node.kind === "lane") {
+    row.appendChild(ctrl(node.hidden ? "unhide" : "hide", () => dispatch(toggleHidden, node.id) && log(`"${nodeLabel(node)}" is now ${state.nodesById.get(node.id).hidden ? "hidden (excluded from canvas layout)" : "visible"}`, true), node.hidden ? "warn" : ""));
+    row.appendChild(ctrl("collapse", () => dispatch(toggleCollapsed, node.id)));
+  }
+  if (node.kind === "program" || node.kind === "group") {
+    row.appendChild(ctrl(node.collapsed ? "expand" : "collapse", () => dispatch(toggleCollapsed, node.id) && log(`"${nodeLabel(node)}" is now ${state.nodesById.get(node.id).collapsed ? "collapsed (visual fold only)" : "expanded"}`, true)));
+    row.appendChild(ctrl(node.hidden ? "unhide" : "hide", () => dispatch(toggleHidden, node.id), "warn"));
+  }
+  if (isContainer) {
+    row.appendChild(ctrl("select all", () => dispatch(selectAllInSubtree, node.id) && log(`Selected every item under "${nodeLabel(node)}" — bulk-added to shared canvas selection`, true)));
+  }
+
+  li.appendChild(row);
+
+  if (isContainer && isOpen) {
+    const ul = document.createElement("ul");
+    for (const child of containerChildrenOf(node.id)) ul.appendChild(renderNode(child, depth + 1));
+    if (node.kind === "lane") {
+      const items = itemChildrenOf(node.id);
+      const rows = [...new Set(items.map((i) => i.laneRow))].sort((a, b) => a - b);
+      for (const rowNum of rows) {
+        const rowLabelLi = document.createElement("li");
+        const rowLabel = document.createElement("div");
+        rowLabel.className = "row-label";
+        rowLabel.textContent = `Row ${rowNum} (synthetic — grouped by laneRow, not a movable node)`;
+        rowLabelLi.appendChild(rowLabel);
+        const rowUl = document.createElement("ul");
+        for (const item of items.filter((i) => i.laneRow === rowNum)) rowUl.appendChild(renderNode(item, depth + 2));
+        rowLabelLi.appendChild(rowUl);
+        ul.appendChild(rowLabelLi);
+      }
+    }
+    li.appendChild(ul);
+  }
+  return li;
+}
+
+function ctrl(label, onClick, extraClass) {
+  const b = document.createElement("button");
+  b.className = "ctrl" + (extraClass ? " " + extraClass : "");
+  b.textContent = label;
+  b.onclick = (e) => {
+    e.stopPropagation();
+    onClick();
+  };
+  return b;
+}
+
+function render() {
+  const root = document.getElementById("treeRoot");
+  root.innerHTML = "";
+  const ul = document.createElement("ul");
+  ul.className = "tree";
+  for (const program of state.nodes.filter((n) => n.kind === "program").sort((a, b) => a.order - b.order)) {
+    ul.appendChild(renderNode(program, 0));
+  }
+  root.appendChild(ul);
+
+  const selBox = document.getElementById("selBox");
+  selBox.innerHTML =
+    state.selectedIds.size === 0
+      ? `<span class="empty">nothing selected</span>`
+      : [...state.selectedIds].map((id) => `<span class="selchip">${nodeLabel(state.nodesById.get(id)) || id}</span>`).join("");
+}
+
+// =====================================================================
+// GUIDED SCENARIOS
+// =====================================================================
+
+const scenarios = [
+  {
+    id: "happy",
+    label: "1 — Click a milestone",
+    desc: "Click a milestone leaf in the tree and watch it land in the shared canvas-selection panel on the right — the exact same Set<string> use-selection.ts hands RoadmapTimeline, not a parallel tree-only concept.",
+    steps: [{ label: 'Click "Core API frozen" (under Atlas → Core Platform → Backend)', run: () => dispatch(selectItem, "m1") && log('Selected "Core API frozen"', true) }],
+  },
+  {
+    id: "selectall",
+    label: "2 — Select all in a lane",
+    desc: 'Click "select all" on a Lane node and watch every milestone under it populate the shared selection in one shot — the tree\'s bridge into bulk-edit, reusing onMarqueeSelect\'s addAll rather than inventing a second selection primitive.',
+    steps: [{ label: '"select all" on the Backend lane (2 milestones)', run: () => dispatch(selectAllInSubtree, "atlas__lane-be") && log("Selected all of Backend's milestones", true) }],
+  },
+  {
+    id: "legal-reparent",
+    label: "3 — Legal reparent",
+    desc: 'Move the "Design" lane (currently ungrouped, directly under Atlas) into the "Core Platform" group — legal, since both are inside the same Program.',
+    steps: [{ label: 'Move "Design" into "Core Platform"', run: () => dispatch(reparent, "atlas__lane-design", "atlas__core") && log('Moved "Design" into Core Platform', true) }],
+  },
+  {
+    id: "illegal-reparent",
+    label: "4 — Illegal reparent",
+    desc: "Try moving Atlas's \"Data\" lane into Comet's \"Mobile Squads\" group — rejected, because it crosses a Program boundary (wayframe#104's structural rule, not a UI restriction invented here).",
+    steps: [{ label: 'Try moving "Data" into "Mobile Squads" (different Program)', run: () => dispatch(reparent, "atlas__lane-data", "comet__squads") }],
+  },
+  {
+    id: "hide-vs-collapse",
+    label: "5 — Hide vs. collapse aren't interchangeable",
+    desc: "Hide the iOS lane (excluded from canvas layout entirely, wayframe#95/t22) and collapse the Mobile Squads group (a visual fold only, wayframe#100/t21) — then try the wrong control on each kind and watch both get rejected.",
+    steps: [
+      { label: 'Hide the "iOS" lane', run: () => dispatch(toggleHidden, "comet__lane-ios") && log('"iOS" is now hidden — excluded from canvas layout', true) },
+      { label: '"Collapse" the Mobile Squads group', run: () => dispatch(toggleCollapsed, "comet__squads") && log('"Mobile Squads" is now collapsed — a visual fold only', true) },
+      { label: "Now try to collapse the iOS lane (wrong control)", run: () => dispatch(toggleCollapsed, "comet__lane-ios") },
+      { label: "…and try to hide the Mobile Squads group (wrong control)", run: () => dispatch(toggleHidden, "comet__squads") },
+    ],
+  },
+];
+
+let activeScenario = scenarios[0].id;
+let scenarioProgress = {};
+
+function renderTabs() {
+  document.getElementById("tabs").innerHTML = "";
+  const wrap = document.getElementById("tabs");
+  for (const s of scenarios) {
+    const t = document.createElement("div");
+    t.className = "tab" + (s.id === activeScenario ? " active" : "");
+    t.textContent = s.label;
+    t.onclick = () => selectScenario(s.id);
+    wrap.appendChild(t);
+  }
+}
+
+function renderScenario() {
+  const s = scenarios.find((x) => x.id === activeScenario);
+  const done = scenarioProgress[s.id] || 0;
+  const panel = document.getElementById("scenarioPanel");
+  panel.innerHTML = "";
+  const desc = document.createElement("p");
+  desc.className = "scenario-desc";
+  desc.textContent = s.desc;
+  panel.appendChild(desc);
+  const list = document.createElement("div");
+  list.className = "step-list";
+  s.steps.forEach((step, i) => {
+    const b = document.createElement("button");
+    b.className = "step-btn" + (i < done ? " done" : "");
+    b.disabled = i !== done;
+    b.innerHTML = `<span class="n">${i < done ? "✓" : i + 1}</span> ${step.label}`;
+    b.onclick = () => {
+      step.run();
+      scenarioProgress[s.id] = i + 1;
+      renderScenario();
+    };
+    list.appendChild(b);
+  });
+  panel.appendChild(list);
+}
+
+function selectScenario(id) {
+  activeScenario = id;
+  scenarioProgress = { [id]: 0 };
+  state = createState(initialNodes());
+  expanded = new Set(state.nodes.filter((n) => CONTAINER_KINDS.includes(n.kind)).map((n) => n.id));
+  document.getElementById("msgLog").innerHTML = "";
+  render();
+  renderTabs();
+  renderScenario();
+}
+
+// init
+render();
+renderTabs();
+scenarioProgress[activeScenario] = 0;
+renderScenario();
+</script>
+</body>
+</html>
