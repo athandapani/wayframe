@@ -532,14 +532,23 @@
     const group = document.createElementNS(SVGNS, "g");
     group.setAttribute("opacity", opacity);
 
-    if (d.criticalPath) {
-      group.appendChild(svgShape(resolved.markerShape.value, cx, cy, baseR + 5, "none", "#cf222e", 2));
-    }
-
+    // Critical-path ring has to trace whatever shape is actually drawn
+    // below it — a phase's pill outline, or the point marker's own shape —
+    // never the point-marker shape unconditionally, or it draws a stray
+    // star/diamond ring floating over an unrelated pill.
+    let pw, ph;
     if (isPhase) {
       const shape = resolved.phaseShape.value;
       const sizeMul = resolved.phaseSize.value === "tall" ? 1.6 : resolved.phaseSize.value === "lean" ? 0.65 : 1;
-      const pw = w * 0.5, ph = 16 * resolved.markerScale.value * sizeMul;
+      pw = w * 0.5; ph = 16 * resolved.markerScale.value * sizeMul;
+      if (d.criticalPath) {
+        const ring = document.createElementNS(SVGNS, "rect");
+        ring.setAttribute("x", cx - pw / 2 - 4); ring.setAttribute("y", cy - ph / 2 - 4);
+        ring.setAttribute("width", pw + 8); ring.setAttribute("height", ph + 8);
+        ring.setAttribute("rx", (shape === "pill" ? ph / 2 : 3) + 4);
+        ring.setAttribute("fill", "none"); ring.setAttribute("stroke", "#cf222e"); ring.setAttribute("stroke-width", 2);
+        group.appendChild(ring);
+      }
       const rect = document.createElementNS(SVGNS, "rect");
       rect.setAttribute("x", cx - pw / 2); rect.setAttribute("y", cy - ph / 2);
       rect.setAttribute("width", pw); rect.setAttribute("height", ph);
@@ -548,6 +557,7 @@
       rect.setAttribute("stroke", fillColor); rect.setAttribute("stroke-width", 1.5);
       group.appendChild(rect);
     } else {
+      if (d.criticalPath) group.appendChild(svgShape(resolved.markerShape.value, cx, cy, baseR + 5, "none", "#cf222e", 2));
       group.appendChild(svgShape(resolved.markerShape.value, cx, cy, baseR, fillColor, "#fff", 2));
     }
 
