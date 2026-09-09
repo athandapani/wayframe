@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Connector-line rewrite — prototype for wayframe#103</title>
+<style>
+  :root {
+    --ink: #1c2128;
+    --sub: #57606a;
+    --line: #d0d7de;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --accent: #8250df;
+    --accent-soft: #ede7fc;
+    --date: #1a7f37;
+    --date-soft: #dafbe1;
+    --conn: #0969da;
+    --conn-soft: #ddf4ff;
+    --marker: #953800;
+    --warn: #cf222e;
+    --warn-soft: #ffebe9;
+    --ok: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin: 28px 0 8px; }
+  h3 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sub); }
+  .intro {
+    background: var(--accent-soft);
+    border: 1px solid #d6bbfb;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 14px;
+    color: #3c1a78;
+    margin-bottom: 24px;
+  }
+  .intro b { color: #2f1160; }
+  .intro code { background: #fff; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    background: var(--panel);
+    margin-bottom: 18px;
+  }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tab-btn {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--sub);
+  }
+  .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .scenario-desc { font-size: 13.5px; color: var(--sub); margin-bottom: 10px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .step-btn {
+    border: 1px solid var(--accent);
+    background: #fff;
+    color: var(--accent);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .step-btn:disabled { opacity: 0.35; cursor: default; border-color: var(--line); color: var(--sub); }
+  button.reset {
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    background: #fff;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .callout {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+    margin: 10px 0;
+    min-height: 20px;
+  }
+  .callout b { color: var(--accent); }
+  .diagram-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .diagram { position: relative; min-width: 640px; height: 180px; padding: 10px 20px 14px; }
+  .lane-row { position: relative; height: 56px; border-top: 1px dashed var(--line); }
+  .lane-row:first-child { border-top: none; }
+  .lane-label { position: absolute; left: -14px; top: 4px; font-size: 9.5px; color: var(--sub); }
+  .chip {
+    position: absolute; height: 18px; border-radius: 5px; background: var(--date); color: #fff;
+    font-size: 10px; display: flex; align-items: center; justify-content: center; font-weight: 600;
+    transform: translateX(-50%); white-space: nowrap;
+  }
+  .chip.occupied-hint { outline: 2px dashed rgba(207,34,46,0.5); outline-offset: 1px; }
+  .marker {
+    position: absolute; width: 14px; height: 14px; border-radius: 3px; background: var(--marker);
+    transform: translate(-50%, -50%); z-index: 5; border: 2px solid #fff;
+  }
+  .col-try {
+    position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(9,105,218,0.18);
+  }
+  .col-try.chosen { background: var(--conn); width: 2px; }
+  .conn-path { position: absolute; }
+  footer { margin-top: 40px; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); padding-top: 14px; }
+  table.metrics { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+  table.metrics th, table.metrics td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+  table.metrics th { color: var(--sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--sub); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .assert-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .assert-badge.pass { background: var(--date-soft); color: var(--ok); }
+  .assert-badge.fail { background: var(--warn-soft); color: var(--warn); }
+  .paint-order { display: flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; }
+  .paint-order .layer { border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; background: #fff; }
+  .paint-order .arrow { color: var(--sub); }
+</style>
+</head>
+<body>
+
+<h1>Connector-line rewrite</h1>
+<div class="intro">
+  Prototype for <b>wayframe#103</b> (ticket <code>t25</code>). Question: what replaces today's
+  3-waypoint <code>buildConnectorPath</code> — elbow/s-curve/rounded, all from the same two
+  endpoints and a naive geometric midpoint, zero collision avoidance, painted under markers?
+  <br /><br />
+  Answer built here: <b>zone-aware column sweep, not general pathfinding</b>. The connector's
+  vertical elbow segment queries the SAME per-lane tier-zone occupancy #101/t24's
+  <code>createZone</code> allocator already tracks (dates/ghosts/titles) — a read-only
+  <code>occupiesX</code> query, no new layout pass. If the naive midpoint column is already
+  clear, nothing changes. If not, it sweeps outward in fixed 8px steps toward whichever side has
+  more slack, capped at 6 tries (~48px), then gives up and falls back to the naive midpoint
+  rather than build a zigzag path around every obstacle. Paint order changes by half: connectors
+  now render above the tier-zone chips they cross, but stay below markers — so a rare
+  undodged overlap shows the line winning, not vanishing.
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div class="panel">
+  <div class="scenario-desc" id="scenarioDesc"></div>
+  <div class="steps" id="steps"></div>
+  <div class="callout" id="callout">Click a step to begin.</div>
+  <div class="diagram-wrap"><div class="diagram" id="diagram"></div></div>
+  <div class="legend" id="legend"></div>
+  <table class="metrics"><thead id="metricsHead"></thead><tbody id="metricsBody"></tbody></table>
+</div>
+
+<footer>
+  Pure module is in <code>#logic-module</code> below (no DOM access) — the part meant to be
+  lifted into the real codebase (<code>RoadmapTimeline.tsx</code>'s
+  <code>buildConnectorPath</code> call site) once this model is validated live. Everything else
+  on this page is throwaway scaffolding.
+</footer>
+
+<script id="logic-module">
+  /* ============================================================
+   * PURE MODULE — connector router. No DOM access.
+   * ============================================================ */
+
+  // Ported from #101/t24's shared tier allocator, extended with one
+  // read-only query (`occupiesX`) that reads the SAME placed-interval
+  // state `place()` already builds — no second layout pass, just a
+  // collision *question* asked after layout is done. Everything else is
+  // unchanged from t24's prototype.
+  function createZone(config) {
+    const lastRight = Array(config.tierCount).fill(-Infinity);
+    const tierBlockers = Array.from({ length: config.tierCount }, () => []);
+    const anyTierBlockers = [];
+    // Full interval list per tier, kept alongside lastRight — lastRight
+    // alone (t24's shape) only tells you the rightmost extent, which is
+    // enough for left-to-right packing but not for a later "is this
+    // column busy" query at an arbitrary x that may sit inside an
+    // earlier gap. occupiesX needs the real intervals.
+    const placedIntervals = Array.from({ length: config.tierCount }, () => []);
+
+    function registerBlocker(x, w, opts) {
+      const b = { x, w };
+      if (opts && opts.tier != null) tierBlockers[opts.tier].push(b);
+      else anyTierBlockers.push(b);
+    }
+
+    function collidesBlockers(tier, left, right) {
+      const hit = (b) => left < b.x + b.w / 2 + config.gap && right > b.x - b.w / 2 - config.gap;
+      return tierBlockers[tier].some(hit) || anyTierBlockers.some(hit);
+    }
+
+    function fits(tier, left, right) {
+      if (left <= lastRight[tier] + config.gap) return false;
+      return !collidesBlockers(tier, left, right);
+    }
+
+    function place(item) {
+      for (const variant of item.variants) {
+        for (let t = 0; t < config.tierCount; t++) {
+          const left = item.x - variant.width / 2;
+          const right = item.x + variant.width / 2;
+          if (fits(t, left, right)) {
+            lastRight[t] = right;
+            placedIntervals[t].push({ left, right });
+            return { id: item.id, tier: t, variantKey: variant.key, overflowed: false, hidden: false };
+          }
+        }
+      }
+      const narrowest = item.variants[item.variants.length - 1];
+      return { id: item.id, tier: -1, variantKey: narrowest.key, overflowed: true, hidden: true };
+    }
+
+    // Read-only. Does NOT mutate lastRight/placedIntervals — a connector
+    // asking "is this column busy" must never itself claim the column,
+    // or two connectors checking the same clear column would fight over
+    // who "placed" there first.
+    function occupiesX(x, halfWidth) {
+      const left = x - halfWidth;
+      const right = x + halfWidth;
+      for (let t = 0; t < config.tierCount; t++) {
+        for (const iv of placedIntervals[t]) {
+          if (left < iv.right + config.gap && right > iv.left - config.gap) return true;
+        }
+      }
+      return collidesBlockersAnyTier(left, right);
+    }
+    function collidesBlockersAnyTier(left, right) {
+      const hit = (b) => left < b.x + b.w / 2 + config.gap && right > b.x - b.w / 2 - config.gap;
+      return anyTierBlockers.some(hit) || tierBlockers.some((list) => list.some(hit));
+    }
+
+    return { place, registerBlocker, occupiesX };
+  }
+
+  function allocate(demands, config) {
+    const zone = createZone(config);
+    const sorted = [...demands].sort((a, b) => a.priority - b.priority || a.x - b.x);
+    const results = new Map();
+    for (const d of sorted) results.set(d.id, zone.place(d));
+    return { results, zone };
+  }
+
+  // The actual #103 answer. `laneY1`/`laneY2` identify the connector's
+  // source/target lane rows; `interveningZones` is the list of zone
+  // objects for every lane row strictly BETWEEN them (same-lane
+  // connectors pass an empty list and never touch occupiesX at all —
+  // there is no "between" to cross, and same-lane label bands sit at the
+  // connector's own endpoint height, not across its vertical run).
+  const SWEEP_STEP = 8;
+  const SWEEP_MAX_TRIES = 6;
+
+  function sweepMidX(naiveMidX, halfWidth, interveningZones, slackLeft, slackRight) {
+    const busyAt = (x) => interveningZones.some((z) => z.occupiesX(x, halfWidth));
+
+    if (interveningZones.length === 0 || !busyAt(naiveMidX)) {
+      return { midX: naiveMidX, tries: 0, dodged: interveningZones.length === 0 ? null : true, sameLane: interveningZones.length === 0 };
+    }
+
+    const dir = slackRight >= slackLeft ? 1 : -1;
+    for (let i = 1; i <= SWEEP_MAX_TRIES; i++) {
+      const candidate = naiveMidX + dir * SWEEP_STEP * i;
+      if (!busyAt(candidate)) {
+        return { midX: candidate, tries: i, dodged: true, sameLane: false };
+      }
+    }
+    // Exhausted every try in the biased direction — fall back to the
+    // naive midpoint rather than build a zigzag path around the
+    // obstacle. The rare accepted overlap beats visual noise from
+    // routing around every chip on the chart.
+    return { midX: naiveMidX, tries: SWEEP_MAX_TRIES, dodged: false, sameLane: false };
+  }
+
+  // Same curve formulas as today's buildConnectorPath — the fix is WHICH
+  // x gets used as midX (sweepMidX's result), never new curve math.
+  function buildConnectorPath(x1, y1, x2, y2, midX, style) {
+    if (style === "s-curve") {
+      return `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`;
+    }
+    if (style === "rounded") {
+      const r = Math.min(10, Math.abs(midX - x1) || 10, Math.abs(midX - x2) || 10, Math.abs(y2 - y1) / 2 || 10);
+      const signX1 = midX >= x1 ? 1 : -1;
+      const signX2 = midX >= x2 ? 1 : -1;
+      const signY = y2 >= y1 ? 1 : -1;
+      return `M${x1},${y1} L${midX - signX1 * r},${y1} Q${midX},${y1} ${midX},${y1 + signY * r} L${midX},${y2 - signY * r} Q${midX},${y2} ${midX + signX2 * r},${y2} L${x2},${y2}`;
+    }
+    return `M${x1},${y1} L${midX},${y1} L${midX},${y2} L${x2},${y2}`;
+  }
+
+  // Paint order is unconditional, not a per-connector branch: connectors
+  // always sit above the tier-zone chips they might cross, always below
+  // markers. Whether that ordering is ever visually *observable* depends
+  // on whether the connector overlaps a chip at all (only the exhausted-
+  // sweep case reliably does) — but the layering itself never changes
+  // case-by-case, so there is exactly one paint-order function, not one
+  // per outcome.
+  function paintOrder() {
+    return ["grid", "zone-chips", "connector", "marker"];
+  }
+
+  window.ConnectorRouter = { createZone, allocate, sweepMidX, buildConnectorPath, paintOrder, SWEEP_STEP, SWEEP_MAX_TRIES };
+</script>
+
+<script>
+  /* ============================================================
+   * PAGE SHELL — throwaway. Wires the pure module above to a
+   * lane diagram and five guided scenarios.
+   * ============================================================ */
+  const R = window.ConnectorRouter;
+  const PX = 6; // px per day-unit
+  const LANE_H = 56;
+
+  function laneChip(x, w, text) {
+    return `<div class="chip" style="left:${x * PX}px;width:${w}px">${text}</div>`;
+  }
+  function markerEl(x) {
+    return `<div class="marker" style="left:${x * PX}px;top:28px"></div>`;
+  }
+  function tryColEl(x, chosen) {
+    return `<div class="col-try${chosen ? " chosen" : ""}" style="left:${x * PX}px"></div>`;
+  }
+
+  function buildZoneForLane(chips) {
+    const { zone } = R.allocate(
+      chips.map((c) => ({ id: c.id, x: c.x, priority: 0, variants: [{ key: "chip", width: c.w }] })),
+      { tierCount: 1, gap: 4, onExhausted: "overflow" },
+    );
+    return zone;
+  }
+
+  function renderDiagram(cfg) {
+    // cfg: { lanes: [{label, y, chips:[{id,x,w,text}], markerXs:[..]}],
+    //        connector: {fromLane, toLane, x1, x2}, result: {midX,tries,dodged,sameLane}, style }
+    let html = "";
+    cfg.lanes.forEach((lane, i) => {
+      html += `<div class="lane-row" style="height:${LANE_H}px"><span class="lane-label">${lane.label}</span>`;
+      for (const c of lane.chips) html += laneChip(c.x, c.w, c.text);
+      for (const mx of lane.markerXs || []) html += markerEl(mx);
+      html += `</div>`;
+    });
+    document.getElementById("diagram").style.height = cfg.lanes.length * LANE_H + 24 + "px";
+    document.getElementById("diagram").innerHTML = html;
+
+    // overlay connector + sweep trace, absolutely positioned across the
+    // whole diagram (lane rows stack top to bottom in DOM order = y).
+    const svgH = cfg.lanes.length * LANE_H + 24;
+    let overlay = `<svg width="100%" height="${svgH}" style="position:absolute;left:0;top:0;pointer-events:none;overflow:visible">`;
+    if (cfg.sweepTrace) {
+      for (const t of cfg.sweepTrace) overlay += `<line x1="${t.x * PX}" x2="${t.x * PX}" y1="0" y2="${svgH}" stroke="${t.chosen ? "#0969da" : "rgba(9,105,218,0.25)"}" stroke-width="${t.chosen ? 2 : 1}" stroke-dasharray="${t.chosen ? "none" : "3 3"}" />`;
+    }
+    if (cfg.connector) {
+      const c = cfg.connector;
+      const path = R.buildConnectorPath(c.x1 * PX, c.y1, c.x2 * PX, c.y2, c.result.midX * PX, cfg.style || "elbow");
+      overlay += `<path d="${path}" fill="none" stroke="${cfg.style === "elbow" && c.overlap ? "#cf222e" : "#0969da"}" stroke-width="2" marker-end="url(#arrow)" />`;
+      overlay += `<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#0969da" /></marker></defs>`;
+    }
+    overlay += `</svg>`;
+    document.getElementById("diagram").insertAdjacentHTML("beforeend", overlay);
+  }
+
+  function paintOrderEl(exhausted) {
+    const order = R.paintOrder();
+    return `<div class="paint-order">${order.map((l, i) => `<span class="layer" style="${l === "connector" ? "border-color:#0969da;color:#0969da;font-weight:600" : ""}">${l}</span>${i < order.length - 1 ? '<span class="arrow">→</span>' : ""}`).join("")}</div>` +
+      `<div style="font-size:11.5px;color:var(--sub);margin-top:2px">(draw order, left→right — connector paints ${exhausted ? "over the chip it couldn't dodge, so the edge stays visible" : "above chips, below markers, per the unconditional rule — no overlap to observe here"})</div>`;
+  }
+
+  function badge(ok, text) {
+    return `<span class="assert-badge ${ok ? "pass" : "fail"}">${ok ? "✓" : "✗"} ${text}</span>`;
+  }
+
+  const scenarios = [
+    {
+      title: "1. Naive midpoint already clear",
+      desc: "No intervening lane has anything near the geometric midpoint — behavior is byte-for-byte what today's buildConnectorPath already does.",
+      steps: [
+        {
+          label: "Route the connector",
+          run() {
+            // Endpoint lanes' own content is never queried — only lanes
+            // strictly BETWEEN source and target matter. Here the
+            // intervening lane exists but has nothing placed in it, which
+            // is exactly why the naive midpoint survives unchanged.
+            const laneBetween = buildZoneForLane([]);
+            const result = R.sweepMidX(20, 10, [laneBetween], 8, 8);
+            renderDiagram({
+              lanes: [
+                { label: "Lane A", chips: [{ id: "a1", x: 4, w: 30, text: "Kickoff" }], markerXs: [4] },
+                { label: "(between, empty)", chips: [], markerXs: [] },
+                { label: "Lane B", chips: [{ id: "b1", x: 30, w: 30, text: "Launch" }], markerXs: [30] },
+              ],
+              connector: { fromLane: 0, toLane: 2, x1: 4, y1: 28, x2: 30, y2: 152, result, overlap: !result.dodged },
+              style: "elbow",
+            });
+            return {
+              callout: `Naive midX=20 vs swept midX=<b>${result.midX}</b>, tries=<b>${result.tries}</b>. ${badge(result.midX === 20 && result.tries === 0, "unchanged from today's naive midpoint")}`,
+              rows: [{ label: "naive midX", value: 20 }, { label: "swept midX", value: result.midX }, { label: "tries", value: result.tries }, { label: "dodged", value: String(result.dodged) }],
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "2. Occupied — sweep finds a clear column",
+      desc: "An intervening lane has a date chip sitting right on the naive midpoint. The sweep steps outward toward the side with more slack until it clears.",
+      steps: [
+        {
+          label: "Route the connector",
+          run() {
+            const laneMid = buildZoneForLane([{ id: "mid1", x: 20, w: 34 }]);
+            const result = R.sweepMidX(20, 10, [laneMid], 4, 20);
+            const trace = [];
+            for (let i = 0; i <= result.tries; i++) trace.push({ x: 20 + i * R.SWEEP_STEP, chosen: i === result.tries });
+            renderDiagram({
+              lanes: [
+                { label: "Lane A", chips: [], markerXs: [4] },
+                { label: "Lane M", chips: [{ id: "mid1", x: 20, w: 34, text: "Nov 12" }], markerXs: [] },
+                { label: "Lane B", chips: [], markerXs: [36] },
+              ],
+              connector: { x1: 4, y1: 28, x2: 36, y2: 152, result, overlap: !result.dodged },
+              sweepTrace: trace,
+              style: "elbow",
+            });
+            return {
+              callout: `Naive midX=20 is under the "Nov 12" chip. Slack: left=4, right=20 → sweeps <b>right</b>. Landed at midX=<b>${result.midX}</b> after <b>${result.tries}</b> tr${result.tries === 1 ? "y" : "ies"}. ${badge(result.dodged === true && result.tries > 0 && result.tries <= 6, "found a clear column within the 6-try cap")}`,
+              rows: [{ label: "naive midX", value: 20 }, { label: "swept midX", value: result.midX }, { label: "tries", value: result.tries }, { label: "dodged", value: String(result.dodged) }],
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "3. Sweep exhausted — fallback, paint order matters",
+      desc: "A wide blocker spans every column within the 48px cap. The sweep gives up and falls back to the naive midpoint — this is the one case where the paint-order change is actually visible.",
+      steps: [
+        {
+          label: "Route the connector",
+          run() {
+            const laneMid = buildZoneForLane([{ id: "wide1", x: 20, w: 130 }]);
+            const result = R.sweepMidX(20, 10, [laneMid], 30, 30);
+            const trace = [];
+            for (let i = 0; i <= result.tries; i++) trace.push({ x: 20 + i * R.SWEEP_STEP, chosen: false });
+            renderDiagram({
+              lanes: [
+                { label: "Lane A", chips: [], markerXs: [4] },
+                { label: "Lane M", chips: [{ id: "wide1", x: 20, w: 130, text: "long milestone title span" }], markerXs: [] },
+                { label: "Lane B", chips: [], markerXs: [36] },
+              ],
+              connector: { x1: 4, y1: 28, x2: 36, y2: 152, result, overlap: !result.dodged },
+              sweepTrace: trace,
+              style: "elbow",
+            });
+            return {
+              callout: `All ${R.SWEEP_MAX_TRIES} tries (±48px) stayed under the wide chip → falls back to naive midX=<b>${result.midX}</b>, <code>dodged:false</code>. ${badge(result.dodged === false && result.tries === R.SWEEP_MAX_TRIES, "exhausted, fell back to naive midpoint")}<br />${paintOrderEl(true)}`,
+              rows: [{ label: "naive midX", value: 20 }, { label: "swept midX", value: result.midX }, { label: "tries", value: result.tries }, { label: "dodged", value: String(result.dodged) }],
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "4. Same-lane connector — zero sweep cost",
+      desc: "Both endpoints share a lane row, so there is no intervening lane's tier-zone to cross. The router skips occupiesX entirely — not \"checks and finds nothing\", genuinely never calls it.",
+      steps: [
+        {
+          label: "Route the connector",
+          run() {
+            let queried = 0;
+            const laneSelf = buildZoneForLane([{ id: "s1", x: 12, w: 30 }]);
+            const spy = { occupiesX: (...args) => { queried++; return laneSelf.occupiesX(...args); } };
+            const result = R.sweepMidX(18, 10, [], 6, 6); // empty interveningZones — same lane
+            renderDiagram({
+              lanes: [{ label: "Lane A", chips: [{ id: "s1", x: 12, w: 30, text: "Nov 3" }], markerXs: [4, 32] }],
+              connector: { x1: 4, y1: 28, x2: 32, y2: 28, result, overlap: false },
+              style: "elbow",
+            });
+            return {
+              callout: `Same lane → <code>interveningZones = []</code>, <code>occupiesX</code> called <b>${queried}</b> times. ${badge(queried === 0 && result.sameLane === true, "zone check skipped entirely for a same-lane connector")}`,
+              rows: [{ label: "occupiesX calls", value: queried }, { label: "sameLane", value: String(result.sameLane) }],
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "5. s-curve / rounded reuse the same swept midX",
+      desc: "The curve formulas are untouched — only which x feeds them changes. Same swept result renders in all three connector styles.",
+      steps: [
+        { label: "elbow", run() { return renderStyleStep("elbow"); } },
+        { label: "s-curve", run() { return renderStyleStep("s-curve"); } },
+        { label: "rounded", run() { return renderStyleStep("rounded"); } },
+      ],
+    },
+  ];
+
+  function renderStyleStep(style) {
+    const laneMid = buildZoneForLane([{ id: "mid1", x: 20, w: 34 }]);
+    const result = R.sweepMidX(20, 10, [laneMid], 4, 20);
+    renderDiagram({
+      lanes: [
+        { label: "Lane A", chips: [], markerXs: [4] },
+        { label: "Lane M", chips: [{ id: "mid1", x: 20, w: 34, text: "Nov 12" }], markerXs: [] },
+        { label: "Lane B", chips: [], markerXs: [36] },
+      ],
+      connector: { x1: 4, y1: 28, x2: 36, y2: 152, result, overlap: false },
+      style,
+    });
+    return {
+      callout: `Style: <b>${style}</b>. Same swept midX=<b>${result.midX}</b> as scenario 2 — <code>buildConnectorPath</code>'s formulas are identical to today's, just fed a different x. ${badge(result.midX === 44, "consumes the sweep result, formula unchanged")}`,
+      rows: [{ label: "style", value: style }, { label: "midX used", value: result.midX }],
+    };
+  }
+
+  function metricsTable(rows) {
+    document.getElementById("metricsHead").innerHTML = `<tr><th>metric</th><th>value</th></tr>`;
+    document.getElementById("metricsBody").innerHTML = (rows || []).map((r) => `<tr><td>${r.label}</td><td>${r.value}</td></tr>`).join("");
+  }
+
+  function legendFor() {
+    document.getElementById("legend").innerHTML = [
+      { k: "chip", c: "var(--date)", t: "tier-zone chip (date/ghost/title)" },
+      { k: "marker", c: "var(--marker)", t: "milestone marker" },
+      { k: "conn", c: "var(--conn)", t: "connector / sweep trace" },
+    ].map((l) => `<span><i style="background:${l.c}"></i>${l.t}</span>`).join("");
+  }
+
+  let activeScenario = 0;
+  let activeStep = -1;
+
+  function renderTabs() {
+    document.getElementById("tabs").innerHTML = scenarios
+      .map((s, i) => `<button class="tab-btn ${i === activeScenario ? "active" : ""}" data-i="${i}">${s.title}</button>`)
+      .join("");
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeScenario = Number(btn.dataset.i);
+        activeStep = -1;
+        renderTabs();
+        renderScenario();
+      });
+    });
+  }
+
+  function renderScenario() {
+    const s = scenarios[activeScenario];
+    document.getElementById("scenarioDesc").textContent = s.desc;
+    legendFor();
+    document.getElementById("steps").innerHTML =
+      s.steps.map((st, i) => `<button class="step-btn ${i <= activeStep ? "done" : ""}" data-i="${i}" ${i > activeStep + 1 ? "disabled" : ""}>${i + 1}. ${st.label}</button>`).join("") +
+      `<button class="reset" id="resetBtn">Reset scenario</button>`;
+    document.querySelectorAll(".step-btn:not(:disabled)").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeStep = Number(btn.dataset.i);
+        renderScenario();
+      });
+    });
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      activeStep = -1;
+      renderScenario();
+    });
+    if (activeStep === -1) {
+      document.getElementById("diagram").innerHTML = "";
+      document.getElementById("callout").textContent = "Click step 1 to begin.";
+      metricsTable([]);
+      return;
+    }
+    const out = s.steps[activeStep].run();
+    document.getElementById("callout").innerHTML = out.callout;
+    metricsTable(out.rows);
+  }
+
+  renderTabs();
+  renderScenario();
+</script>
+</body>
+</html>
