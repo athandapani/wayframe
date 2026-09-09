@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Shared tier allocator — prototype for wayframe#101</title>
+<style>
+  :root {
+    --ink: #1c2128;
+    --sub: #57606a;
+    --line: #d0d7de;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --accent: #8250df;
+    --accent-soft: #ede7fc;
+    --slip: #b5791f;
+    --slip-soft: #faf1de;
+    --atrisk: #cf222e;
+    --atrisk-soft: #ffebe9;
+    --diff: #8250df;
+    --diff-soft: #ede7fc;
+    --date: #1a7f37;
+    --date-soft: #dafbe1;
+    --ref: #0969da;
+    --ref-soft: #ddf4ff;
+    --title: #57606a;
+    --title-soft: #eaeef2;
+    --warn: #cf222e;
+    --ok: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin: 28px 0 8px; }
+  h3 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sub); }
+  .intro {
+    background: var(--accent-soft);
+    border: 1px solid #d6bbfb;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 14px;
+    color: #3c1a78;
+    margin-bottom: 24px;
+  }
+  .intro b { color: #2f1160; }
+  .intro code { background: #fff; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    background: var(--panel);
+    margin-bottom: 18px;
+  }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tab-btn {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--sub);
+  }
+  .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .scenario-desc { font-size: 13.5px; color: var(--sub); margin-bottom: 10px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .step-btn {
+    border: 1px solid var(--accent);
+    background: #fff;
+    color: var(--accent);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .step-btn:disabled { opacity: 0.35; cursor: default; border-color: var(--line); color: var(--sub); }
+  button.reset {
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    background: #fff;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .callout {
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+    margin: 10px 0;
+    min-height: 20px;
+  }
+  .callout b { color: var(--accent); }
+  .callout.ok { border-color: #aceebb; background: var(--date-soft); }
+  /* --- diagram --- */
+  .diagram-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .diagram { position: relative; padding: 10px 20px 14px; min-width: 620px; }
+  .zone-label { font-size: 10.5px; color: var(--sub); margin: 6px 0 2px 4px; }
+  .zone { position: relative; border-top: 1px dashed var(--line); padding-top: 4px; margin-top: 4px; }
+  .zone:first-of-type { border-top: none; margin-top: 0; }
+  .tier-row { position: relative; height: 26px; }
+  .tier-row-label { position: absolute; left: -18px; top: 4px; font-size: 9px; color: var(--sub); }
+  .anchor-row { position: relative; height: 18px; border-top: 1px solid var(--line); margin-top: 2px; }
+  .anchor-dot {
+    position: absolute; top: 4px; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ink); transform: translateX(-50%);
+  }
+  .anchor-id { position: absolute; top: -1px; font-size: 9px; color: var(--sub); transform: translateX(-50%); white-space: nowrap; }
+  .chip {
+    position: absolute; top: 3px; height: 19px; border-radius: 5px;
+    font-size: 10px; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden;
+    transform: translateX(-50%);
+  }
+  .chip.kind-date { background: var(--date); }
+  .chip.kind-slip { background: var(--slip); }
+  .chip.kind-at-risk { background: var(--atrisk); }
+  .chip.kind-scenario-diff { background: var(--diff); }
+  .chip.kind-ref { background: var(--ref); }
+  .chip.kind-title { background: var(--title); color: #fff; }
+  .chip.kind-phase { background: #953800; }
+  .chip.dim { opacity: 0.45; }
+  .chip.overflowed { outline: 2px dashed rgba(0,0,0,0.35); outline-offset: 1px; }
+  .blocker { position: absolute; top: 3px; height: 19px; border-radius: 5px; background: repeating-linear-gradient(45deg, #d0d7de, #d0d7de 4px, #eaeef2 4px, #eaeef2 8px); transform: translateX(-50%); }
+  .collapsed-badge {
+    position: absolute; top: 3px; height: 19px; padding: 0 6px; border-radius: 5px;
+    background: #57606a; color: #fff; font-size: 10px; display: flex; align-items: center;
+    transform: translateX(-50%);
+  }
+  table.metrics { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+  table.metrics th, table.metrics td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; }
+  table.metrics th { color: var(--sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--sub); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .assert-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .assert-badge.pass { background: var(--date-soft); color: var(--ok); }
+  .assert-badge.fail { background: var(--atrisk-soft); color: var(--warn); }
+  footer { margin-top: 40px; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+
+<h1>Shared tier allocator</h1>
+<div class="intro">
+  Prototype for <b>wayframe#101</b> (ticket <code>t24</code>). Question: how do the four
+  currently-independent label/annotation passes — <code>layoutDateLabels</code>,
+  title-layout's tiered placement, <code>layoutGhostBadges</code> (now unified for
+  slip/at-risk/scenario-diff by #96/t23), and <code>reference-line-layout</code> — become
+  <b>one</b> budgeted allocator that also serves phases, which have zero collision handling
+  today? And what's the starvation policy once demand exceeds available tiers?
+  <br /><br />
+  Six guided scenarios below build up the answer: one packer function
+  (<code>createZone</code>), configured per call site, fed demands sorted by
+  <code>(priority, x)</code> — and a starvation ladder (shrink → escalate → zone policy → hide)
+  where the zone, not the item, decides what "policy" means.
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div class="panel">
+  <div class="scenario-desc" id="scenarioDesc"></div>
+  <div class="steps" id="steps"></div>
+  <div class="callout" id="callout">Click a step to begin.</div>
+  <div class="diagram-wrap"><div class="diagram" id="diagram"></div></div>
+  <div class="legend" id="legend"></div>
+  <table class="metrics"><thead id="metricsHead"></thead><tbody id="metricsBody"></tbody></table>
+</div>
+
+<footer>
+  Pure module is in <code>#logic-module</code> below (no DOM access) — the part meant to be
+  lifted into the real codebase once this model is validated live against
+  <code>collision-stress-roadmap.ts</code>. Everything else on this page is throwaway scaffolding.
+</footer>
+
+<script id="logic-module">
+  /* ============================================================
+   * PURE MODULE — shared tier allocator core. No DOM access.
+   * ============================================================ */
+
+  // One packer, config'd per zone. Demands are fed in (priority, x) order —
+  // same-anchor multi-demand ranking (t23's priority ladder) and cross-item
+  // collision avoidance (t9's finding: two independent passes both claim
+  // tier 0) turn out to be the identical mechanism once that's the sort
+  // key: a second demand from the same anchor collides with its own
+  // sibling's just-placed footprint at every tier up to wherever the
+  // sibling landed, so it's forced outward exactly like a stranger's label
+  // would be. No special-case code differentiates "my own other ghost"
+  // from "the neighboring milestone's title."
+  function createZone(config) {
+    const lastRight = Array(config.tierCount).fill(-Infinity);
+    const tierBlockers = Array.from({ length: config.tierCount }, () => []);
+    const anyTierBlockers = [];
+    const anchorCounts = new Map();
+
+    // Publishes fixed occupancy another consumer must route around —
+    // titles use this instead of each ghost/date call site hand-building
+    // its own `blockers` array from title placements, as label-layout.ts
+    // does today. `tier` omitted = blocks every tier (a wrapped 2-line
+    // title's block is tall enough to reach into more than one tier).
+    function registerBlocker(x, w, opts) {
+      const b = { x, w };
+      if (opts && opts.tier != null) tierBlockers[opts.tier].push(b);
+      else anyTierBlockers.push(b);
+    }
+
+    function collidesBlockers(tier, left, right) {
+      const hit = (b) => left < b.x + b.w / 2 + config.gap && right > b.x - b.w / 2 - config.gap;
+      return tierBlockers[tier].some(hit) || anyTierBlockers.some(hit);
+    }
+
+    function fits(tier, left, right) {
+      if (left <= lastRight[tier] + config.gap) return false;
+      return !collidesBlockers(tier, left, right);
+    }
+
+    function place(item) {
+      // Collapse is decided by how many demands this anchor has already
+      // put through the zone, not by whether *this* call happens to
+      // exhaust the real tiers — a same-x sibling always collides with
+      // every tier its predecessors already claimed, so counting only the
+      // exhaustion callbacks would undercount by exactly the tiers that
+      // DID fit.
+      if (config.onExhausted === "collapse" && item.anchorId != null) {
+        const cap = config.collapseAfter != null ? config.collapseAfter : config.tierCount;
+        const count = (anchorCounts.get(item.anchorId) || 0) + 1;
+        anchorCounts.set(item.anchorId, count);
+        if (count > cap) {
+          const narrowest = item.variants[item.variants.length - 1];
+          return { id: item.id, tier: -1, variantKey: narrowest.key, overflowed: true, hidden: true, collapsedRank: count - cap };
+        }
+      }
+      // Content degradation is tried across ALL real tiers before the zone
+      // ever escalates to its starvation policy — shrinking is cheaper
+      // (visually) than losing position, same order layoutDateLabels uses
+      // today (full@t0, full@t1, compact@t0, compact@t1, only then dump).
+      for (const variant of item.variants) {
+        for (let t = 0; t < config.tierCount; t++) {
+          const left = item.x - variant.width / 2;
+          const right = item.x + variant.width / 2;
+          if (fits(t, left, right)) {
+            lastRight[t] = right;
+            return { id: item.id, tier: t, variantKey: variant.key, overflowed: false, hidden: false };
+          }
+        }
+      }
+      // Real tiers exhausted for every variant — what happens next is a
+      // property of the ZONE (its onExhausted policy), never the item.
+      const narrowest = item.variants[item.variants.length - 1];
+      switch (config.onExhausted) {
+        case "overflow":
+        case "collapse":
+          // One unconditional accepting outer slot — dates'/ghosts' tier-2
+          // dump today, with a leader line back to the anchor.
+          return { id: item.id, tier: config.tierCount, variantKey: narrowest.key, overflowed: true, hidden: false };
+        case "nudge": {
+          // Reference lines: a chart-wide zone whose row budget can't grow
+          // every session the way a lane's vertical room can, so a 3rd
+          // collision shoves right within the best-fit existing row
+          // instead of opening a new one.
+          let best = 0;
+          for (let t = 1; t < config.tierCount; t++) if (lastRight[t] < lastRight[best]) best = t;
+          const nudgedLeft = lastRight[best] + config.gap;
+          lastRight[best] = nudgedLeft + narrowest.width;
+          return { id: item.id, tier: best, variantKey: narrowest.key, overflowed: false, hidden: false, nudged: true };
+        }
+        case "hide":
+          return { id: item.id, tier: -1, variantKey: narrowest.key, overflowed: true, hidden: true };
+        default:
+          throw new Error("unknown onExhausted policy: " + config.onExhausted);
+      }
+    }
+
+    return { place, registerBlocker };
+  }
+
+  // The one call site every consumer (dates/ghosts/ref-lines/phases)
+  // shares: sort the zone's full demand set by (priority, x), feed it
+  // one-by-one into a fresh packer.
+  function allocate(demands, config) {
+    const zone = createZone(config);
+    const sorted = [...demands].sort((a, b) => a.priority - b.priority || a.x - b.x);
+    const results = new Map();
+    for (const d of sorted) results.set(d.id, zone.place(d));
+    return { results, zone };
+  }
+
+  // --- "Legacy" idiom, ported structurally from label-layout.ts, for
+  // Scenario 1's before/after comparison only. Not part of the shared
+  // module — this is what gets deleted once the model above lands.
+  function legacyLayoutDates(items) {
+    const sorted = [...items].sort((a, b) => a.x - b.x);
+    const lastRight = [-Infinity, -Infinity];
+    const result = new Map();
+    for (const it of sorted) {
+      let placed = false;
+      for (const variant of it.variants) {
+        for (const t of [0, 1]) {
+          const left = it.x - variant.width / 2;
+          if (left > lastRight[t] + 4) {
+            lastRight[t] = it.x + variant.width / 2;
+            result.set(it.id, { tier: t, variantKey: variant.key });
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+      if (!placed) result.set(it.id, { tier: 2, variantKey: it.variants[it.variants.length - 1].key, overflowed: true });
+    }
+    return result;
+  }
+
+  window.TierAllocator = { createZone, allocate, legacyLayoutDates };
+</script>
+
+<script>
+  /* ============================================================
+   * PAGE SHELL — throwaway. Wires the pure module above to a
+   * generic tier-diagram renderer and six guided scenarios.
+   * ============================================================ */
+  const A = window.TierAllocator;
+  const PX = 16; // px per day-unit
+
+  function chipEl(kind, x, w, text, opts) {
+    opts = opts || {};
+    const classes = ["chip", "kind-" + kind];
+    if (opts.dim) classes.push("dim");
+    if (opts.overflowed) classes.push("overflowed");
+    return `<div class="${classes.join(" ")}" style="left:${x * PX}px;width:${Math.max(w, 26)}px" title="${opts.title || text}">${text}</div>`;
+  }
+  function blockerEl(x, w) {
+    return `<div class="blocker" style="left:${x * PX}px;width:${w}px"></div>`;
+  }
+  function collapsedEl(x, n) {
+    return `<div class="collapsed-badge" style="left:${x * PX}px">+${n} more</div>`;
+  }
+  function anchorEl(x, id) {
+    return `<div class="anchor-dot" style="left:${x * PX}px"></div><div class="anchor-id" style="left:${x * PX}px">${id}</div>`;
+  }
+
+  // Renders one zone as N tier rows + an overflow row, given the demands
+  // placed into it and the createZone results map.
+  // A demand's chip width/text either come straight from a fixed `.width`/
+  // `.text` (titles, phases, ref-lines, and legacy-scenario items that
+  // pre-resolved theirs) or, for anything placed via allocate(), from the
+  // variant its result actually landed on.
+  function widthFor(d, r) {
+    if (d.width != null) return d.width;
+    if (d.variants && r) {
+      const v = d.variants.find((v) => v.key === r.variantKey);
+      if (v) return v.width;
+    }
+    return 26;
+  }
+  function textFor(d, r) {
+    if (d.text != null) return d.text;
+    return (r && r.variantKey) || d.kind;
+  }
+
+  function renderZone(label, tierCount, demands, results, opts) {
+    opts = opts || {};
+    let html = `<div class="zone-label">${label}</div><div class="zone">`;
+    for (let t = 0; t < tierCount; t++) {
+      html += `<div class="tier-row"><span class="tier-row-label">t${t}</span>`;
+      for (const d of demands) {
+        const r = results.get(d.id);
+        if (r && r.tier === t) html += chipEl(d.kind, d.x, widthFor(d, r), textFor(d, r), { title: `${d.id} (${d.kind}) — tier ${r.tier}` });
+      }
+      if (opts.blockers) for (const b of opts.blockers) html += blockerEl(b.x, b.w);
+      html += `</div>`;
+    }
+    // overflow/collapsed row
+    html += `<div class="tier-row"><span class="tier-row-label">ovf</span>`;
+    for (const d of demands) {
+      const r = results.get(d.id);
+      if (!r) continue;
+      if (r.hidden) html += collapsedEl(d.x, r.collapsedRank);
+      else if (r.tier === tierCount) html += chipEl(d.kind, d.x, widthFor(d, r), textFor(d, r), { overflowed: true, title: `${d.id} — overflow` });
+    }
+    html += `</div>`;
+    // anchor row (marker dots)
+    const seen = new Set();
+    html += `<div class="anchor-row">`;
+    for (const d of demands) {
+      if (seen.has(d.anchorLabelKey || d.id)) continue;
+      seen.add(d.anchorLabelKey || d.id);
+      html += anchorEl(d.x, d.anchorLabel || d.id);
+    }
+    html += `</div></div>`;
+    return html;
+  }
+
+  function metricsTable(demands, results, extraCols) {
+    extraCols = extraCols || [];
+    document.getElementById("metricsHead").innerHTML =
+      `<tr><th>id</th><th>kind</th><th>x</th><th>priority</th><th>result</th>${extraCols.map((c) => `<th>${c}</th>`).join("")}</tr>`;
+    document.getElementById("metricsBody").innerHTML = demands
+      .map((d) => {
+        const r = results.get(d.id);
+        const resultText = !r
+          ? "—"
+          : r.hidden
+          ? `collapsed (+${r.collapsedRank})`
+          : r.nudged
+          ? `tier ${r.tier} (nudged)`
+          : r.overflowed
+          ? `overflow (tier ${r.tier})`
+          : `tier ${r.tier}${r.variantKey ? " · " + r.variantKey : ""}`;
+        return `<tr><td>${d.id}</td><td>${d.kind}</td><td>${d.x}</td><td>${d.priority}</td><td>${resultText}</td>${extraCols.map(() => "<td></td>").join("")}</tr>`;
+      })
+      .join("");
+  }
+
+  function legendFor(kinds) {
+    const colors = { date: "var(--date)", slip: "var(--slip)", "at-risk": "var(--atrisk)", "scenario-diff": "var(--diff)", ref: "var(--ref)", title: "var(--title)", phase: "var(--phase, #953800)" };
+    document.getElementById("legend").innerHTML = kinds.map((k) => `<span><i style="background:${colors[k] || "#999"}"></i>${k}</span>`).join("");
+  }
+
+  /* ---------------- Scenario definitions ---------------- */
+  // Each scenario is a linear script of steps. `run(i)` re-executes steps
+  // 0..i from scratch each time (cheap, deterministic, no partial-state
+  // bugs) and renders whatever that step's `render` produces.
+
+  const scenarios = [
+    {
+      title: "1. Four passes, one idea",
+      desc: "Today's dates-below and ghosts-above passes, run through their own bespoke functions — same greedy-pack-and-escalate idiom, duplicated.",
+      kinds: ["date", "slip"],
+      steps: [
+        {
+          label: "Show date labels (legacy layoutDateLabels)",
+          run() {
+            const items = [
+              { id: "d1", x: 4, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+              { id: "d2", x: 8, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+              { id: "d3", x: 12, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+            ];
+            const results = A.legacyLayoutDates(items);
+            const enriched = new Map([...results].map(([k, v]) => [k, { id: k, ...v }]));
+            for (const it of items) it.text = it.variants.find((v) => v.key === enriched.get(it.id).variantKey).key;
+            return {
+              html: renderZone("Dates zone (below marker) — legacy function A", 2, items, enriched),
+              demands: items,
+              results: enriched,
+              callout: `Three colliding dates: d1→tier0, d2 collides at tier0 so escalates to tier1, d3 collides at both → overflow. This is <b>legacyLayoutDates</b>, a standalone function.`,
+            };
+          },
+        },
+        {
+          label: "Show ghost badges (legacy layoutGhostBadges idiom)",
+          run() {
+            const items = [
+              { id: "g1", x: 4, kind: "slip", variants: [{ key: "slip", width: 40 }] },
+              { id: "g2", x: 8, kind: "slip", variants: [{ key: "slip", width: 40 }] },
+              { id: "g3", x: 12, kind: "slip", variants: [{ key: "slip", width: 40 }] },
+            ];
+            // Structurally identical loop, hand-copied into a second function.
+            const results = A.legacyLayoutDates(items); // same shape/idiom, different call site
+            const enriched = new Map([...results].map(([k, v]) => [k, { id: k, ...v }]));
+            return {
+              html: renderZone("Ghost/slip zone (above marker) — legacy function B", 2, items, enriched),
+              demands: items,
+              results: enriched,
+              callout: `Same collision pattern, same escalation loop — but it's a <b>second, separately-maintained function</b> (label-layout.ts's layoutGhostBadges), not a shared one. A third consumer (at-risk, then scenario-diff) copied the idiom again — that's t9's finding.`,
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "2. One createZone, same output",
+      desc: "Feed the exact same demand sets through the shared allocator with a matching zone config — tiers come out identical. Parity, not a new behavior.",
+      kinds: ["date"],
+      steps: [
+        {
+          label: "Run dates through allocate()",
+          run() {
+            const demands = [
+              { id: "d1", x: 4, priority: 1, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+              { id: "d2", x: 8, priority: 1, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+              { id: "d3", x: 12, priority: 1, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 2, gap: 4, onExhausted: "overflow" });
+            const legacy = A.legacyLayoutDates(demands.map((d) => ({ id: d.id, variants: d.variants, x: d.x })));
+            const matches = demands.every((d) => results.get(d.id).tier === legacy.get(d.id).tier);
+            return {
+              html:
+                renderZone("Dates zone via shared allocate()", 2, demands, results) +
+                `<div style="margin-top:8px"><span class="assert-badge ${matches ? "pass" : "fail"}">${matches ? "✓ tiers match legacy exactly" : "✗ mismatch"}</span></div>`,
+              demands,
+              results,
+              callout: `Config: <code>{tierCount: 2, gap: 4, onExhausted: "overflow"}</code>. Same tiers as Scenario 1's bespoke function — it's now <b>data</b>, not a forked copy of the loop.`,
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "3. Priority is the tier assignment",
+      desc: "One item's own simultaneous deltas AND a neighboring item's demand go through the identical mechanism — sort by (priority, x), then pack.",
+      kinds: ["scenario-diff", "at-risk", "slip"],
+      steps: [
+        {
+          label: "One milestone, 3 simultaneous deltas",
+          run() {
+            const demands = [
+              { id: "m1-slip", x: 10, priority: 2, kind: "slip", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "slip", width: 26 }] },
+              { id: "m1-atrisk", x: 10, priority: 1, kind: "at-risk", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "at-risk", width: 26 }] },
+              { id: "m1-diff", x: 10, priority: 0, kind: "scenario-diff", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "diff", width: 26 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 3, gap: 4, onExhausted: "collapse", collapseAfter: 3 });
+            return {
+              html: renderZone("Delta-annotation zone", 3, demands, results),
+              demands,
+              results,
+              callout: `Same x for all three — priority ladder <b>scenario-diff(0) > at-risk(1) > slip(2)</b> claims tier0/1/2 in that order. This is t23's rule, reproduced with zero item-specific code in the packer.`,
+            };
+          },
+        },
+        {
+          label: "+ neighbor's slip contests the same tiers",
+          run() {
+            const demands = [
+              { id: "m1-slip", x: 10, priority: 2, kind: "slip", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "slip", width: 26 }] },
+              { id: "m1-atrisk", x: 10, priority: 1, kind: "at-risk", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "at-risk", width: 26 }] },
+              { id: "m1-diff", x: 10, priority: 0, kind: "scenario-diff", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "diff", width: 26 }] },
+              { id: "m2-slip", x: 13, priority: 2, kind: "slip", anchorId: "m2", anchorLabel: "m2", variants: [{ key: "slip", width: 26 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 3, gap: 4, onExhausted: "collapse", collapseAfter: 3 });
+            return {
+              html: renderZone("Delta-annotation zone", 3, demands, results),
+              demands,
+              results,
+              callout: `m2 is a <b>different anchor</b>, close enough in x to contest m1's claimed tiers too. No code distinguishes "my own sibling" from "a stranger nearby" — both are just demands sorted by (priority, x) hitting the same <code>fits()</code> check.`,
+            };
+          },
+        },
+        {
+          label: "+ a 4th delta on m1 collapses",
+          run() {
+            const demands = [
+              { id: "m1-slip", x: 10, priority: 2, kind: "slip", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "slip", width: 26 }] },
+              { id: "m1-atrisk", x: 10, priority: 1, kind: "at-risk", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "at-risk", width: 26 }] },
+              { id: "m1-diff", x: 10, priority: 0, kind: "scenario-diff", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "diff", width: 26 }] },
+              { id: "m1-extra", x: 10, priority: 3, kind: "slip", anchorId: "m1", anchorLabel: "m1", variants: [{ key: "extra", width: 26 }] },
+              { id: "m2-slip", x: 13, priority: 2, kind: "slip", anchorId: "m2", anchorLabel: "m2", variants: [{ key: "slip", width: 26 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 3, gap: 4, onExhausted: "collapse", collapseAfter: 3 });
+            return {
+              html: renderZone("Delta-annotation zone", 3, demands, results),
+              demands,
+              results,
+              callout: `Only 3 tiers exist for a single anchor's own deltas (GHOST_TIER_DY's length). A 4th same-anchor demand doesn't invent a tier 4 — it <b>collapses into a count</b>, t23's rule, now a zone property (<code>onExhausted: "collapse"</code>) instead of a hardcoded <code>slice(0, MAX_TIERS)</code>.`,
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "4. Titles publish, they don't consume",
+      desc: "Title placement stays its own deterministic function — but instead of each consumer hand-building a `blockers` array, it registers occupancy on the shared zone.",
+      kinds: ["title", "slip"],
+      steps: [
+        {
+          label: "Place two alternating-tier titles",
+          run() {
+            // Fixed-parity assignment, unchanged from title-layout.ts — NOT
+            // routed through allocate(). Titles aren't degradable-by-
+            // relocation, only degradable-by-content-shrink, so escalation
+            // doesn't apply to them.
+            const titles = [
+              { id: "t1", x: 6, width: 70 },
+              { id: "t2", x: 22, width: 70 },
+            ];
+            window.__zone4 = A.createZone({ tierCount: 2, gap: 4, onExhausted: "overflow" });
+            for (const t of titles) window.__zone4.registerBlocker(t.x, t.width);
+            const demandsForDiagram = titles.map((t) => ({ id: t.id, x: t.x, kind: "title", anchorLabel: t.id, width: t.width, text: "title" }));
+            const results = new Map(titles.map((t) => [t.id, { tier: 0 }]));
+            return {
+              html: renderZone("Title tiers (fixed parity — not packed)", 2, demandsForDiagram, results),
+              demands: demandsForDiagram,
+              results,
+              callout: `t1/t2 alternate tier 0/1 by position parity (title-layout.ts, unchanged). Each also calls <code>zone.registerBlocker(x, width)</code> on tier "any" — publishing occupancy for whoever shares this zone next.`,
+            };
+          },
+        },
+        {
+          label: "A ghost lands under t1's blocker — auto-escalates",
+          run() {
+            const zone = window.__zone4 || A.createZone({ tierCount: 2, gap: 4, onExhausted: "overflow" });
+            if (!window.__zone4) {
+              zone.registerBlocker(6, 70);
+              zone.registerBlocker(22, 70);
+              window.__zone4 = zone;
+            }
+            const ghost = { id: "g1", x: 6, priority: 1, kind: "slip", variants: [{ key: "slip", width: 26 }] };
+            const r = zone.place(ghost);
+            const demandsForDiagram = [
+              { id: "t1", x: 6, kind: "title", width: 70, anchorLabel: "t1" },
+              { id: "t2", x: 22, kind: "title", width: 70, anchorLabel: "t2" },
+              { id: "g1", x: 6, kind: "slip", width: 26, anchorLabel: "g1" },
+            ];
+            const results = new Map([["t1", { tier: 0 }], ["t2", { tier: 1 }], ["g1", r]]);
+            return {
+              html: renderZone("Title tiers + ghost sharing the same zone instance", 2, demandsForDiagram, results, { blockers: [{ x: 6, w: 70 }, { x: 22, w: 70 }] }),
+              demands: demandsForDiagram,
+              results,
+              callout: `g1 sits exactly on t1's x. It never reaches a real tier — <b>any-tier blockers</b> reject both, forcing overflow — because the title's block "is tall enough to reach past tier 0 into tier 1's row too" (label-layout.ts's own comment), reproduced here as one shared any-tier blocker list instead of a per-call-site array a caller has to remember to pass.`,
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "5. Phases get real collision handling",
+      desc: "PROGRAM-band phase at-risk projections use a fixed offset today — zero collision checking. Same zone config as lane ghosts closes the gap.",
+      kinds: ["phase"],
+      steps: [
+        {
+          label: "Today: fixed offset, no collision check",
+          run() {
+            const demands = [
+              { id: "p1", x: 10, kind: "phase", width: 50, anchorLabel: "phase1" },
+              { id: "p2", x: 12, kind: "phase", width: 50, anchorLabel: "phase2" },
+            ];
+            // Both literally on top of each other — today's real behavior
+            // (RoadmapTimeline.tsx: "fixed offset, PROGRAM-band items have
+            // no tiered-label system to plug into").
+            const results = new Map([["p1", { tier: 0 }], ["p2", { tier: 0 }]]);
+            return {
+              html: renderZone("PROGRAM band — today", 1, demands, results),
+              demands,
+              results,
+              callout: `p1 and p2's at-risk projections both render at the same fixed dy. Overlap is silent — there's no allocator here at all today.`,
+            };
+          },
+        },
+        {
+          label: "Same overflow-zone config as lane ghosts",
+          run() {
+            const demands = [
+              { id: "p1", x: 10, priority: 1, kind: "phase", variants: [{ key: "risk", width: 50 }] },
+              { id: "p2", x: 12, priority: 1, kind: "phase", variants: [{ key: "risk", width: 50 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 2, gap: 4, onExhausted: "overflow" });
+            const enriched = new Map(demands.map((d) => [d.id, { ...results.get(d.id), width: 50, anchorLabel: d.id }]));
+            for (const d of demands) d.width = 50;
+            return {
+              html: renderZone("PROGRAM band — via the shared zone", 2, demands, results),
+              demands,
+              results,
+              callout: `Exactly the same config lane ghosts use (<code>{tierCount: 2, onExhausted: "overflow"}</code>) — p2 escalates to tier1 instead of overlapping. No new math, no phase-specific branch — this closes the literal "no collision handling today" gap the ticket named.`,
+            };
+          },
+        },
+      ],
+    },
+    {
+      title: "6. One ladder, three zone policies",
+      desc: "Same starvation ladder everywhere — degrade content, escalate tiers, then the zone's own policy. Which policy fires is a zone property, never an item property.",
+      kinds: ["date", "scenario-diff", "ref"],
+      steps: [
+        {
+          label: "Lane dates: shrink, then overflow",
+          run() {
+            const demands = [
+              { id: "d1", x: 2, priority: 1, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+              { id: "d2", x: 5, priority: 1, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+              { id: "d3", x: 8, priority: 1, kind: "date", variants: [{ key: "full", width: 46 }, { key: "compact", width: 26 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 2, gap: 4, onExhausted: "overflow" });
+            return {
+              html: renderZone("Lane dates zone", 2, demands, results),
+              demands,
+              results,
+              callout: `d2/d3 try <b>compact</b> at both tiers before the zone's onExhausted ever fires — content degradation is always cheaper than losing position. Zone policy: <code>overflow</code>.`,
+            };
+          },
+        },
+        {
+          label: "Same cluster as delta-annotations: collapse",
+          run() {
+            const demands = [
+              { id: "g1", x: 2, priority: 1, kind: "scenario-diff", anchorId: "g1", variants: [{ key: "d", width: 30 }] },
+              { id: "g2", x: 2, priority: 2, kind: "scenario-diff", anchorId: "g1", variants: [{ key: "d", width: 30 }] },
+              { id: "g3", x: 2, priority: 3, kind: "scenario-diff", anchorId: "g1", variants: [{ key: "d", width: 30 }] },
+              { id: "g4", x: 2, priority: 4, kind: "scenario-diff", anchorId: "g1", variants: [{ key: "d", width: 30 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 3, gap: 4, onExhausted: "collapse", collapseAfter: 3 });
+            return {
+              html: renderZone("Delta-annotation zone (same anchor)", 3, demands, results),
+              demands,
+              results,
+              callout: `Same shape of problem (demand > tiers), different zone policy: <code>collapse</code> folds g4 into a "+1" badge instead of overflowing — because a single anchor showing a 4th simultaneous dashed outline reads as noise, not information.`,
+            };
+          },
+        },
+        {
+          label: "Same cluster as reference lines: nudge",
+          run() {
+            const demands = [
+              { id: "r1", x: 2, priority: 1, kind: "ref", variants: [{ key: "c", width: 50 }] },
+              { id: "r2", x: 5, priority: 2, kind: "ref", variants: [{ key: "c", width: 50 }] },
+              { id: "r3", x: 8, priority: 3, kind: "ref", variants: [{ key: "c", width: 50 }] },
+            ];
+            const { results } = A.allocate(demands, { tierCount: 2, gap: 6, onExhausted: "nudge" });
+            return {
+              html: renderZone("Reference-line zone (chart-wide)", 2, demands, results),
+              demands,
+              results,
+              callout: `Same overload, third policy: <code>nudge</code> shoves r3 right within the 2 real rows rather than opening a 3rd — this zone's row budget is chart-wide and can't grow every session the way a lane's vertical room can.`,
+            };
+          },
+        },
+        {
+          label: "The ladder, stated plainly",
+          run() {
+            return {
+              html: `<div style="padding:14px 4px;font-size:13.5px">
+                <ol style="margin:0;padding-left:20px;line-height:1.9">
+                  <li><b>Degrade content</b> — try every variant (full → compact) across all real tiers first.</li>
+                  <li><b>Escalate tiers</b> — the packer's own job, same loop for every zone.</li>
+                  <li><b>Zone policy</b> — <code>overflow</code> (lane labels), <code>collapse</code> (delta-annotations, cap 3), or <code>nudge</code> (reference lines) — a property of the zone's config, never the item.</li>
+                  <li><b>Hide</b> — the floor nothing above uses today; reserved for a policy's lowest-priority class when neither shrink nor overflow room exists.</li>
+                </ol>
+              </div>`,
+              demands: [],
+              results: new Map(),
+              callout: `This ladder is the same for dates, delta-annotations, reference lines, titles' blockers, and now phases — one allocator, N zone configs.`,
+            };
+          },
+        },
+      ],
+    },
+  ];
+
+  let activeScenario = 0;
+  let activeStep = -1;
+
+  function renderTabs() {
+    document.getElementById("tabs").innerHTML = scenarios
+      .map((s, i) => `<button class="tab-btn ${i === activeScenario ? "active" : ""}" data-i="${i}">${s.title}</button>`)
+      .join("");
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeScenario = Number(btn.dataset.i);
+        activeStep = -1;
+        renderTabs();
+        renderScenario();
+      });
+    });
+  }
+
+  function renderScenario() {
+    const s = scenarios[activeScenario];
+    document.getElementById("scenarioDesc").textContent = s.desc;
+    legendFor(s.kinds);
+    document.getElementById("steps").innerHTML =
+      s.steps.map((st, i) => `<button class="step-btn ${i <= activeStep ? "done" : ""}" data-i="${i}" ${i > activeStep + 1 ? "disabled" : ""}>${i + 1}. ${st.label}</button>`).join("") +
+      `<button class="reset" id="resetBtn">Reset scenario</button>`;
+    document.querySelectorAll(".step-btn:not(:disabled)").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeStep = Number(btn.dataset.i);
+        renderScenario();
+      });
+    });
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      activeStep = -1;
+      renderScenario();
+    });
+    if (activeStep === -1) {
+      document.getElementById("diagram").innerHTML = "";
+      document.getElementById("callout").textContent = "Click step 1 to begin.";
+      document.getElementById("metricsHead").innerHTML = "";
+      document.getElementById("metricsBody").innerHTML = "";
+      return;
+    }
+    const out = s.steps[activeStep].run();
+    document.getElementById("diagram").innerHTML = out.html;
+    document.getElementById("callout").innerHTML = out.callout;
+    metricsTable(out.demands, out.results);
+  }
+
+  renderTabs();
+  renderScenario();
+</script>
+</body>
+</html>
