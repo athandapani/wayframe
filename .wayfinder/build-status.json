@@ -1,4 +1,6 @@
 {
   "t1": { "status": "done", "note": "RoadmapData schema discipline: .strict() everywhere, drift fixes, integer schemaVersion + migration ladder, localStorage validated through the same pipeline as file-open." },
-  "t11": { "status": "done", "note": "Portfolio envelope & identity — RoadmapData split into Portfolio + Program (id/portfolioId/order), PortfolioDocument as the new root shape, RenderableProgram/mergeForRender keeps the render layer Portfolio-agnostic." }
+  "t11": { "status": "done", "note": "Portfolio envelope & identity — RoadmapData split into Portfolio + Program (id/portfolioId/order), PortfolioDocument as the new root shape, RenderableProgram/mergeForRender keeps the render layer Portfolio-agnostic." },
+  "t2": { "status": "done", "note": "Doctrine-only ticket (#76), no code shape of its own — resolution already fully written as prose in CONTEXT.md's 'Document content vs. viewer preference' section. Becomes actionable via t8/t18/t19/t22." },
+  "t8": { "status": "done", "note": "Color & preference inventory — confirmed 28 wayframe:* keys and ~10 hardcoded color sites. Wired theme.todayColor/annotationColor/tooltipBg+Ink/ragColor and fixed two markerHalo bypasses; ragColor published via --wf-rag-* CSS vars for ExecutiveView/ExecutiveTimeline." }
 }
