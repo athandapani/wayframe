@@ -35,7 +35,7 @@
 // advances (darker/more chromatic on light grounds, brighter on dark),
 // calm recedes. It doesn't fully solve greyscale, but it is a real
 // improvement over the shipped palette and it costs the reader nothing.
-import type { Status } from "./types";
+import type { Rag, Status } from "./types";
 import type { LaneRamp } from "./lane-colors";
 
 export interface Theme {
@@ -78,6 +78,16 @@ export interface Theme {
   connector: string;
   /** Halo stroke that lifts a marker off the lane wash. */
   markerHalo: string;
+  /** Today reference line + progress overlay (wayframe#82's color inventory) — deliberately not tied to any Status/Rag hue so "today" never gets misread as delayed/at-risk. */
+  todayColor: string;
+  /** Generic top-band annotation reference line (wayframe#82) — distinct from criticalPathColor/traceColor/todayColor so none of the four vertical-marker meanings collide. */
+  annotationColor: string;
+  /** Milestone hover tooltip background (wayframe#82) — a fixed dark chip in every theme, like an OS tooltip, not tuned per theme. */
+  tooltipBg: string;
+  /** Milestone hover tooltip text, paired with tooltipBg. */
+  tooltipInk: string;
+  /** RAG rollup color family (wayframe#82) — shared by ExecutiveTimeline/ExecutiveView via the --wf-rag-* CSS vars (RoadmapWorkspace.tsx), the same "chrome reads theme through CSS vars" pattern panelBg/panelBorder/etc. already use. */
+  ragColor: Record<Rag, string>;
 
   /** Page background behind the chart — chrome follows the theme, not the OS. */
   pageBg: string;
@@ -97,6 +107,21 @@ const BLUEPRINT_RAMP: LaneRamp = { L: 0.58, C: 0.115, startHue: 250 };
 const PRESS_RAMP: LaneRamp = { L: 0.55, C: 0.165, startHue: 255 };
 /** Lifted lightness so rails stay legible on a dark ground. */
 const GRAPHITE_RAMP: LaneRamp = { L: 0.72, C: 0.135, startHue: 250 };
+
+/**
+ * todayColor/annotationColor/tooltipBg/tooltipInk/ragColor (wayframe#82) are
+ * identical across every theme — this is a pure refactor of previously
+ * hardcoded literals into tokens, not a new per-theme design pass, so each
+ * value is byte-identical to what was already hardcoded at every call site
+ * before this ticket.
+ */
+const SHARED_TOKENS = {
+  todayColor: "#e11d48",
+  annotationColor: "#a855f7",
+  tooltipBg: "#18181b",
+  tooltipInk: "#ffffff",
+  ragColor: { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" } satisfies Record<Rag, string>,
+};
 
 /** Shared light-theme status ramp: lightness descends as severity rises. */
 const LIGHT_STATUS: Record<Status, string> = {
@@ -136,6 +161,7 @@ export const blueprintTheme: Theme = {
   traceColor: "#1f6fb2",
   connector: "#a8b7c6",
   markerHalo: "#ffffff",
+  ...SHARED_TOKENS,
 
   pageBg: "#e4eaf2",
   panelBg: "#ffffff",
@@ -181,6 +207,7 @@ export const graphiteTheme: Theme = {
   traceColor: "#4fa6e9",
   connector: "#3d4753",
   markerHalo: "#0d1117",
+  ...SHARED_TOKENS,
 
   pageBg: "#080b0f",
   panelBg: "#161d26",
@@ -218,6 +245,7 @@ export const pressTheme: Theme = {
   traceColor: "#0a5fae",
   connector: "#c4c4c4",
   markerHalo: "#ffffff",
+  ...SHARED_TOKENS,
 
   pageBg: "#f2f2f2",
   panelBg: "#ffffff",

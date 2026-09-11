@@ -15,7 +15,16 @@
 import { formatDateShort } from "@/components/timeline/date-utils";
 import type { ExecutiveTimelineSummary } from "./timeline-summary";
 
-const RAG_COLOR: Record<string, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
+// Sourced from theme.ragColor via the --wf-rag-* CSS vars RoadmapWorkspace.tsx
+// publishes (wayframe#82) — the same "chrome reads theme through CSS vars"
+// pattern panelBg/panelBorder/accent already use, since this component sits
+// outside RoadmapTimeline's SVG and has no `theme` prop of its own. The
+// fallback values keep this legible if ever rendered outside that root.
+const RAG_COLOR: Record<string, string> = {
+  green: "var(--wf-rag-green, #22c55e)",
+  amber: "var(--wf-rag-amber, #f59e0b)",
+  red: "var(--wf-rag-red, #ef4444)",
+};
 const RAG_LABEL: Record<string, string> = { green: "On track", amber: "At risk", red: "Delayed" };
 
 // Tiers ordered by visual preference: near-above, near-below, far-above, far-below.

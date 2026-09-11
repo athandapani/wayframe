@@ -14,12 +14,21 @@ import { ExecutiveTimeline } from "./ExecutiveTimeline";
 import type { ExecutiveTimelineSummary } from "./timeline-summary";
 import { blufHtmlToPlainText } from "@/lib/rich-text/sanitize";
 
-const RAG_BG: Record<Rag, string> = {
-  green: "rgba(34,197,94,0.12)",
-  amber: "rgba(245,158,11,0.14)",
-  red: "rgba(239,68,68,0.14)",
+// Sourced from theme.ragColor via the --wf-rag-* CSS vars RoadmapWorkspace.tsx
+// publishes (wayframe#82) — same pattern as ExecutiveTimeline.tsx's RAG_COLOR.
+// The translucent tile background is derived with color-mix() rather than a
+// second hardcoded rgba() per RAG bucket, so there's one themed color per
+// bucket, not two independently-maintained ones.
+const RAG_BORDER: Record<Rag, string> = {
+  green: "var(--wf-rag-green, #22c55e)",
+  amber: "var(--wf-rag-amber, #f59e0b)",
+  red: "var(--wf-rag-red, #ef4444)",
 };
-const RAG_BORDER: Record<Rag, string> = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" };
+const RAG_BG: Record<Rag, string> = {
+  green: `color-mix(in srgb, ${RAG_BORDER.green} 12%, transparent)`,
+  amber: `color-mix(in srgb, ${RAG_BORDER.amber} 14%, transparent)`,
+  red: `color-mix(in srgb, ${RAG_BORDER.red} 14%, transparent)`,
+};
 const TREND_ARROW = { up: "↑", down: "↓", flat: "→" };
 
 /**

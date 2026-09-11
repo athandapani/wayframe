@@ -164,7 +164,7 @@ export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostM
           )}
           <span className="flex items-center gap-1.5">
             <svg width={26} height={12} viewBox="0 0 26 12" aria-hidden="true">
-              <line x1={13} y1={0} x2={13} y2={12} stroke="#e11d48" strokeWidth={1.25} strokeDasharray="3 3" />
+              <line x1={13} y1={0} x2={13} y2={12} stroke={theme.todayColor} strokeWidth={1.25} strokeDasharray="3 3" />
             </svg>
             Today
           </span>

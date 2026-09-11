@@ -581,6 +581,9 @@ export function RoadmapWorkspace({
           "--wf-border": theme.panelBorder,
           "--wf-ink": theme.panelInk,
           "--wf-accent": theme.accent,
+          "--wf-rag-green": theme.ragColor.green,
+          "--wf-rag-amber": theme.ragColor.amber,
+          "--wf-rag-red": theme.ragColor.red,
         } as React.CSSProperties
       }
     >

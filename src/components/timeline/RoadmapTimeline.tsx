@@ -1087,12 +1087,12 @@ function MilestoneMarker({
           element gets hoisted by React 19 as document metadata even inside
           <svg>, which desyncs SSR/client, so this is the workaround. */}
       <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
-        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasGhost ? 34 : 20} rx={4} fill="#18181b" />
-        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * fontScale} fill="#ffffff">
+        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasGhost ? 34 : 20} rx={4} fill={theme.tooltipBg} />
+        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * fontScale} fill={theme.tooltipInk}>
           {m.title}
         </text>
         {hasGhost && (
-          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9 * fontScale} fill="#ffffff" opacity={0.7}>
+          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9 * fontScale} fill={theme.tooltipInk} opacity={0.7}>
             <tspan textDecoration="line-through">{formatDateShort(m.originalDate!)}</tspan> → {formatDateShort(m.date)}
           </text>
         )}
@@ -2119,7 +2119,7 @@ export function RoadmapTimeline({
             const cx = x(t.date);
             return (
               <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
-                <CushionMarker cx={cx} cy={y} r={10} fill={theme.statusColor[t.status]} stroke="#fff" strokeWidth={2} />
+                <CushionMarker cx={cx} cy={y} r={10} fill={theme.statusColor[t.status]} stroke={theme.markerHalo} strokeWidth={2} />
                 <text x={cx} y={y - 18} textAnchor="middle" fontSize={11 * fontScale} fontWeight={600}>
                   {t.title}
                 </text>
@@ -2151,7 +2151,7 @@ export function RoadmapTimeline({
             const cx = x(t.date);
             return (
               <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
-                <path d={`M${cx - 6},${y - 8} L${cx + 6},${y - 8} L${cx},${y} Z`} fill={theme.accent} stroke="#fff" strokeWidth={1} />
+                <path d={`M${cx - 6},${y - 8} L${cx + 6},${y - 8} L${cx},${y} Z`} fill={theme.accent} stroke={theme.markerHalo} strokeWidth={1} />
                 <title>{t.title}</title>
               </g>
             );
@@ -2288,8 +2288,8 @@ export function RoadmapTimeline({
             competing with content. */}
         {todayOverlayEnabled && todayVisible && (
           <>
-            <rect x={MARGIN.left} y={lanesTop} width={Math.max(0, xTs(todayTs) - MARGIN.left)} height={bodyHeight} fill="#e11d48" fillOpacity={0.05} />
-            <path d={`M${xTs(todayTs) - 5},${chartTopMargin + axisHeight} L${xTs(todayTs) + 5},${chartTopMargin + axisHeight} L${xTs(todayTs)},${chartTopMargin + axisHeight - 8} Z`} fill="#e11d48" />
+            <rect x={MARGIN.left} y={lanesTop} width={Math.max(0, xTs(todayTs) - MARGIN.left)} height={bodyHeight} fill={theme.todayColor} fillOpacity={0.05} />
+            <path d={`M${xTs(todayTs) - 5},${chartTopMargin + axisHeight} L${xTs(todayTs) + 5},${chartTopMargin + axisHeight} L${xTs(todayTs)},${chartTopMargin + axisHeight - 8} Z`} fill={theme.todayColor} />
           </>
         )}
 
@@ -2600,7 +2600,7 @@ export function RoadmapTimeline({
             topY={chartTopMargin}
             bottomY={height - MARGIN.bottom}
             label={refLabel(t.title, t.date)}
-            color="#a855f7"
+            color={theme.annotationColor}
             dash="4 3"
             fontScale={fontScale}
             metricsScale={metricsScale}
@@ -2648,7 +2648,7 @@ export function RoadmapTimeline({
             topY={chartTopMargin}
             bottomY={height - MARGIN.bottom}
             label={todayLabel}
-            color="#e11d48"
+            color={theme.todayColor}
             dash="3 3"
             topMarker
             fontScale={fontScale}
