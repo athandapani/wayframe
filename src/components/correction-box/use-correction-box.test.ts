@@ -1,13 +1,19 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import { reduce, useCorrectionBox, type CorrectionBoxState } from "./use-correction-box";
 
 const STORAGE_KEY = "wayframe:document";
 
-function baseData(): RoadmapData {
+function basePortfolio(): Portfolio {
+  return { id: "portfolio-1", schemaVersion: 2 };
+}
+
+function baseData(): Program {
   return {
-    schemaVersion: 1,
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
     programName: "Test",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "Owner",
@@ -31,7 +37,7 @@ function baseData(): RoadmapData {
 }
 
 function initialState(): CorrectionBoxState {
-  return { data: baseData(), history: [], pending: null, error: null, loading: false };
+  return { data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false };
 }
 
 describe("correction box reducer", () => {
@@ -45,13 +51,13 @@ describe("correction box reducer", () => {
     expect(next.data.milestones[0].status).toBe("complete");
     expect(next.pending).toBeNull();
     expect(next.history).toHaveLength(1);
-    expect(next.history[0]).toBe(state.data);
+    expect(next.history[0].data).toBe(state.data);
   });
 
   it("undo restores the previous snapshot and pops history — this is the bug a browser test caught", () => {
     const original = baseData();
-    const corrected: RoadmapData = { ...original, milestones: [{ ...original.milestones[0], status: "complete" }] };
-    const state: CorrectionBoxState = { data: corrected, history: [original], pending: null, error: null, loading: false };
+    const corrected: Program = { ...original, milestones: [{ ...original.milestones[0], status: "complete" }] };
+    const state: CorrectionBoxState = { data: corrected, portfolio: basePortfolio(), history: [{ data: original, portfolio: basePortfolio() }], pending: null, error: null, loading: false };
 
     const next = reduce(state, { type: "undo" });
     expect(next.data).toBe(original);
@@ -125,7 +131,7 @@ describe("correction box reducer", () => {
     // hydrated recomputes critical path (wayframe#34/#35), so next.data is a
     // new object even when nothing about the critical-path result changes —
     // compare by value, not reference.
-    const next = reduce(state, { type: "hydrated", data: persisted });
+    const next = reduce(state, { type: "hydrated", data: persisted, portfolio: basePortfolio() });
     expect(next.data).toEqual(persisted);
     expect(next.history).toHaveLength(0);
     expect(next.pending).toBeNull();
@@ -226,9 +232,9 @@ describe("acceptBaseline/acceptAllBaselines reducer actions (wayframe#62)", () =
 describe("setCompanyLogoGeometry reducer action (wayframe#64)", () => {
   it("commits dx/dy/scale onto the existing companyLogo, instant apply", () => {
     const state = initialState();
-    state.data.companyLogo = { dataUrl: "data:image/png;base64,x" };
+    state.portfolio.companyLogo = { dataUrl: "data:image/png;base64,x" };
     const next = reduce(state, { type: "setCompanyLogoGeometry", dx: 12, dy: -4, scale: 1.5 });
-    expect(next.data.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 });
+    expect(next.portfolio.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 });
     expect(next.history).toHaveLength(1);
     expect(next.data.lastUpdatedAt).toBeDefined();
   });
@@ -241,10 +247,10 @@ describe("setCompanyLogoGeometry reducer action (wayframe#64)", () => {
 
   it("is undoable", () => {
     const state = initialState();
-    state.data.companyLogo = { dataUrl: "data:image/png;base64,x" };
+    state.portfolio.companyLogo = { dataUrl: "data:image/png;base64,x" };
     const moved = reduce(state, { type: "setCompanyLogoGeometry", dx: 12, dy: -4, scale: 1.5 });
     const undone = reduce(moved, { type: "undo" });
-    expect(undone.data.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x" });
+    expect(undone.portfolio.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x" });
   });
 });
 
@@ -495,7 +501,7 @@ describe("lastUpdatedAt stamping (wayframe#40/#49)", () => {
 
   it("hydrated does not stamp lastUpdatedAt — a refresh reload isn't an undoable edit", () => {
     const persisted = { ...baseData(), programName: "Persisted" };
-    const next = reduce(initialState(), { type: "hydrated", data: persisted });
+    const next = reduce(initialState(), { type: "hydrated", data: persisted, portfolio: basePortfolio() });
     expect(next.data.lastUpdatedAt).toBeUndefined();
   });
 
@@ -539,7 +545,7 @@ describe("useCorrectionBox rollup snapshot wiring (wayframe#33)", () => {
   });
 
   it("writes today's rollup snapshot once, after rehydration", async () => {
-    const { result } = renderHook(() => useCorrectionBox(baseData(), false, new Date("2026-06-10")));
+    const { result } = renderHook(() => useCorrectionBox(baseData(), basePortfolio(), false, new Date("2026-06-10")));
 
     await waitFor(() => {
       expect(result.current.data.swimlanes[0].rollupHistory).toEqual([{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }]);
@@ -554,7 +560,7 @@ describe("useCorrectionBox localStorage persistence (wayframe#22)", () => {
   });
 
   it("persists data to localStorage as it changes", async () => {
-    const { result } = renderHook(() => useCorrectionBox(baseData()));
+    const { result } = renderHook(() => useCorrectionBox(baseData(), basePortfolio()));
 
     await waitFor(() => {
       expect(window.localStorage.getItem(STORAGE_KEY)).not.toBeNull();
@@ -565,16 +571,17 @@ describe("useCorrectionBox localStorage persistence (wayframe#22)", () => {
     });
 
     await waitFor(() => {
-      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as RoadmapData;
-      expect(saved.milestones[0].status).toBe("complete");
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as PortfolioDocument;
+      expect(saved.programs[0].milestones[0].status).toBe("complete");
     });
   });
 
   it("rehydrates from a previously persisted document on mount instead of the initial data", async () => {
     const persisted = { ...baseData(), programName: "Persisted Program" };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+    const document: PortfolioDocument = { portfolio: basePortfolio(), programs: [persisted] };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
 
-    const { result } = renderHook(() => useCorrectionBox(baseData()));
+    const { result } = renderHook(() => useCorrectionBox(baseData(), basePortfolio()));
 
     await waitFor(() => {
       expect(result.current.data.programName).toBe("Persisted Program");
@@ -584,13 +591,14 @@ describe("useCorrectionBox localStorage persistence (wayframe#22)", () => {
 
   it("does not clobber a persisted document with initialData before rehydrating", async () => {
     const persisted = { ...baseData(), programName: "Persisted Program" };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+    const document: PortfolioDocument = { portfolio: basePortfolio(), programs: [persisted] };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
 
-    renderHook(() => useCorrectionBox(baseData()));
+    renderHook(() => useCorrectionBox(baseData(), basePortfolio()));
 
     await waitFor(() => {
-      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as RoadmapData;
-      expect(saved.programName).toBe("Persisted Program");
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as PortfolioDocument;
+      expect(saved.programs[0].programName).toBe("Persisted Program");
     });
   });
 });

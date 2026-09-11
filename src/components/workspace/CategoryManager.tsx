@@ -7,10 +7,10 @@
 // delete will do (clear the tag off every milestone carrying it, not
 // delete those milestones).
 import { useState } from "react";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { RenderableProgram } from "@/components/timeline/types";
 
 export interface CategoryManagerProps {
-  data: RoadmapData;
+  data: RenderableProgram;
   onAdd: (name: string, color: string) => void;
   onRename: (id: string, name: string) => void;
   onRecolor: (id: string, color: string) => void;

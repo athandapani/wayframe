@@ -1,4 +1,4 @@
-import type { Rag, RoadmapData } from "@/components/timeline/types";
+import type { Rag, Program } from "@/components/timeline/types";
 import type { DeleteOp, NamedLaneColor, SwimlaneOp } from "./schema";
 
 /**
@@ -6,7 +6,7 @@ import type { DeleteOp, NamedLaneColor, SwimlaneOp } from "./schema";
  * applyOps/applyAddMilestoneOps, which only ever touch the milestone list.
  * Deletes and swimlane management reach across milestones/topLevelItems/
  * swimlanes together (e.g. deleting a lane also strips the milestones it
- * owns), so each op here takes and returns the full RoadmapData. These are
+ * owns), so each op here takes and returns the full Program. These are
  * the single source of truth for that cleanup logic — useCorrectionBox's
  * manual reducer actions (removeMilestone, removeSwimlane, addSwimlane,
  * renameSwimlane, moveSwimlane, setLaneColor) call the same functions
@@ -29,7 +29,7 @@ export function resolveNamedLaneColor(name: NamedLaneColor): string {
 }
 
 /** Mirrors removeSwimlane's dependsOn cleanup: a milestone other milestones depend on can't vanish and leave those edges dangling (wayframe#38 item 3 / #39). */
-export function removeMilestoneOp(data: RoadmapData, id: string): RoadmapData {
+export function removeMilestoneOp(data: Program, id: string): Program {
   const milestones = data.milestones
     .filter((m) => m.id !== id)
     .map((m) => (m.dependsOn.some((d) => d.id === id) ? { ...m, dependsOn: m.dependsOn.filter((d) => d.id !== id) } : m));
@@ -37,7 +37,7 @@ export function removeMilestoneOp(data: RoadmapData, id: string): RoadmapData {
 }
 
 /** A lane owns its milestones, so deleting it deletes them too, then strips any OTHER milestone's dependency on one of the doomed ids. Order is renumbered so no gaps remain. */
-export function removeSwimlaneOp(data: RoadmapData, id: string): RoadmapData {
+export function removeSwimlaneOp(data: Program, id: string): Program {
   const doomed = new Set(data.milestones.filter((m) => m.laneId === id).map((m) => m.id));
   const milestones = data.milestones
     .filter((m) => m.laneId !== id)
@@ -50,22 +50,22 @@ export function removeSwimlaneOp(data: RoadmapData, id: string): RoadmapData {
 }
 
 /** No dependsOn/laneId to clean up, unlike a milestone — but a lane milestone can link to a top-level milestone (linksToTopLevelMilestone), so that reference is cleared the same way removeMilestoneOp clears dependsOn edges. */
-export function removeTopLevelItemOp(data: RoadmapData, id: string): RoadmapData {
+export function removeTopLevelItemOp(data: Program, id: string): Program {
   const topLevelItems = data.topLevelItems.filter((t) => t.id !== id);
   const milestones = data.milestones.map((m) => (m.linksToTopLevelMilestone === id ? { ...m, linksToTopLevelMilestone: null } : m));
   return { ...data, topLevelItems, milestones };
 }
 
-export function addSwimlaneOp(data: RoadmapData, swimlaneType: "lane" | "separator", name: string, newId: string): RoadmapData {
+export function addSwimlaneOp(data: Program, swimlaneType: "lane" | "separator", name: string, newId: string): Program {
   const nextOrder = data.swimlanes.reduce((max, l) => Math.max(max, l.order), -1) + 1;
   return { ...data, swimlanes: [...data.swimlanes, { id: newId, order: nextOrder, type: swimlaneType, name }] };
 }
 
-export function renameSwimlaneOp(data: RoadmapData, id: string, name: string): RoadmapData {
+export function renameSwimlaneOp(data: Program, id: string, name: string): Program {
   return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, name } : l)) };
 }
 
-export function moveSwimlaneOp(data: RoadmapData, id: string, delta: -1 | 1): RoadmapData {
+export function moveSwimlaneOp(data: Program, id: string, delta: -1 | 1): Program {
   const ordered = [...data.swimlanes].sort((a, b) => a.order - b.order);
   const i = ordered.findIndex((l) => l.id === id);
   const j = i + delta;
@@ -74,12 +74,12 @@ export function moveSwimlaneOp(data: RoadmapData, id: string, delta: -1 | 1): Ro
   return { ...data, swimlanes: ordered.map((l, k) => ({ ...l, order: k })) };
 }
 
-export function setLaneColorOp(data: RoadmapData, id: string, color: string | undefined): RoadmapData {
+export function setLaneColorOp(data: Program, id: string, color: string | undefined): Program {
   return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, color } : l)) };
 }
 
 /** "auto" clears the override, mirroring isCriticalPathOverride's undefined-means-computed convention. */
-export function setRagOverrideOp(data: RoadmapData, id: string, rag: Rag | "auto"): RoadmapData {
+export function setRagOverrideOp(data: Program, id: string, rag: Rag | "auto"): Program {
   return {
     ...data,
     swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, ragOverride: rag === "auto" ? undefined : rag } : l)),
@@ -87,11 +87,11 @@ export function setRagOverrideOp(data: RoadmapData, id: string, rag: Rag | "auto
 }
 
 /** Mirrors setLaneColorOp's placement/pattern — "normal vs lean" row-height toggle. */
-export function setLaneDensityOp(data: RoadmapData, id: string, density: "normal" | "lean"): RoadmapData {
+export function setLaneDensityOp(data: Program, id: string, density: "normal" | "lean"): Program {
   return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, density } : l)) };
 }
 
-export function applyDeletes(data: RoadmapData, deletes: readonly DeleteOp[]): RoadmapData {
+export function applyDeletes(data: Program, deletes: readonly DeleteOp[]): Program {
   return deletes.reduce((acc, d) => {
     if (d.entityType === "milestone") return removeMilestoneOp(acc, d.targetId);
     if (d.entityType === "topLevelItem") return removeTopLevelItemOp(acc, d.targetId);
@@ -104,7 +104,7 @@ export function applyDeletes(data: RoadmapData, deletes: readonly DeleteOp[]): R
  * apply.ts) rather than generated in here — only "add" ops consume it; every
  * other kind already carries its own targetId.
  */
-export function applySwimlaneOps(data: RoadmapData, ops: readonly { op: SwimlaneOp; newId: string }[]): RoadmapData {
+export function applySwimlaneOps(data: Program, ops: readonly { op: SwimlaneOp; newId: string }[]): Program {
   return ops.reduce((acc, { op, newId }) => {
     switch (op.kind) {
       case "add":

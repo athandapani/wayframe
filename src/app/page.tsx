@@ -9,14 +9,14 @@
 // identically on the server and on first client paint before the check
 // resolves.
 import { useEffect, useState } from "react";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { PortfolioDocument } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
 import { loadPersistedDocument } from "@/components/correction-box/use-correction-box";
 
 interface StorageCheck {
   checked: boolean;
-  roadmap: RoadmapData | null;
+  roadmap: PortfolioDocument | null;
 }
 
 export default function Home() {
@@ -24,7 +24,7 @@ export default function Home() {
   const [today] = useState(() => new Date());
 
   useEffect(() => {
-    let roadmap: RoadmapData | null = null;
+    let roadmap: PortfolioDocument | null = null;
     try {
       roadmap = loadPersistedDocument();
     } finally {
@@ -33,12 +33,19 @@ export default function Home() {
   }, []);
 
   const { checked, roadmap } = storageCheck;
-  const setRoadmap = (data: RoadmapData) => setStorageCheck({ checked: true, roadmap: data });
+  const setRoadmap = (document: PortfolioDocument) => setStorageCheck({ checked: true, roadmap: document });
 
   if (!checked) return null;
 
   if (roadmap) {
-    return <RoadmapWorkspace initialData={roadmap} today={today} onStartNew={() => setStorageCheck({ checked: true, roadmap: null })} />;
+    return (
+      <RoadmapWorkspace
+        initialData={roadmap.programs[0]}
+        initialPortfolio={roadmap.portfolio}
+        today={today}
+        onStartNew={() => setStorageCheck({ checked: true, roadmap: null })}
+      />
+    );
   }
 
   return <EntryForm onExtracted={setRoadmap} />;

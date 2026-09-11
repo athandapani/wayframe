@@ -3,7 +3,7 @@
 // Viewer display preference for critical-path highlighting (wayframe#34/#35)
 // — deliberately its own localStorage key, same pattern as use-ghost-mode.ts:
 // this is how a viewer wants to *see* the timeline, not part of the
-// RoadmapData document itself (isCriticalPath/isCriticalPathOverride stay
+// Program document itself (isCriticalPath/isCriticalPathOverride stay
 // document content, computed regardless of this toggle).
 import { useEffect, useReducer, useState } from "react";
 

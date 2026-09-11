@@ -9,12 +9,19 @@
 // against (a milestone dated before it is complete/delayed; on/after it is
 // not-started/on-track/at-risk) — pass it as RoadmapTimeline's `today` prop
 // wherever this dataset is rendered so the status mix reads correctly.
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Portfolio, Program } from "@/components/timeline/types";
+import { CURRENT_SCHEMA_VERSION } from "@/lib/document-file/schema";
 
 export const demoToday = new Date("2026-09-01T00:00:00Z");
 
-export const demoRoadmap: RoadmapData = {
-  schemaVersion: 1,
+export const demoPortfolioId = "portfolio-demo";
+
+export const demoPortfolio: Portfolio = { id: demoPortfolioId, schemaVersion: CURRENT_SCHEMA_VERSION };
+
+export const demoRoadmap: Program = {
+  id: "program-demo",
+  portfolioId: demoPortfolioId,
+  order: 0,
   programName: "Atlas Mobile Robot Platform — Launch Program",
   generatedAt: "2026-09-01T00:00:00.000Z",
   lastUpdatedAt: "2026-09-01T00:00:00.000Z",

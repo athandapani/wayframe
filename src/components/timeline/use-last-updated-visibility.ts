@@ -2,8 +2,8 @@
 
 // Viewer display preference for the last-updated timestamp (wayframe#40/#49)
 // — same pattern as use-critical-path-visibility.ts: this is how a viewer
-// wants to *see* the chrome, not part of the RoadmapData document itself
-// (RoadmapData.lastUpdatedAt stays document content, tracked regardless of
+// wants to *see* the chrome, not part of the Program document itself
+// (Program.lastUpdatedAt stays document content, tracked regardless of
 // this toggle).
 import { useEffect, useReducer, useState } from "react";
 

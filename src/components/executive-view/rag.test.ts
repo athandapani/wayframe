@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Program } from "@/components/timeline/types";
 import { laneRollups } from "./rag";
 
-function baseData(): RoadmapData {
+function baseData(): Program {
   return {
-    schemaVersion: 1,
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
     programName: "Test",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "Owner",

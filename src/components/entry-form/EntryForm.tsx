@@ -8,8 +8,10 @@
 // details" for the two kinds that carry an `issues[]` list. Sample content
 // is split per-pane so a visitor can see each affordance independently.
 import { useRef, useState } from "react";
-import type { RoadmapData } from "@/components/timeline/types";
+import { nanoid } from "nanoid";
+import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import type { ExtractionError } from "@/lib/extraction/extract";
+import { CURRENT_SCHEMA_VERSION } from "@/lib/document-file/schema";
 import {
   generateSampleWhiteboardPhoto,
   readFileAsDataUrl,
@@ -17,6 +19,29 @@ import {
   validateImageFile,
 } from "./sample-content";
 import { createMidnightTemplate } from "@/data/midnight-template";
+
+/**
+ * /api/extract's response is still resolve-ids.ts's untyped flat shape
+ * (schemaVersion/companyLogo/legendCategories inline, no id/portfolioId/
+ * order — the same unvalidated boundary flagged after wayframe t1, not
+ * fixed here since that's t35's job). This is the "new Portfolio" creation
+ * moment (wayframe t11): a brand-new extraction has no existing Portfolio
+ * to merge invented legend categories into, so they simply become the new
+ * Portfolio's initial legend list.
+ */
+function wrapExtractedDocument(flat: Record<string, unknown>): PortfolioDocument {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { schemaVersion: _schemaVersion, companyLogo, legendCategories, ...programFields } = flat;
+  const portfolioId = nanoid();
+  const portfolio: Portfolio = {
+    id: portfolioId,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    companyLogo: companyLogo as Portfolio["companyLogo"],
+    legendCategories: legendCategories as Portfolio["legendCategories"],
+  };
+  const program = { ...programFields, id: nanoid(), portfolioId, order: 0 } as Program;
+  return { portfolio, programs: [program] };
+}
 
 const ERROR_COPY: Record<ExtractionError["kind"], { tone: "amber" | "red" | "zinc"; message: string }> = {
   no_input: { tone: "zinc", message: "Add some notes or a photo first." },
@@ -33,7 +58,7 @@ const TONE_CLASSES: Record<"amber" | "red" | "zinc", string> = {
   zinc: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
 };
 
-async function callExtract(text: string, imageDataUrl: string | null): Promise<{ ok: true; document: RoadmapData } | { ok: false; error: ExtractionError }> {
+async function callExtract(text: string, imageDataUrl: string | null): Promise<{ ok: true; document: PortfolioDocument } | { ok: false; error: ExtractionError }> {
   const res = await fetch("/api/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -43,10 +68,10 @@ async function callExtract(text: string, imageDataUrl: string | null): Promise<{
   if (!res.ok) {
     return { ok: false, error: body?.error ?? { kind: "api_error", message: "Extraction failed." } };
   }
-  return { ok: true, document: body.document as RoadmapData };
+  return { ok: true, document: wrapExtractedDocument(body.document as Record<string, unknown>) };
 }
 
-export function EntryForm({ onExtracted }: { onExtracted: (data: RoadmapData) => void }) {
+export function EntryForm({ onExtracted }: { onExtracted: (document: PortfolioDocument) => void }) {
   const [text, setText] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState<string | null>(null);

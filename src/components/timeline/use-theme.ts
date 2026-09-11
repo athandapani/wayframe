@@ -3,7 +3,7 @@
 // Viewer theme preference (prototype/theme-system) — its own localStorage
 // key, same pattern as use-ghost-mode.ts and use-critical-path-visibility.ts:
 // how a viewer wants the chart to *look* is a display preference, not part
-// of the RoadmapData document.
+// of the Program document.
 //
 // Note the one thing that IS document content: Swimlane.color. A lane whose
 // colour has been pinned keeps it across theme switches; unpinned lanes

@@ -10,7 +10,7 @@
 // with five controls each doesn't fit a 288px dropdown, and because
 // deleting a lane needs enough room to say what it will take with it.
 import { useState } from "react";
-import type { Rag, RoadmapData, Swimlane } from "@/components/timeline/types";
+import type { Rag, Program, Swimlane } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
 import { laneColorAt } from "@/components/timeline/lane-colors";
 
@@ -27,7 +27,7 @@ const DENSITY_OPTIONS: { value: "normal" | "lean"; label: string }[] = [
 ];
 
 export interface SwimlaneManagerProps {
-  data: RoadmapData;
+  data: Program;
   theme: Theme;
   onAdd: (type: "lane" | "separator") => void;
   onRename: (id: string, name: string) => void;

@@ -458,7 +458,7 @@ export type AmbiguousChoice = z.infer<typeof AmbiguousChoiceSchema>;
 
 /**
  * BLUF (So-what) edit (wayframe#55/#60) — one op, not targetId-addressed:
- * bluf is a single document-level entity (RoadmapData.bluf), the same
+ * bluf is a single document-level entity (Program.bluf), the same
  * reasoning that keeps addMilestones' laneId required rather than every op
  * being self-describing. Mirrors editBluf's existing manual reducer action
  * (use-correction-box.ts) field-for-field, minus `size` — that's a resize
@@ -474,7 +474,7 @@ export type BlufOp = z.infer<typeof BlufOpSchema>;
 
 /**
  * Document-header fields (wayframe#55/#60) — programName/owner/reportsTo/
- * nextReviewDate all live at the RoadmapData root, one op shape for the same
+ * nextReviewDate all live at the Program root, one op shape for the same
  * reason as blufOp: there's exactly one of each per document, no id to
  * target.
  */

@@ -20,12 +20,14 @@
 //    3-day window — resolved in wayframe#51 (tiered layout +
 //    drag-to-reposition, see reference-line-layout.ts); still useful here to
 //    confirm the fix live against a real cluster.
-import type { RoadmapData } from "../types";
+import type { RenderableProgram } from "../types";
 
 export const collisionStressToday = new Date("2026-06-15T00:00:00Z");
 
-export const collisionStressRoadmap: RoadmapData = {
-  schemaVersion: 1,
+export const collisionStressRoadmap: RenderableProgram = {
+  id: "program-collision-stress",
+  portfolioId: "portfolio-collision-stress",
+  order: 0,
   programName: "Collision Stress Fixture",
   generatedAt: "2026-06-15T00:00:00.000Z",
   lastUpdatedAt: "2026-06-15T00:00:00.000Z",

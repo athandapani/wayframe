@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { reduce, type CorrectionBoxState } from "@/components/correction-box/use-correction-box";
-import type { Milestone, RoadmapData } from "@/components/timeline/types";
+import type { Milestone, Portfolio, Program } from "@/components/timeline/types";
 
 function milestone(id: string, laneId: string, deps: string[] = []): Milestone {
   return {
@@ -15,9 +15,15 @@ function milestone(id: string, laneId: string, deps: string[] = []): Milestone {
   };
 }
 
-function baseData(): RoadmapData {
+function basePortfolio(): Portfolio {
+  return { id: "portfolio-1", schemaVersion: 2 };
+}
+
+function baseData(): Program {
   return {
-    schemaVersion: 1,
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
     programName: "P",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "o",
@@ -34,7 +40,7 @@ function baseData(): RoadmapData {
   };
 }
 
-const state = (): CorrectionBoxState => ({ data: baseData(), history: [], pending: null, error: null, loading: false });
+const state = (): CorrectionBoxState => ({ data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false });
 
 describe("swimlane actions", () => {
   it("appends a new lane after the last row", () => {

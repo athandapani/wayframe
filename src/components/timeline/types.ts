@@ -74,7 +74,7 @@ export interface Swimlane {
 /**
  * A named, colored tag a milestone can carry independent of its lane and
  * status (legend categories) — e.g. "Regulatory", "Customer-facing". Lives
- * on the document (RoadmapData.legendCategories) since it's shared,
+ * on the document (Portfolio.legendCategories) since it's shared,
  * editorial vocabulary, not a per-viewer preference. Managed via
  * CategoryManager.tsx, mirroring Swimlane's add/rename/recolor/delete
  * pattern in SwimlaneManager.tsx.
@@ -175,7 +175,7 @@ export interface Milestone {
    */
   potentialDate?: string;
   /**
-   * Optional FK into RoadmapData.legendCategories — independent of laneId
+   * Optional FK into Portfolio.legendCategories — independent of laneId
    * (organizational) and status (state). When
    * use-legend-category-style.ts's category-fill encoding is on, this
    * milestone's marker/pill fill becomes the category's color and `status`
@@ -193,14 +193,20 @@ export interface ActionItem {
   done?: boolean;
 }
 
-export interface RoadmapData {
-  /**
-   * Monotonic integer (wayframe t1) — see CURRENT_SCHEMA_VERSION in
-   * src/lib/document-file/schema.ts, the only place this is compared or
-   * bumped. A document persisted with an older value is upgraded by that
-   * file's migration ladder before it's ever validated against this shape.
-   */
-  schemaVersion: number;
+/**
+ * One roadmap document (wayframe t11) — what the whole app used to be
+ * (`RoadmapData`) before it gained a stable identity of its own so a
+ * Portfolio could hold more than one. `schemaVersion`, `companyLogo`, and
+ * `legendCategories` moved up to Portfolio (see below) since they're shared
+ * across every Program in a future merged view; `generatedAt`/`lastUpdatedAt`
+ * stay here, per-Program.
+ */
+export interface Program {
+  id: string;
+  /** Independently addressable (wayframe t11) — not embedded in Portfolio.programs by reference, a plain FK back to it. */
+  portfolioId: string;
+  /** Explicit ordering among sibling Programs in the same Portfolio — same pattern as Swimlane.order. */
+  order: number;
   programName: string;
   generatedAt: string;
   /**
@@ -249,6 +255,27 @@ export interface RoadmapData {
   swimlanes: Swimlane[];
   topLevelItems: TopLevelItem[];
   milestones: Milestone[];
+}
+
+/**
+ * The container a Portfolio's Programs share (wayframe t11) — `schemaVersion`,
+ * `companyLogo`, and `legendCategories` live here now instead of on each
+ * Program, since they're shared, Portfolio-wide editorial vocabulary (a
+ * merged all-Programs view shows one legend/logo, not one per Program). No
+ * stored `baseline`/Scenario/Snapshot fields yet — those are t13/t18/t31's
+ * own tickets to add once their shapes are decided; this type only
+ * establishes the envelope and identity split.
+ */
+export interface Portfolio {
+  id: string;
+  /**
+   * Monotonic integer (wayframe t1, moved here in t11) — see
+   * CURRENT_SCHEMA_VERSION in src/lib/document-file/schema.ts, the only
+   * place this is compared or bumped. A document persisted with an older
+   * value is upgraded by that file's migration ladder before it's ever
+   * validated against this shape.
+   */
+  schemaVersion: number;
   /**
    * Uploaded company logo (wayframe#46/#54), stored as a data URL — document
    * content, not a viewer preference, so it travels with save/export like
@@ -266,10 +293,32 @@ export interface RoadmapData {
    */
   companyLogo?: { dataUrl: string; dx?: number; dy?: number; scale?: number };
   /**
-   * Document-level vocabulary of legend categories a milestone can be
-   * tagged with (Milestone.categoryId) — see LegendCategory's doc above.
-   * Managed via CategoryManager.tsx; rendered as a second legend row when
-   * non-empty (see ChartLegend.tsx).
+   * Portfolio-level vocabulary of legend categories a milestone (in any
+   * sibling Program) can be tagged with (Milestone.categoryId) — see
+   * LegendCategory's doc above. Managed via CategoryManager.tsx; rendered as
+   * a second legend row when non-empty (see ChartLegend.tsx).
    */
   legendCategories?: LegendCategory[];
+}
+
+/** The root shape round-tripped through localStorage/file save-open (wayframe t11) — see Portfolio's doc for why Program's shared fields live one level up. */
+export interface PortfolioDocument {
+  portfolio: Portfolio;
+  programs: Program[];
+}
+
+/**
+ * What the render layer (RoadmapTimeline, MilestoneEditorModal, ChartLegend,
+ * CategoryManager) actually consumes — one Program's content reassembled
+ * with its Portfolio's shared fields, structurally identical to the flat
+ * document shape that existed before t11's Portfolio/Program split. Keeps
+ * the split entirely an edit/persistence-layer concern: nothing under
+ * src/components/timeline needs to know Portfolio exists. Built by
+ * mergeForRender (RoadmapWorkspace.tsx).
+ */
+export type RenderableProgram = Program & Pick<Portfolio, "companyLogo" | "legendCategories">;
+
+/** Builds the render layer's flat shape from the split edit-time state (wayframe t11) — see RenderableProgram's doc. */
+export function mergeForRender(portfolio: Portfolio, program: Program): RenderableProgram {
+  return { ...program, companyLogo: portfolio.companyLogo, legendCategories: portfolio.legendCategories };
 }

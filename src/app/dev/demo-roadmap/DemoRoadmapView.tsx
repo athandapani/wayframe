@@ -5,8 +5,8 @@
 // route must always show the same fixed snapshot, not a real visitor's saved
 // document, once both routes share the same underlying component.
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
-import { demoRoadmap, demoToday } from "@/data/demo-roadmap";
+import { demoPortfolio, demoRoadmap, demoToday } from "@/data/demo-roadmap";
 
 export function DemoRoadmapView() {
-  return <RoadmapWorkspace initialData={demoRoadmap} today={demoToday} persist={false} />;
+  return <RoadmapWorkspace initialData={demoRoadmap} initialPortfolio={demoPortfolio} today={demoToday} persist={false} />;
 }

@@ -1,12 +1,14 @@
-// The Zod-side validation of RoadmapData (wayfinder t1). TypeScript
-// (src/components/timeline/types.ts) stays the source of truth for the
-// shape; the compile-time assertion at the bottom of this file fails `tsc`
-// the moment this schema and that type disagree, which is what lets this
-// file's `.strict()` object schemas exist as a second, independently
-// maintained description of the same shape without silently drifting from
-// it the way the pre-t1 schema did (owner/actionItems/annotation.message).
+// The Zod-side validation of PortfolioDocument (wayfinder t1, split into
+// Portfolio+Program in t11). TypeScript (src/components/timeline/types.ts)
+// stays the source of truth for the shape; the compile-time assertions at
+// the bottom of this file fail `tsc` the moment a schema and its type
+// disagree, which is what lets this file's `.strict()` object schemas exist
+// as a second, independently maintained description of the same shape
+// without silently drifting from it the way the pre-t1 schema did
+// (owner/actionItems/annotation.message).
 import { z } from "zod";
-import type { ActionItem, RoadmapData } from "@/components/timeline/types";
+import { nanoid } from "nanoid";
+import type { ActionItem, Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
 
 const StatusSchema = z.enum(["not-started", "on-track", "at-risk", "delayed", "complete"]);
@@ -80,24 +82,19 @@ const ActionItemSchema = z
   .strict();
 
 /**
- * Monotonic integer, bumped whenever RoadmapDataSchema's shape changes in a
- * way that needs a migration step below (wayfinder t1) — replaces the old
- * decorative `schemaVersion: "1.0"` string, which had zero comparison sites
- * and no migration code anywhere.
+ * Monotonic integer, bumped whenever the persisted document's shape changes
+ * in a way that needs a migration step below (wayfinder t1; bumped again in
+ * t11 for the Portfolio/Program split) — replaces the old decorative
+ * `schemaVersion: "1.0"` string, which had zero comparison sites and no
+ * migration code anywhere.
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
-const RoadmapDataSchema = z
+const ProgramSchema = z
   .object({
-    // Not z.literal(CURRENT_SCHEMA_VERSION): RoadmapData.schemaVersion is
-    // typed `number`, not the literal `1`, so the compile-time
-    // Equals<> assertion below needs this to infer as `number` too. The
-    // exact-current-version requirement is enforced at runtime instead —
-    // by the time a document reaches this parse, migrateToLatest has
-    // already brought it up to CURRENT_SCHEMA_VERSION or given up.
-    schemaVersion: z.number().int().positive().refine((v): boolean => v === CURRENT_SCHEMA_VERSION, {
-      message: `expected schemaVersion ${CURRENT_SCHEMA_VERSION} (after migration)`,
-    }),
+    id: z.string().min(1),
+    portfolioId: z.string().min(1),
+    order: z.number(),
     programName: z.string(),
     generatedAt: z.string(),
     lastUpdatedAt: z.string().optional(),
@@ -116,6 +113,21 @@ const RoadmapDataSchema = z
     swimlanes: z.array(SwimlaneSchema),
     topLevelItems: z.array(TopLevelItemSchema),
     milestones: z.array(MilestoneSchema),
+  })
+  .strict();
+
+const PortfolioSchema = z
+  .object({
+    id: z.string().min(1),
+    // Not z.literal(CURRENT_SCHEMA_VERSION): Portfolio.schemaVersion is
+    // typed `number`, not the literal `2`, so the compile-time Equals<>
+    // assertion below needs this to infer as `number` too. The
+    // exact-current-version requirement is enforced at runtime instead —
+    // by the time a document reaches this parse, migrateToLatest has
+    // already brought it up to CURRENT_SCHEMA_VERSION or given up.
+    schemaVersion: z.number().int().positive().refine((v): boolean => v === CURRENT_SCHEMA_VERSION, {
+      message: `expected schemaVersion ${CURRENT_SCHEMA_VERSION} (after migration)`,
+    }),
     // Was missing entirely until wayframe#64 — z.object() silently strips
     // unrecognized keys rather than erroring, so a saved file's companyLogo
     // was dropped on every Open, without a schema-validation error to catch it.
@@ -124,94 +136,154 @@ const RoadmapDataSchema = z
   })
   .strict();
 
+const PortfolioDocumentSchema = z
+  .object({
+    portfolio: PortfolioSchema,
+    // Today's app only ever has one Program in view (wayframe t11 is
+    // types+schema+minimal persistence only — multi-Program UI is t12/t26's
+    // job), but the persisted shape already holds the real array so nothing
+    // about the file format needs to change again once that UI lands.
+    programs: z.array(ProgramSchema).min(1),
+  })
+  .strict();
+
 /**
- * Compile-time-only check (no runtime cost, the type is never referenced)
- * that this schema's inferred shape is exactly RoadmapData — neither side
- * can gain, drop, or change the optionality of a field without `tsc`
- * failing here. This is the mechanism note in t1's gist ("TS stays SSoT
- * with a compile-time Zod<->TS assertion").
+ * Compile-time-only checks (no runtime cost, these types are never
+ * referenced) that each schema's inferred shape is exactly its TS
+ * counterpart — neither side can gain, drop, or change the optionality of a
+ * field without `tsc` failing here. This is the mechanism note in t1's gist
+ * ("TS stays SSoT with a compile-time Zod<->TS assertion").
  */
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type AssertTrue<_T extends true> = never;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _RoadmapDataSchemaMatchesRoadmapData = AssertTrue<Equals<z.infer<typeof RoadmapDataSchema>, RoadmapData>>;
+type _ProgramSchemaMatchesProgram = AssertTrue<Equals<z.infer<typeof ProgramSchema>, Program>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _PortfolioSchemaMatchesPortfolio = AssertTrue<Equals<z.infer<typeof PortfolioSchema>, Portfolio>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _PortfolioDocumentSchemaMatchesPortfolioDocument = AssertTrue<Equals<z.infer<typeof PortfolioDocumentSchema>, PortfolioDocument>>;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ActionItemSchemaMatchesActionItem = AssertTrue<Equals<z.infer<typeof ActionItemSchema>, ActionItem>>;
 
-export type LoadResult = { ok: true; document: RoadmapData } | { ok: false; message: string; issues: string[] };
+export type LoadResult = { ok: true; document: PortfolioDocument } | { ok: false; message: string; issues: string[] };
 
 type Migration = { from: number; migrate: (doc: Record<string, unknown>) => Record<string, unknown> };
 
 /**
  * Registered in ascending `from` order; each step's output must be a valid
- * input to the next. A raw document's version is "whatever integer
- * `schemaVersion` holds," or 0 if it's anything else at all (a legacy
- * `"1.0"` string, a missing field, an out-of-range number) — 0 always means
- * "pre-versioning, run every migration from the start."
+ * input to the next (or to detectVersion, to find the next step). A raw
+ * document's version is:
+ *  - the integer at `portfolio.schemaVersion`, if `portfolio` is present
+ *    (already enveloped — wayframe t11's shape);
+ *  - else the integer at the top-level `schemaVersion` (wayframe t1's flat
+ *    shape, pre-Portfolio-split);
+ *  - else 0 — a legacy `"1.0"` string, a missing field, or anything else
+ *    not recognized as either of the above. 0 always means "run every
+ *    migration from the start."
  */
 const migrations: Migration[] = [
+  // t1: normalize a legacy/missing schemaVersion to the integer 1 — still
+  // the flat, pre-Portfolio shape at this point.
   {
     from: 0,
     migrate: (doc) => ({ ...doc, schemaVersion: 1 }),
   },
+  // t11: envelope the flat, single-Program document into
+  // {portfolio, programs: [program]} — schemaVersion/companyLogo/
+  // legendCategories move onto a freshly-identified Portfolio; the rest of
+  // the fields become that Portfolio's one Program, freshly identified too.
+  {
+    from: 1,
+    migrate: (doc) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { schemaVersion: _schemaVersion, companyLogo, legendCategories, ...programFields } = doc;
+      const portfolioId = nanoid();
+      const portfolio: Record<string, unknown> = { id: portfolioId, schemaVersion: 2 };
+      if (companyLogo !== undefined) portfolio.companyLogo = companyLogo;
+      if (legendCategories !== undefined) portfolio.legendCategories = legendCategories;
+      return {
+        portfolio,
+        programs: [{ ...programFields, id: nanoid(), portfolioId, order: 0 }],
+      };
+    },
+  },
 ];
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function detectVersion(raw: Record<string, unknown>): number {
+  if (isPlainObject(raw.portfolio)) {
+    const v = raw.portfolio.schemaVersion;
+    if (typeof v === "number" && Number.isInteger(v) && v > 0) return v;
+    return 0; // enveloped shape but a schemaVersion migrateToLatest doesn't recognize — no path forward, let safeParse reject it
+  }
   const v = raw.schemaVersion;
   return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : 0;
 }
 
 /**
  * Migrate-then-validate-once: runs every applicable step so
- * RoadmapDataSchema itself only ever has to validate the current shape, not
- * every shape a document has ever had. Not a shape guarantee by itself —
- * `raw` may still fail RoadmapDataSchema.safeParse after this, e.g. if
- * there's no migration step for its detected version yet.
+ * PortfolioDocumentSchema itself only ever has to validate the current
+ * shape, not every shape a document has ever had. Not a shape guarantee by
+ * itself — `raw` may still fail PortfolioDocumentSchema.safeParse after
+ * this, e.g. if there's no migration step for its detected version yet.
  */
 function migrateToLatest(raw: unknown): unknown {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
-  let doc = raw as Record<string, unknown>;
+  if (!isPlainObject(raw)) return raw;
+  let doc = raw;
   let version = detectVersion(doc);
   while (version < CURRENT_SCHEMA_VERSION) {
     const step = migrations.find((m) => m.from === version);
-    if (!step) break; // no path forward — RoadmapDataSchema.safeParse below will reject it with a readable issue
+    if (!step) break; // no path forward — PortfolioDocumentSchema.safeParse below will reject it with a readable issue
     doc = step.migrate(doc);
     version = detectVersion(doc);
   }
   return doc;
 }
 
-/** Referential integrity — a shape-valid document can still point at lanes that don't exist. */
-function referentialProblems(doc: RoadmapData): string[] {
+/** Referential integrity — a shape-valid document can still point at lanes/categories that don't exist, or a Program that disagrees with its own Portfolio. */
+function referentialProblems(doc: PortfolioDocument): string[] {
   const problems: string[] = [];
-  const laneIds = new Set(doc.swimlanes.map((l) => l.id));
-  const milestoneIds = new Set(doc.milestones.map((m) => m.id));
-  const topIds = new Set(doc.topLevelItems.map((t) => t.id));
-  const categoryIds = new Set((doc.legendCategories ?? []).map((c) => c.id));
-  for (const m of doc.milestones) {
-    if (!laneIds.has(m.laneId)) problems.push(`"${m.title}" is in lane "${m.laneId}", which doesn't exist`);
-    if (m.categoryId && !categoryIds.has(m.categoryId)) problems.push(`"${m.title}" references category "${m.categoryId}", which doesn't exist`);
-    for (const d of m.dependsOn) {
-      if (!milestoneIds.has(d.id)) problems.push(`"${m.title}" depends on "${d.id}", which doesn't exist`);
+  const categoryIds = new Set((doc.portfolio.legendCategories ?? []).map((c) => c.id));
+
+  const programIds = new Set<string>();
+  for (const program of doc.programs) {
+    if (programIds.has(program.id)) problems.push(`Program "${program.programName}" reuses id "${program.id}", which another Program in this Portfolio already has`);
+    programIds.add(program.id);
+    if (program.portfolioId !== doc.portfolio.id) {
+      problems.push(`Program "${program.programName}" has portfolioId "${program.portfolioId}", which doesn't match this Portfolio's id "${doc.portfolio.id}"`);
     }
-    if (m.linksToTopLevelMilestone && !topIds.has(m.linksToTopLevelMilestone)) {
-      problems.push(`"${m.title}" links to top-level item "${m.linksToTopLevelMilestone}", which doesn't exist`);
+
+    const laneIds = new Set(program.swimlanes.map((l) => l.id));
+    const milestoneIds = new Set(program.milestones.map((m) => m.id));
+    const topIds = new Set(program.topLevelItems.map((t) => t.id));
+    for (const m of program.milestones) {
+      if (!laneIds.has(m.laneId)) problems.push(`"${m.title}" is in lane "${m.laneId}", which doesn't exist`);
+      if (m.categoryId && !categoryIds.has(m.categoryId)) problems.push(`"${m.title}" references category "${m.categoryId}", which doesn't exist`);
+      for (const d of m.dependsOn) {
+        if (!milestoneIds.has(d.id)) problems.push(`"${m.title}" depends on "${d.id}", which doesn't exist`);
+      }
+      if (m.linksToTopLevelMilestone && !topIds.has(m.linksToTopLevelMilestone)) {
+        problems.push(`"${m.title}" links to top-level item "${m.linksToTopLevelMilestone}", which doesn't exist`);
+      }
     }
   }
   return problems;
 }
 
 /**
- * The one validation pipeline every entry point for a RoadmapData document
+ * The one validation pipeline every entry point for a persisted document
  * goes through — file-open (document-file.ts) and localStorage rehydration
  * (use-correction-box.ts) alike (wayfinder t1: "localStorage now validates
  * through the same pipeline as file-open"). Neither call site should parse
- * or cast RoadmapData on its own.
+ * or cast a PortfolioDocument on its own.
  */
-export function validateRoadmapDocument(raw: unknown): LoadResult {
+export function validatePortfolioDocument(raw: unknown): LoadResult {
   const migrated = migrateToLatest(raw);
-  const parsed = RoadmapDataSchema.safeParse(migrated);
+  const parsed = PortfolioDocumentSchema.safeParse(migrated);
   if (!parsed.success) {
     return {
       ok: false,
@@ -219,7 +291,7 @@ export function validateRoadmapDocument(raw: unknown): LoadResult {
       issues: parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(root)"} — ${i.message}`),
     };
   }
-  const doc = parsed.data as RoadmapData;
+  const doc = parsed.data as PortfolioDocument;
   const problems = referentialProblems(doc);
   if (problems.length > 0) {
     return { ok: false, message: "That roadmap has broken references.", issues: problems.slice(0, 6) };
@@ -230,14 +302,17 @@ export function validateRoadmapDocument(raw: unknown): LoadResult {
   // same boundary the zod shape/referential checks already gate on, not
   // just at render time, so malicious markup can't round-trip through a
   // Save unsanitized.
-  const sanitized: RoadmapData = {
+  const sanitized: PortfolioDocument = {
     ...doc,
-    bluf: {
-      ...doc.bluf,
-      statement: sanitizeBlufHtml(doc.bluf.statement),
-      bullets: doc.bluf.bullets.map(sanitizeBlufHtml),
-      label: doc.bluf.label !== undefined ? sanitizeBlufHtml(doc.bluf.label) : undefined,
-    },
+    programs: doc.programs.map((program) => ({
+      ...program,
+      bluf: {
+        ...program.bluf,
+        statement: sanitizeBlufHtml(program.bluf.statement),
+        bullets: program.bluf.bullets.map(sanitizeBlufHtml),
+        label: program.bluf.label !== undefined ? sanitizeBlufHtml(program.bluf.label) : undefined,
+      },
+    })),
   };
   return { ok: true, document: sanitized };
 }

@@ -1,4 +1,4 @@
-import type { Milestone, RoadmapData, TopLevelItem } from "@/components/timeline/types";
+import type { Milestone, Program, TopLevelItem } from "@/components/timeline/types";
 
 /**
  * Critical path = the longest dependency chain that ends at the program's
@@ -60,7 +60,7 @@ function buildDependents(milestones: readonly Milestone[]): Map<string, string[]
   return dependents;
 }
 
-export function computeCriticalPathIds(data: Pick<RoadmapData, "milestones" | "topLevelItems">): Set<string> {
+export function computeCriticalPathIds(data: Pick<Program, "milestones" | "topLevelItems">): Set<string> {
   const { milestones } = data;
   const byId = new Map(milestones.map((m) => [m.id, m]));
   const dependents = buildDependents(milestones);
@@ -137,8 +137,8 @@ export function computeCriticalPathIds(data: Pick<RoadmapData, "milestones" | "t
   return critical;
 }
 
-/** Recomputes every milestone's isCriticalPath (override-overlaid) and returns a new RoadmapData. */
-export function withComputedCriticalPath(data: RoadmapData): RoadmapData {
+/** Recomputes every milestone's isCriticalPath (override-overlaid) and returns a new Program. */
+export function withComputedCriticalPath(data: Program): Program {
   const critical = computeCriticalPathIds(data);
   return {
     ...data,

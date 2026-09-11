@@ -10,7 +10,7 @@
 // canned mock data; rowsToText()'s shape is unchanged from the prototype,
 // so /api/extract needed no schema change.
 import { useRef, useState } from "react";
-import type { Milestone, RoadmapData } from "@/components/timeline/types";
+import type { Milestone, Program } from "@/components/timeline/types";
 import type { PatchOp } from "@/lib/corrections/schema";
 import { parseCsvFile } from "@/lib/import/parse-csv";
 import { rowsToText, type ParsedRow } from "@/lib/import/rows-to-text";
@@ -72,8 +72,8 @@ export function ImportPanel({
   onClose,
 }: {
   /** Live document — needed by the deterministic Spreadsheet tab's smart-merge matching. */
-  data: RoadmapData;
-  onExtracted: (data: RoadmapData) => void;
+  data: Program;
+  onExtracted: (data: Program) => void;
   /** Deterministic CSV/XLSX import merge — see SpreadsheetImportTab.tsx. */
   onMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
   onClose: () => void;
@@ -155,7 +155,7 @@ export function ImportPanel({
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error?.message ?? "Extraction failed.");
-      onExtracted(body.document as RoadmapData);
+      onExtracted(body.document as Program);
       onClose();
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : "Extraction failed.");

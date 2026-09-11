@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Milestone, RoadmapData } from "@/components/timeline/types";
+import type { Milestone, Program } from "@/components/timeline/types";
 import {
   addSwimlaneOp,
   applyDeletes,
@@ -30,9 +30,11 @@ function milestone(id: string, laneId: string, overrides: Partial<Milestone> = {
   };
 }
 
-function baseData(): RoadmapData {
+function baseData(): Program {
   return {
-    schemaVersion: 1,
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
     programName: "P",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "o",

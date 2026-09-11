@@ -13,7 +13,7 @@
 // something that reads naturally without generation. Explored three
 // rendering variants and this reduction logic live against real demo data
 // on prototype/executive-timeline-summary before landing here.
-import type { Milestone, RoadmapData, Status } from "@/components/timeline/types";
+import type { Milestone, Program, Status } from "@/components/timeline/types";
 import type { Rag } from "./rag";
 import { wrapText } from "@/components/timeline/wrap-text";
 
@@ -52,7 +52,7 @@ function toKeyDate(m: Milestone, onCriticalPath: boolean): SummaryKeyDate {
   return { id: m.id, label: shortLabel(m.shortLabel ?? m.title), fullLabel: m.title, date: m.date, rag: ragForStatus(m.status), onCriticalPath };
 }
 
-type DatedItem = Extract<RoadmapData["topLevelItems"][number], { status: Status }>;
+type DatedItem = Extract<Program["topLevelItems"][number], { status: Status }>;
 
 function itemDate(item: DatedItem): string {
   return item.type === "phase" ? item.endDate : item.date;
@@ -69,7 +69,7 @@ function itemDate(item: DatedItem): string {
  * subtitle) — it names what's pacing the finish date, plus a call-out for
  * any off-path risk.
  */
-export function generateExecutiveSummary(data: RoadmapData): ExecutiveTimelineSummary {
+export function generateExecutiveSummary(data: Program): ExecutiveTimelineSummary {
   const criticalSorted = data.milestones.filter((m) => m.isCriticalPath).sort((a, b) => (a.date < b.date ? -1 : 1));
   const criticalIds = new Set(criticalSorted.map((m) => m.id));
   const offPathRisk = data.milestones.filter((m) => !m.isCriticalPath && (m.status === "at-risk" || m.status === "delayed"));

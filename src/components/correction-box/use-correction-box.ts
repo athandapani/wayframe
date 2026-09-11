@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { Rag, Milestone, RoadmapData, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
+import type { Portfolio, PortfolioDocument, Rag, Milestone, Program, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
 import {
   coercePatchOp,
   type AcceptBaselineOp,
@@ -37,7 +37,7 @@ import {
 } from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
 import { withComputedCriticalPath } from "@/lib/critical-path/compute";
-import { validateRoadmapDocument } from "@/lib/document-file/schema";
+import { validatePortfolioDocument } from "@/lib/document-file/schema";
 import { nanoid } from "nanoid";
 
 /** Single-document-per-browser persistence (wayframe#22) — one fixed key, not a multi-roadmap store. */
@@ -49,11 +49,11 @@ const STORAGE_KEY = "wayframe:document";
  * their workspace instead of a fresh input form. Reads the same key this
  * hook persists to, so the two never drift.
  */
-export function loadPersistedDocument(): RoadmapData | null {
+export function loadPersistedDocument(): PortfolioDocument | null {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (!saved) return null;
-    const result = validateRoadmapDocument(JSON.parse(saved));
+    const result = validatePortfolioDocument(JSON.parse(saved));
     if (!result.ok) {
       console.warn("Wayframe: discarding invalid persisted document", result.message, result.issues);
       return null;
@@ -97,9 +97,17 @@ export interface PendingPatch {
   ambiguous: AmbiguousChoice | null;
 }
 
+/** A snapshot of both halves of the editable document (wayframe t11) — pushed onto `history` together so undo restores Portfolio-scoped edits (logo, legend categories) exactly like Program-scoped ones. */
+export interface DocumentSnapshot {
+  data: Program;
+  portfolio: Portfolio;
+}
+
 export interface CorrectionBoxState {
-  data: RoadmapData;
-  history: RoadmapData[];
+  data: Program;
+  /** The current Program's Portfolio (wayframe t11) — schemaVersion/companyLogo/legendCategories live here now, not on `data`. Today's app only ever edits one Program at a time, so this is the one Portfolio that Program belongs to, not a list. */
+  portfolio: Portfolio;
+  history: DocumentSnapshot[];
   pending: PendingPatch | null;
   error: string | null;
   loading: boolean;
@@ -122,11 +130,15 @@ export type CorrectionBoxAction =
   | { type: "acceptBaseline"; id: string }
   | { type: "acceptAllBaselines" }
   | { type: "editTopLevelItem"; id: string; patch: TopLevelItemPatch }
-  | { type: "editBluf"; patch: Partial<RoadmapData["bluf"]> }
-  | { type: "editDocument"; patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">> }
+  | { type: "editBluf"; patch: Partial<Program["bluf"]> }
+  | { type: "editDocument"; patch: Partial<Pick<Program, "programName" | "owner" | "reportsTo" | "nextReviewDate">> }
   | { type: "editAttachments"; ops: AttachmentOp[] }
-  | { type: "loadDocument"; data: RoadmapData }
-  | { type: "hydrated"; data: RoadmapData }
+  // `portfolio` is optional: ImportPanel's structured-data import only ever
+  // replaces Program content (wayframe#16), leaving the current Portfolio
+  // (logo/legend) untouched; an explicit file Open (wayframe t11) replaces
+  // both, since a .wayframe.json round-trips the full PortfolioDocument.
+  | { type: "loadDocument"; data: Program; portfolio?: Portfolio }
+  | { type: "hydrated"; data: Program; portfolio: Portfolio }
   | { type: "setLaneColor"; laneId: string; color: string | undefined }
   | { type: "addMilestone"; laneId: string; date: string; endDate?: string; newId: string }
   | { type: "addTopLevelItem"; kind: "milestone" | "phase" | "annotation"; date: string; newId: string }
@@ -159,7 +171,7 @@ export type CorrectionBoxAction =
  * its way out. `hydrated` and `snapshotRollups` skip it, same as they skip
  * the history push: neither is a user edit.
  */
-function stampUpdated(data: RoadmapData): RoadmapData {
+function stampUpdated(data: Program): Program {
   return { ...data, lastUpdatedAt: new Date().toISOString() };
 }
 
@@ -208,7 +220,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath(withDocument)),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         pending: null,
         error: null,
       };
@@ -244,7 +256,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         return { ...state, error: "Nothing to undo" };
       }
       const previous = state.history[state.history.length - 1];
-      return { ...state, data: previous, history: state.history.slice(0, -1), pending: null, error: null };
+      return { ...state, data: previous.data, portfolio: previous.portfolio, history: state.history.slice(0, -1), pending: null, error: null };
     }
     case "editMilestone": {
       // Manual editing (wayframe#18's resolution): instant-save, not a
@@ -257,7 +269,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -272,7 +284,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
           ...state.data,
           milestones: applyAcceptBaselineOps(state.data.milestones, [{ scope: "one", targetId: action.id, reason: "Accepted baseline" }]),
         }),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -285,7 +297,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
           ...state.data,
           milestones: applyAcceptBaselineOps(state.data.milestones, [{ scope: "all", reason: "Accepted all baselines" }]),
         }),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -303,7 +315,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
             topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
           }),
         ),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -316,7 +328,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated({ ...state.data, bluf: { ...state.data.bluf, ...action.patch } }),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -327,7 +339,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated({ ...state.data, ...action.patch }),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -339,7 +351,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyAttachmentOps(state.data.milestones, action.ops) })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -349,14 +361,21 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // still shares this undo stack, so importing over an in-progress
       // roadmap is a mistake the user can recover from with the same Undo
       // button, not a destructive dead end.
-      return { ...state, data: stampUpdated(withComputedCriticalPath(action.data)), history: [...state.history, state.data], pending: null, error: null };
+      return {
+        ...state,
+        data: stampUpdated(withComputedCriticalPath(action.data)),
+        portfolio: action.portfolio ?? state.portfolio,
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        pending: null,
+        error: null,
+      };
     }
     case "hydrated": {
       // Rehydrating a persisted document (wayframe#22) on mount is not a user
       // edit — it doesn't push onto the undo stack, or undo would take a
       // visitor back to whatever was rendered before the saved document
       // loaded instead of being a no-op.
-      return { ...state, data: withComputedCriticalPath(action.data), pending: null, error: null };
+      return { ...state, data: withComputedCriticalPath(action.data), portfolio: action.portfolio, pending: null, error: null };
     }
     case "setLaneColor": {
       // Lane colour is document content (Swimlane.color), not a viewer
@@ -365,7 +384,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(setLaneColorOp(state.data, action.laneId, action.color)),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -376,7 +395,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(setRagOverrideOp(state.data, action.id, action.rag)),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -386,7 +405,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(setLaneDensityOp(state.data, action.id, action.density)),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -411,7 +430,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -428,7 +447,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, topLevelItems: [...state.data.topLevelItems, item] })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -436,7 +455,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath(removeMilestoneOp(state.data, action.id))),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -447,7 +466,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath(removeTopLevelItemOp(state.data, action.id))),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -460,7 +479,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -478,7 +497,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -499,7 +518,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -513,7 +532,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(addSwimlaneOp(state.data, action.swimlaneType, name, action.newId)),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -521,7 +540,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(renameSwimlaneOp(state.data, action.id, action.name)),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -534,7 +553,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath(removeSwimlaneOp(state.data, action.id))),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -544,28 +563,33 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(moved),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
     case "setCompanyLogo": {
       // Upload / replace (wayframe#46/#54) — same undo-tracked, lastUpdatedAt-bumping
       // treatment as every other document-changing action; not add-only, so a second
-      // upload just overwrites the existing dataUrl.
+      // upload just overwrites the existing dataUrl. Portfolio-scoped since wayframe
+      // t11 — the logo is shared across every Program in the Portfolio, not per-Program —
+      // but `data`(Program)'s lastUpdatedAt still bumps: from this session's single-Program
+      // view, it's still "the last time I edited something while looking at this Program."
       return {
         ...state,
-        data: stampUpdated({ ...state.data, companyLogo: { dataUrl: action.dataUrl } }),
-        history: [...state.history, state.data],
+        data: stampUpdated(state.data),
+        portfolio: { ...state.portfolio, companyLogo: { dataUrl: action.dataUrl } },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
     case "clearCompanyLogo": {
-      const rest = { ...state.data };
+      const rest = { ...state.portfolio };
       delete rest.companyLogo;
       return {
         ...state,
-        data: stampUpdated(rest),
-        history: [...state.history, state.data],
+        data: stampUpdated(state.data),
+        portfolio: rest,
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -577,11 +601,12 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // use-label-overrides.ts treatment every other chart drag gets,
       // because this ticket resolved the logo's placement as something the
       // document owner sets once and expects to travel with the file.
-      if (!state.data.companyLogo) return state;
+      if (!state.portfolio.companyLogo) return state;
       return {
         ...state,
-        data: stampUpdated({ ...state.data, companyLogo: { ...state.data.companyLogo, dx: action.dx, dy: action.dy, scale: action.scale } }),
-        history: [...state.history, state.data],
+        data: stampUpdated(state.data),
+        portfolio: { ...state.portfolio, companyLogo: { ...state.portfolio.companyLogo, dx: action.dx, dy: action.dy, scale: action.scale } },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -613,7 +638,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
           ...state.data,
           milestones: state.data.milestones.map((m) => (m.id === action.id ? { ...m, categoryId: action.categoryId } : m)),
         }),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -634,7 +659,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, swimlanes, milestones })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -658,7 +683,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
-        history: [...state.history, state.data],
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -666,49 +691,55 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // Legend category vocabulary — mirrors
       // addSwimlaneOp's placement/pattern; CategoryManager.tsx is the
       // add/rename/recolor/delete surface, same shape as SwimlaneManager.
+      // Portfolio-scoped since wayframe t11 — shared across every Program in
+      // the Portfolio, not per-Program.
       const category = { id: action.newId, name: action.name, color: action.color };
       return {
         ...state,
-        data: stampUpdated({ ...state.data, legendCategories: [...(state.data.legendCategories ?? []), category] }),
-        history: [...state.history, state.data],
+        data: stampUpdated(state.data),
+        portfolio: { ...state.portfolio, legendCategories: [...(state.portfolio.legendCategories ?? []), category] },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
     case "renameCategory": {
       return {
         ...state,
-        data: stampUpdated({
-          ...state.data,
-          legendCategories: (state.data.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, name: action.name } : c)),
-        }),
-        history: [...state.history, state.data],
+        data: stampUpdated(state.data),
+        portfolio: {
+          ...state.portfolio,
+          legendCategories: (state.portfolio.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, name: action.name } : c)),
+        },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
     case "recolorCategory": {
       return {
         ...state,
-        data: stampUpdated({
-          ...state.data,
-          legendCategories: (state.data.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, color: action.color } : c)),
-        }),
-        history: [...state.history, state.data],
+        data: stampUpdated(state.data),
+        portfolio: {
+          ...state.portfolio,
+          legendCategories: (state.portfolio.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, color: action.color } : c)),
+        },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
     case "removeCategory": {
-      // Clears the dangling reference on every milestone tagged with this
-      // category, same reasoning removeSwimlaneOp strips dependsOn edges
-      // onto a doomed milestone — nothing should be left pointing at a
+      // Clears the dangling reference on every milestone (in this Program —
+      // wayframe t11 hasn't wired cross-Program editing yet) tagged with
+      // this category, same reasoning removeSwimlaneOp strips dependsOn
+      // edges onto a doomed milestone — nothing should be left pointing at a
       // category id that no longer exists.
       return {
         ...state,
         data: stampUpdated({
           ...state.data,
-          legendCategories: (state.data.legendCategories ?? []).filter((c) => c.id !== action.id),
           milestones: state.data.milestones.map((m) => (m.categoryId === action.id ? { ...m, categoryId: null } : m)),
         }),
-        history: [...state.history, state.data],
+        portfolio: { ...state.portfolio, legendCategories: (state.portfolio.legendCategories ?? []).filter((c) => c.id !== action.id) },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
     }
@@ -722,7 +753,9 @@ export interface AppliedIds {
 }
 
 export interface UseCorrectionBoxResult {
-  data: RoadmapData;
+  data: Program;
+  /** The current Program's Portfolio (wayframe t11) — schemaVersion/companyLogo/legendCategories. */
+  portfolio: Portfolio;
   pending: PendingPatch | null;
   error: string | null;
   loading: boolean;
@@ -740,8 +773,8 @@ export interface UseCorrectionBoxResult {
   /** Clears every currently-ghosted milestone's baseline, per the Options menu's "Accept all" action (wayframe#62). */
   acceptAllBaselines: () => void;
   editTopLevelItem: (id: string, patch: TopLevelItemPatch) => void;
-  editBluf: (patch: Partial<RoadmapData["bluf"]>) => void;
-  editDocument: (patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => void;
+  editBluf: (patch: Partial<Program["bluf"]>) => void;
+  editDocument: (patch: Partial<Pick<Program, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => void;
   editAttachments: (ops: AttachmentOp[]) => void;
   setLaneColor: (laneId: string, color: string | undefined) => void;
   /** Creates a milestone (or, with endDate, a phase) in the lane and returns its id so the caller can open it. */
@@ -761,7 +794,9 @@ export interface UseCorrectionBoxResult {
   setRagOverride: (id: string, rag: Rag | "auto") => void;
   /** "Normal vs lean" row-height toggle, per the SwimlaneManager dropdown. */
   setLaneDensity: (id: string, density: "normal" | "lean") => void;
-  loadDocument: (data: RoadmapData) => void;
+  loadDocument: (data: Program) => void;
+  /** File-Open — replaces the whole PortfolioDocument (Program + its Portfolio), unlike loadDocument's Program-only replace. */
+  loadPortfolioDocument: (document: PortfolioDocument) => void;
   setCompanyLogo: (dataUrl: string) => void;
   clearCompanyLogo: () => void;
   /** Commits a drag/resize gesture's final dx/dy/scale (wayframe#64) — a no-op if there's no logo to move. */
@@ -799,14 +834,19 @@ export interface UseCorrectionBoxResult {
  * than a live-ticking clock (e.g. RoadmapWorkspace's props), so this doesn't
  * re-check mid-session.
  */
-export function useCorrectionBox(initialData: RoadmapData, persist = true, today = new Date()): UseCorrectionBoxResult {
-  const [state, dispatch] = useReducer(reduce, initialData, (data) => ({
-    data: withComputedCriticalPath(data),
-    history: [],
-    pending: null,
-    error: null,
-    loading: false,
-  }));
+export function useCorrectionBox(initialData: Program, initialPortfolio: Portfolio, persist = true, today = new Date()): UseCorrectionBoxResult {
+  const [state, dispatch] = useReducer(
+    reduce,
+    { data: initialData, portfolio: initialPortfolio },
+    ({ data, portfolio }) => ({
+      data: withComputedCriticalPath(data),
+      portfolio,
+      history: [],
+      pending: null,
+      error: null,
+      loading: false,
+    }),
+  );
 
   // Gates the persist effect below until the mount-time rehydration attempt
   // has committed — a plain ref flipped inside the same effect pass isn't
@@ -822,9 +862,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
       if (persist) {
         const saved = window.localStorage.getItem(STORAGE_KEY);
         if (saved) {
-          const result = validateRoadmapDocument(JSON.parse(saved));
+          const result = validatePortfolioDocument(JSON.parse(saved));
           if (result.ok) {
-            dispatch({ type: "hydrated", data: result.document });
+            dispatch({ type: "hydrated", data: result.document.programs[0], portfolio: result.document.portfolio });
           } else {
             console.warn("Wayframe: discarding invalid persisted document", result.message, result.issues);
           }
@@ -840,12 +880,13 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   useEffect(() => {
     if (!persist || !hydrated) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+      const document: PortfolioDocument = { portfolio: state.portfolio, programs: [state.data] };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
     } catch {
       // Storage full or unavailable (e.g. private browsing) — persistence
       // is a nice-to-have, not something worth surfacing as a user error.
     }
-  }, [persist, hydrated, state.data]);
+  }, [persist, hydrated, state.data, state.portfolio]);
 
   // Fires once per mount, after rehydration lands (so it snapshots whatever
   // document — persisted or fixture — actually ends up rendered). The
@@ -1001,9 +1042,9 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const acceptBaseline = useCallback((id: string) => dispatch({ type: "acceptBaseline", id }), []);
   const acceptAllBaselines = useCallback(() => dispatch({ type: "acceptAllBaselines" }), []);
   const editTopLevelItem = useCallback((id: string, patch: TopLevelItemPatch) => dispatch({ type: "editTopLevelItem", id, patch }), []);
-  const editBluf = useCallback((patch: Partial<RoadmapData["bluf"]>) => dispatch({ type: "editBluf", patch }), []);
+  const editBluf = useCallback((patch: Partial<Program["bluf"]>) => dispatch({ type: "editBluf", patch }), []);
   const editDocument = useCallback(
-    (patch: Partial<Pick<RoadmapData, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => dispatch({ type: "editDocument", patch }),
+    (patch: Partial<Pick<Program, "programName" | "owner" | "reportsTo" | "nextReviewDate">>) => dispatch({ type: "editDocument", patch }),
     [],
   );
   const editAttachments = useCallback((ops: AttachmentOp[]) => dispatch({ type: "editAttachments", ops }), []);
@@ -1033,7 +1074,12 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
   const moveSwimlane = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlane", id, delta }), []);
   const setRagOverride = useCallback((id: string, rag: Rag | "auto") => dispatch({ type: "setRagOverride", id, rag }), []);
   const setLaneDensity = useCallback((id: string, density: "normal" | "lean") => dispatch({ type: "setLaneDensity", id, density }), []);
-  const loadDocument = useCallback((data: RoadmapData) => dispatch({ type: "loadDocument", data }), []);
+  const loadDocument = useCallback((data: Program) => dispatch({ type: "loadDocument", data }), []);
+  /** File-Open (wayframe t11) — replaces the whole PortfolioDocument, unlike loadDocument's Program-only replace (ImportPanel's structured-data import), since a .wayframe.json round-trips Portfolio content (logo/legend) too. */
+  const loadPortfolioDocument = useCallback(
+    (document: PortfolioDocument) => dispatch({ type: "loadDocument", data: document.programs[0], portfolio: document.portfolio }),
+    [],
+  );
   const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
   const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
   const setCompanyLogoGeometry = useCallback((dx: number, dy: number, scale: number) => dispatch({ type: "setCompanyLogoGeometry", dx, dy, scale }), []);
@@ -1054,6 +1100,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
 
   return {
     data: state.data,
+    portfolio: state.portfolio,
     pending: state.pending,
     error: state.error,
     loading: state.loading,
@@ -1085,6 +1132,7 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
     setRagOverride,
     setLaneDensity,
     loadDocument,
+    loadPortfolioDocument,
     setCompanyLogo,
     clearCompanyLogo,
     setCompanyLogoGeometry,

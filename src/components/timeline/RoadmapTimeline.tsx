@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RoadmapData, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
+import type { RenderableProgram, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken, lighten, contrastText } from "./color-utils";
@@ -108,7 +108,7 @@ function computeRows(
   return out;
 }
 
-function computeDomain(data: RoadmapData): { domainMin: number; domainMax: number } {
+function computeDomain(data: RenderableProgram): { domainMin: number; domainMax: number } {
   const allDates = [
     ...data.milestones.map((m) => m.date),
     ...data.milestones.filter((m) => m.endDate).map((m) => m.endDate!),
@@ -1102,7 +1102,7 @@ function MilestoneMarker({
 }
 
 export interface RoadmapTimelineProps {
-  data: RoadmapData;
+  data: RenderableProgram;
   theme?: Theme;
   axisTiers?: AxisTierConfig;
   /** Level 1 (Year) color — Levels 2/3 are always derived as lighter shades of it (wayframe#70); a picker lives in the Options menu, not here. Defaults to theme.axisBg. */

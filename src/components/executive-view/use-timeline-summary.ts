@@ -6,10 +6,10 @@
 "use client";
 
 import { useState } from "react";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Program } from "@/components/timeline/types";
 import { generateExecutiveSummary, type ExecutiveTimelineSummary } from "./timeline-summary";
 
-export function useTimelineSummary(data: RoadmapData) {
+export function useTimelineSummary(data: Program) {
   const [summary, setSummary] = useState<ExecutiveTimelineSummary | null>(null);
 
   function update() {

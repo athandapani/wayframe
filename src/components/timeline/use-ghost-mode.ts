@@ -3,7 +3,7 @@
 // Viewer display preference for ghost-rendering slipped milestones
 // (wayframe#29/#30) — deliberately its own localStorage key, not folded
 // into useCorrectionBox's persistence: this is how a viewer wants to *see*
-// the timeline, not part of the RoadmapData document itself. `enabled` and
+// the timeline, not part of the Program document itself. `enabled` and
 // `style` persist independently so turning ghosts off and back on doesn't
 // forget which style was chosen.
 import { useEffect, useReducer, useState } from "react";

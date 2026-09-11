@@ -6,7 +6,7 @@
 // to text and feeds `/api/extract`; this path never leaves the browser.
 import { useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import type { Milestone, RoadmapData } from "@/components/timeline/types";
+import type { Milestone, Program } from "@/components/timeline/types";
 import type { PatchOp } from "@/lib/corrections/schema";
 import { parseCsvFile } from "@/lib/import/parse-csv";
 import { parseXlsxFile } from "@/lib/import/parse-xlsx";
@@ -14,7 +14,7 @@ import type { ParsedRow } from "@/lib/import/rows-to-text";
 import { guessColumnMapping, rowsToRoadmap, MAPPABLE_FIELDS, type ColumnMapping, type NewMilestone } from "@/lib/import/rows-to-roadmap";
 import { DiffBanner, type DiffEntry } from "@/components/shared/DiffBanner";
 
-export function SpreadsheetImportTab({ data, onMerge }: { data: RoadmapData; onMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void }) {
+export function SpreadsheetImportTab({ data, onMerge }: { data: Program; onMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void }) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [mapping, setMapping] = useState<ColumnMapping | null>(null);

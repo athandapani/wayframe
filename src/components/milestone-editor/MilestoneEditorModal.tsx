@@ -7,7 +7,7 @@
 // undo covers this alongside AI corrections. Attachments gained a real
 // add/remove/edit UI in wayframe#60 (previously read-only).
 import { useState } from "react";
-import type { Attachment, Milestone, RoadmapData, Status } from "@/components/timeline/types";
+import type { Attachment, Milestone, RenderableProgram, Status } from "@/components/timeline/types";
 import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMilestoneFields } from "@/lib/corrections/build-milestone-ops";
 import type { AttachmentOp, PatchOp } from "@/lib/corrections/schema";
 import type { TraceDirection } from "@/lib/critical-path/trace";
@@ -174,7 +174,7 @@ function ModalForm({
   onTrace,
   onSetCategory,
 }: {
-  data: RoadmapData;
+  data: RenderableProgram;
   milestone: Milestone;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
@@ -455,7 +455,7 @@ export function MilestoneEditorModal({
   onTrace,
   onSetCategory,
 }: {
-  data: RoadmapData;
+  data: RenderableProgram;
   milestone: Milestone | null;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;

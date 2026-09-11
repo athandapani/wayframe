@@ -2,10 +2,12 @@
 // (that's wayframe issue #10, still open). Deliberately minimal: one
 // separator, two lanes, a phase, a milestone, an annotation, and a
 // cross-lane dependency so the connector/critical-path paths get exercised.
-import type { RoadmapData } from "../types";
+import type { RenderableProgram } from "../types";
 
-export const sampleRoadmap: RoadmapData = {
-  schemaVersion: 1,
+export const sampleRoadmap: RenderableProgram = {
+  id: "program-sample",
+  portfolioId: "portfolio-sample",
+  order: 0,
   programName: "Sample Program",
   generatedAt: "2026-08-01T00:00:00.000Z",
   lastUpdatedAt: "2026-08-01T00:00:00.000Z",

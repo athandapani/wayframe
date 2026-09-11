@@ -1,13 +1,19 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import Home from "./page";
 
 const STORAGE_KEY = "wayframe:document";
 
-function baseData(): RoadmapData {
+function basePortfolio(): Portfolio {
+  return { id: "portfolio-1", schemaVersion: 2 };
+}
+
+function baseData(): Program {
   return {
-    schemaVersion: 1,
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
     programName: "Test Program",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "Owner",
@@ -43,7 +49,8 @@ describe("Home", () => {
   });
 
   it("lands back in the saved roadmap when one already exists in localStorage", async () => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(baseData()));
+    const document: PortfolioDocument = { portfolio: basePortfolio(), programs: [baseData()] };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
     render(<Home />);
     await waitFor(() => {
       expect(screen.getByText("Everything is on track.")).toBeInTheDocument();

@@ -8,7 +8,7 @@
 // hand-maintains its own copy.
 import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import type { RoadmapData } from "@/components/timeline/types";
+import { mergeForRender, type Portfolio, type PortfolioDocument, type Program, type RenderableProgram } from "@/components/timeline/types";
 import { RoadmapTimeline, type GhostMode, type AtRiskMode } from "@/components/timeline/RoadmapTimeline";
 import type { Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
@@ -142,7 +142,7 @@ function RoadmapView({
   onMarqueeSelect,
 }: {
   mode: Mode;
-  data: RoadmapData;
+  data: RenderableProgram;
   today: Date;
   ghostMode: GhostMode;
   atRiskMode: AtRiskMode;
@@ -152,7 +152,7 @@ function RoadmapView({
   blufOpen: boolean;
   onBlufOpenChange: (open: boolean) => void;
   /** Omit for the off-screen export capture — that copy has no document to write back into. */
-  onBlufEdit?: (patch: Partial<RoadmapData["bluf"]>) => void;
+  onBlufEdit?: (patch: Partial<Program["bluf"]>) => void;
   /** Click-to-edit on programName/owner (program view) and reportsTo/nextReviewDate (executive view) (wayframe#55/#60) — omit for the off-screen export capture. */
   onEditDocument?: (patch: { programName?: string; owner?: string; reportsTo?: string; nextReviewDate?: string }) => void;
   soWhatFillColor?: string | null;
@@ -303,19 +303,28 @@ const PILL_STYLE: React.CSSProperties = { background: "var(--wf-panel)", borderC
 
 export function RoadmapWorkspace({
   initialData,
+  initialPortfolio,
   today,
   persist = true,
   onStartNew,
 }: {
-  initialData: RoadmapData;
+  initialData: Program;
+  initialPortfolio: Portfolio;
   today: Date;
   persist?: boolean;
   /** Routes back to the entry form (wayframe#63) — omitted by the `/dev/demo-roadmap` QA route, which has no entry form to return to. */
   onStartNew?: () => void;
 }) {
   const [mode, setMode] = useState<Mode>("program");
-  const box = useCorrectionBox(initialData, persist, today);
+  const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
   const timelineSummary = useTimelineSummary(box.data);
+  // The render layer (RoadmapTimeline, MilestoneEditorModal, CategoryManager)
+  // stays Portfolio-agnostic (wayframe t11) — this is the one seam that
+  // reassembles the flat shape it expects from the split edit-time state.
+  const renderable = mergeForRender(box.portfolio, box.data);
+  // What Save/Open round-trip through .wayframe.json (wayframe t11) — the
+  // whole PortfolioDocument, not just this one Program (see document-file.ts).
+  const portfolioDocument: PortfolioDocument = { portfolio: box.portfolio, programs: [box.data] };
   const ghost = useGhostMode();
   const atRisk = useAtRiskStyle();
   const criticalPath = useCriticalPathVisibility();
@@ -458,12 +467,12 @@ export function RoadmapWorkspace({
   async function handleOpenFile(file: File) {
     setFileError(null);
     const result = parseDocumentFile(await file.text());
-    if (result.ok) box.loadDocument(result.document);
+    if (result.ok) box.loadPortfolioDocument(result.document);
     else setFileError({ message: result.message, issues: result.issues });
   }
 
   // Company-logo upload (wayframe#46/#54) — stored as a data URL directly on
-  // the document (see RoadmapData.companyLogo), no blob store. A second
+  // the document (see Portfolio.companyLogo), no blob store. A second
   // upload overwrites the first via the same setCompanyLogo action, so this
   // one handler covers both "upload" and "replace".
   function handleUploadLogo(file: File) {
@@ -654,7 +663,7 @@ export function RoadmapWorkspace({
                 <>
                   <button
                     onClick={() => {
-                      saveDocumentFile(box.data);
+                      saveDocumentFile(portfolioDocument);
                       onStartNew?.();
                     }}
                     style={PILL_STYLE}
@@ -668,7 +677,7 @@ export function RoadmapWorkspace({
                 </>
               ) : (
                 <>
-                  <button onClick={() => saveDocumentFile(box.data)} style={PILL_STYLE} className={pillToggle(true)}>
+                  <button onClick={() => saveDocumentFile(portfolioDocument)} style={PILL_STYLE} className={pillToggle(true)}>
                     Save
                   </button>
                   <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
@@ -731,14 +740,14 @@ export function RoadmapWorkspace({
               </div>
               <OptionsMenuRow label="Company logo">
                 <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
-                  {box.data.companyLogo ? "Replace" : "Upload"}
+                  {box.portfolio.companyLogo ? "Replace" : "Upload"}
                 </button>
-                {box.data.companyLogo && (
+                {box.portfolio.companyLogo && (
                   <button onClick={box.clearCompanyLogo} style={PILL_STYLE} className={pillToggle(true)}>
                     Remove
                   </button>
                 )}
-                {box.data.companyLogo && (box.data.companyLogo.dx || box.data.companyLogo.dy || (box.data.companyLogo.scale && box.data.companyLogo.scale !== 1)) && (
+                {box.portfolio.companyLogo && (box.portfolio.companyLogo.dx || box.portfolio.companyLogo.dy || (box.portfolio.companyLogo.scale && box.portfolio.companyLogo.scale !== 1)) && (
                   <button onClick={() => box.setCompanyLogoGeometry(0, 0, 1)} style={PILL_STYLE} className={pillToggle(true)}>
                     Reset position
                   </button>
@@ -1234,7 +1243,7 @@ export function RoadmapWorkspace({
         <div ref={visibleCaptureRef}>
           <RoadmapView
             mode={mode}
-            data={box.data}
+            data={renderable}
             today={today}
             ghostMode={ghost.mode}
             atRiskMode={atRisk.mode}
@@ -1298,7 +1307,7 @@ export function RoadmapWorkspace({
               mode={otherMode}
               chartWidth={1600}
               labelDensity={labels.density}
-              data={box.data}
+              data={renderable}
               today={today}
               ghostMode={ghost.mode}
               atRiskMode={atRisk.mode}
@@ -1331,7 +1340,7 @@ export function RoadmapWorkspace({
       <CorrectionBoxSwitcher box={box} mode={correctionMode} onNeedsEditor={handleNeedsEditor} />
       {selectMode && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
       <MilestoneEditorModal
-        data={box.data}
+        data={renderable}
         milestone={selectedMilestone}
         onSave={box.editMilestone}
         onClose={() => setSelectedMilestoneId(null)}
@@ -1369,7 +1378,7 @@ export function RoadmapWorkspace({
       )}
       {categoriesOpen && (
         <CategoryManager
-          data={box.data}
+          data={renderable}
           onAdd={box.addCategory}
           onRename={box.renameCategory}
           onRecolor={box.recolorCategory}

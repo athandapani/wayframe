@@ -3,7 +3,7 @@
 // Viewer display preference for the forward-looking slip-risk projection
 // (wayframe#61/#72) — mirrors use-ghost-mode.ts exactly: its own localStorage
 // key, not folded into useCorrectionBox's persistence, since this is how a
-// viewer wants to *see* the timeline, not part of the RoadmapData document
+// viewer wants to *see* the timeline, not part of the Program document
 // itself. `enabled` and `style` persist independently so turning the
 // projection off and back on doesn't forget which style was chosen.
 import { useEffect, useReducer, useState } from "react";

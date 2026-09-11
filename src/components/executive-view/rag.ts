@@ -3,7 +3,7 @@
 // the RAG-governance fog item) wins when a lead has set one. Trend compares
 // the current rollup against the lane's rollupHistory (wayframe issue #33) —
 // undefined until a lane has at least one snapshot dated before today.
-import type { RoadmapData, Swimlane, Milestone, Status, Rag } from "@/components/timeline/types";
+import type { Program, Swimlane, Milestone, Status, Rag } from "@/components/timeline/types";
 
 export type { Rag };
 
@@ -75,7 +75,7 @@ function trendForLane(lane: Swimlane, currentRag: Rag, todayKey: string): LaneRo
   return RAG_ORDER[currentRag] < RAG_ORDER[prior.rag] ? "up" : "down";
 }
 
-export function laneRollups(data: RoadmapData, today: Date): LaneRollup[] {
+export function laneRollups(data: Program, today: Date): LaneRollup[] {
   const todayKey = today.toISOString().slice(0, 10);
   return data.swimlanes
     .filter((l) => l.type === "lane")
@@ -94,7 +94,7 @@ export function laneRollups(data: RoadmapData, today: Date): LaneRollup[] {
 }
 
 /** Ranks by severity, critical-path first, then soonest date. */
-export function topRisks(data: RoadmapData, limit = 3): RiskItem[] {
+export function topRisks(data: Program, limit = 3): RiskItem[] {
   const laneNameById = new Map(data.swimlanes.map((l) => [l.id, l.name]));
   return data.milestones
     .filter((m) => SEVERITY[m.status] > 0)

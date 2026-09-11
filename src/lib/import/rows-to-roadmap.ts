@@ -4,7 +4,7 @@
 // `/api/extract`. This path never calls the model: a column mapping tells
 // it exactly which header means what, and "smart merge" is a plain
 // (normalized title, lane) match against the live document, not inference.
-import type { Milestone, RoadmapData, Status } from "@/components/timeline/types";
+import type { Milestone, Program, Status } from "@/components/timeline/types";
 import type { ParsedRow } from "./rows-to-text";
 
 export interface ColumnMapping {
@@ -98,7 +98,7 @@ export interface RowsToRoadmapResult {
  * placeholders for new entities via `makeId` (defaults to a counter, so
  * this stays trivially testable — the real caller passes `nanoid`).
  */
-export function rowsToRoadmap(existing: RoadmapData, rows: ParsedRow[], mapping: ColumnMapping, makeId: () => string = (() => { let n = 0; return () => `row-${n++}`; })()): RowsToRoadmapResult {
+export function rowsToRoadmap(existing: Program, rows: ParsedRow[], mapping: ColumnMapping, makeId: () => string = (() => { let n = 0; return () => `row-${n++}`; })()): RowsToRoadmapResult {
   const result: RowsToRoadmapResult = { newLaneNames: [], adds: [], updates: [], skipped: [] };
   if (!mapping.title || !mapping.date) {
     return { ...result, skipped: [{ row: 0, reason: "Map at least Title and Date before importing." }] };

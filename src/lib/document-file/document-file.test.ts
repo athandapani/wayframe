@@ -1,28 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { parseDocumentFile, documentFileName } from "./document-file";
-import { demoRoadmap } from "@/data/demo-roadmap";
+import { demoPortfolio, demoRoadmap } from "@/data/demo-roadmap";
+import type { PortfolioDocument } from "@/components/timeline/types";
+
+const demoDocument: PortfolioDocument = { portfolio: demoPortfolio, programs: [demoRoadmap] };
 
 describe("parseDocumentFile", () => {
   it("round-trips the demo roadmap without loss", () => {
-    const result = parseDocumentFile(JSON.stringify(demoRoadmap));
+    const result = parseDocumentFile(JSON.stringify(demoDocument));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.document.milestones).toHaveLength(demoRoadmap.milestones.length);
-      expect(result.document.swimlanes).toHaveLength(demoRoadmap.swimlanes.length);
-      expect(result.document.programName).toBe(demoRoadmap.programName);
+      const program = result.document.programs[0];
+      expect(program.milestones).toHaveLength(demoRoadmap.milestones.length);
+      expect(program.swimlanes).toHaveLength(demoRoadmap.swimlanes.length);
+      expect(program.programName).toBe(demoRoadmap.programName);
       // durations and dependency edges survive
-      const ramp = result.document.milestones.find((m) => m.id === "mfg-6")!;
+      const ramp = program.milestones.find((m) => m.id === "mfg-6")!;
       expect(ramp.endDate).toBe("2027-07-01");
       expect(ramp.dependsOn).toEqual([{ id: "mfg-5", showConnector: true }]);
     }
   });
 
-  it("round-trips companyLogo including its drag/resize geometry (wayframe#64) — previously silently stripped, RoadmapDataSchema had no field for it at all", () => {
-    const withLogo = { ...demoRoadmap, companyLogo: { dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 } };
+  it("round-trips companyLogo including its drag/resize geometry (wayframe#64) — previously silently stripped, the schema had no field for it at all", () => {
+    const withLogo: PortfolioDocument = {
+      ...demoDocument,
+      portfolio: { ...demoPortfolio, companyLogo: { dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 } },
+    };
     const result = parseDocumentFile(JSON.stringify(withLogo));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.document.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 });
+      expect(result.document.portfolio.companyLogo).toEqual({ dataUrl: "data:image/png;base64,x", dx: 12, dy: -4, scale: 1.5 });
     }
   });
 
@@ -45,7 +52,10 @@ describe("parseDocumentFile", () => {
     // A file can pass schema validation and still point at a lane that
     // doesn't exist — loading it would put the chart in a state that throws
     // on render, so integrity is checked before the document is accepted.
-    const broken = { ...demoRoadmap, milestones: [{ ...demoRoadmap.milestones[0], laneId: "lane-that-does-not-exist" }] };
+    const broken: PortfolioDocument = {
+      ...demoDocument,
+      programs: [{ ...demoRoadmap, milestones: [{ ...demoRoadmap.milestones[0], laneId: "lane-that-does-not-exist" }] }],
+    };
     const result = parseDocumentFile(JSON.stringify(broken));
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -55,9 +65,14 @@ describe("parseDocumentFile", () => {
   });
 
   it("rejects a dependency pointing at a milestone that isn't in the file", () => {
-    const broken = {
-      ...demoRoadmap,
-      milestones: demoRoadmap.milestones.map((m, i) => (i === 0 ? { ...m, dependsOn: [{ id: "ghost", showConnector: true }] } : m)),
+    const broken: PortfolioDocument = {
+      ...demoDocument,
+      programs: [
+        {
+          ...demoRoadmap,
+          milestones: demoRoadmap.milestones.map((m, i) => (i === 0 ? { ...m, dependsOn: [{ id: "ghost", showConnector: true }] } : m)),
+        },
+      ],
     };
     const result = parseDocumentFile(JSON.stringify(broken));
     expect(result.ok).toBe(false);

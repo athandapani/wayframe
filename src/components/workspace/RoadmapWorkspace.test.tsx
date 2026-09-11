@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { RoadmapData } from "@/components/timeline/types";
+import type { Portfolio, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "./RoadmapWorkspace";
 import { exportToDeck } from "@/lib/export/export-to-deck";
 import { saveDocumentFile } from "@/lib/document-file/document-file";
@@ -14,9 +14,15 @@ vi.mock("@/lib/document-file/document-file", async () => {
   return { ...actual, saveDocumentFile: vi.fn() };
 });
 
-function baseData(): RoadmapData {
+function basePortfolio(): Portfolio {
+  return { id: "portfolio-1", schemaVersion: 2 };
+}
+
+function baseData(): Program {
   return {
-    schemaVersion: 1,
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
     programName: "Atlas Program",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "Owner",
@@ -39,7 +45,7 @@ function baseData(): RoadmapData {
   };
 }
 
-function slippedData(): RoadmapData {
+function slippedData(): Program {
   const data = baseData();
   return {
     ...data,
@@ -64,7 +70,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   });
 
   it("keeps settings-like controls out of the chrome until the menu is opened", () => {
-    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import a schedule" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sidebar mode" })).not.toBeInTheDocument();
@@ -75,7 +81,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   });
 
   it("shows the settings rows once opened, and closes on Escape", async () => {
-    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument();
 
@@ -91,7 +97,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   });
 
   it("toggling So-what visibility from the menu hides/shows the BLUF callout", async () => {
-    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     expect(screen.getByText("Everything is on track.")).toBeInTheDocument();
 
     openOptionsMenu();
@@ -109,7 +115,7 @@ describe("RoadmapWorkspace font-scale wiring (wayframe#42/#50, revised)", () => 
   });
 
   it("scales marker text via the Font size slider without growing the chart's row/pill box heights", async () => {
-    const { container } = render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    const { container } = render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     const svg = () => container.querySelector('[data-testid="roadmap-timeline"] svg')!;
     const baseHeight = svg().getAttribute("height");
     const baseFontSize = screen.getAllByText("Milestone 1")[0].getAttribute("font-size");
@@ -134,7 +140,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   });
 
   it("defaults to ghosts on, style badge, and shows the slip badge for a slipped milestone", async () => {
-    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     openSection("Chart symbols");
     await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
@@ -144,7 +150,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   });
 
   it("turning ghosts off hides the style switcher and the slip badge", async () => {
-    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     openSection("Chart symbols");
     await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
@@ -157,7 +163,7 @@ describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
   });
 
   it("switching style to outline swaps the badge for a dashed outline at the old date", async () => {
-    render(<RoadmapWorkspace initialData={slippedData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     openSection("Chart symbols");
     await waitFor(() => expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument());
@@ -176,12 +182,12 @@ describe("RoadmapWorkspace export to deck", () => {
   });
 
   it("does not duplicate view content in the DOM while idle", () => {
-    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     expect(screen.getAllByText("Everything is on track.")).toHaveLength(1);
   });
 
   it("captures both views and writes a deck named after the program on export", async () => {
-    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
 
     openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument());
@@ -202,7 +208,7 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
   });
 
   it("omits the New pill entirely when onStartNew isn't provided (the /dev/demo-roadmap QA route)", async () => {
-    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} />);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
@@ -210,7 +216,7 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
 
   it("skips the confirm step and calls onStartNew directly when nothing's been edited (historyLength === 0)", async () => {
     const onStartNew = vi.fn();
-    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
     openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument());
 
@@ -223,7 +229,7 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
 
   it("expands into 'Save & Start New' / 'Cancel' in place of Save/Open/New once the document's been edited", async () => {
     const onStartNew = vi.fn();
-    render(<RoadmapWorkspace initialData={baseData()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
 
     // A plain manual edit (setLaneColor) is enough to push undo history —
     // mirrors how the other suites here trigger edits via the Options menu.
@@ -256,7 +262,7 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
   it("'Save & Start New' saves the document before routing back to the entry form", async () => {
     const onStartNew = vi.fn();
     const data = baseData();
-    render(<RoadmapWorkspace initialData={data} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
+    render(<RoadmapWorkspace initialData={data} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} onStartNew={onStartNew} />);
 
     openOptionsMenu();
     openSection("Layout");

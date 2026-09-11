@@ -6,7 +6,7 @@
 // action is being configured and the diff-preview accept/reject state,
 // exposes only the resolved commit outward via onBulkEdit.
 import { useState } from "react";
-import type { RoadmapData, Status } from "@/components/timeline/types";
+import type { Program, Status } from "@/components/timeline/types";
 import type { UseSelectionResult } from "@/components/timeline/use-selection";
 import type { AcceptBaselineOp, PatchOp } from "@/lib/corrections/schema";
 import { buildBulkEditPreview, bulkAcceptBaseline, bulkSetLane, bulkSetStatus, bulkShiftDates, type BulkEditOp } from "@/lib/bulk-edit/apply";
@@ -17,7 +17,7 @@ const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed
 
 type Picker = "shift" | "status" | "lane" | null;
 
-export function SelectionToolbar({ data, selection, onBulkEdit }: { data: RoadmapData; selection: UseSelectionResult; onBulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void }) {
+export function SelectionToolbar({ data, selection, onBulkEdit }: { data: Program; selection: UseSelectionResult; onBulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void }) {
   const [picker, setPicker] = useState<Picker>(null);
   const [pendingOp, setPendingOp] = useState<BulkEditOp | null>(null);
   const [acceptedOverride, setAcceptedOverride] = useState<Set<string> | null>(null);
