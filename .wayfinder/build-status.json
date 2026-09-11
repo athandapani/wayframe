@@ -1,4 +1,4 @@
 {
   "t1": { "status": "done", "note": "RoadmapData schema discipline: .strict() everywhere, drift fixes, integer schemaVersion + migration ladder, localStorage validated through the same pipeline as file-open." },
-  "t11": { "status": "in-progress", "note": "Portfolio envelope & identity — splitting RoadmapData into Portfolio + Program." }
+  "t11": { "status": "done", "note": "Portfolio envelope & identity — RoadmapData split into Portfolio + Program (id/portfolioId/order), PortfolioDocument as the new root shape, RenderableProgram/mergeForRender keeps the render layer Portfolio-agnostic." }
 }
