@@ -5,7 +5,7 @@
 import type { RoadmapData } from "../types";
 
 export const sampleRoadmap: RoadmapData = {
-  schemaVersion: "1.0",
+  schemaVersion: 1,
   programName: "Sample Program",
   generatedAt: "2026-08-01T00:00:00.000Z",
   lastUpdatedAt: "2026-08-01T00:00:00.000Z",

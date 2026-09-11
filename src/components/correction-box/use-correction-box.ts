@@ -37,6 +37,7 @@ import {
 } from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
 import { withComputedCriticalPath } from "@/lib/critical-path/compute";
+import { validateRoadmapDocument } from "@/lib/document-file/schema";
 import { nanoid } from "nanoid";
 
 /** Single-document-per-browser persistence (wayframe#22) — one fixed key, not a multi-roadmap store. */
@@ -51,7 +52,13 @@ const STORAGE_KEY = "wayframe:document";
 export function loadPersistedDocument(): RoadmapData | null {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved ? (JSON.parse(saved) as RoadmapData) : null;
+    if (!saved) return null;
+    const result = validateRoadmapDocument(JSON.parse(saved));
+    if (!result.ok) {
+      console.warn("Wayframe: discarding invalid persisted document", result.message, result.issues);
+      return null;
+    }
+    return result.document;
   } catch {
     return null;
   }
@@ -815,7 +822,12 @@ export function useCorrectionBox(initialData: RoadmapData, persist = true, today
       if (persist) {
         const saved = window.localStorage.getItem(STORAGE_KEY);
         if (saved) {
-          dispatch({ type: "hydrated", data: JSON.parse(saved) as RoadmapData });
+          const result = validateRoadmapDocument(JSON.parse(saved));
+          if (result.ok) {
+            dispatch({ type: "hydrated", data: result.document });
+          } else {
+            console.warn("Wayframe: discarding invalid persisted document", result.message, result.issues);
+          }
         }
       }
     } catch {

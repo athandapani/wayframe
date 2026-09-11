@@ -10,7 +10,7 @@ import type { RoadmapData } from "@/components/timeline/types";
 export function createMidnightTemplate(today: Date): RoadmapData {
   const todayIso = today.toISOString().slice(0, 10);
   return {
-    schemaVersion: "1.0",
+    schemaVersion: 1,
     programName: "New Program",
     generatedAt: today.toISOString(),
     owner: "",

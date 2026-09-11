@@ -114,7 +114,7 @@ describe("computeCriticalPathIds", () => {
 describe("withComputedCriticalPath", () => {
   it("overlays isCriticalPathOverride over the computed result", () => {
     const data = {
-      schemaVersion: "1.0",
+      schemaVersion: 1,
       programName: "p",
       generatedAt: "2026-01-01T00:00:00Z",
       owner: "o",

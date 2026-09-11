@@ -32,7 +32,7 @@ function milestone(id: string, laneId: string, overrides: Partial<Milestone> = {
 
 function baseData(): RoadmapData {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: 1,
     programName: "P",
     generatedAt: "2026-01-01T00:00:00Z",
     owner: "o",

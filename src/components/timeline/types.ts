@@ -194,7 +194,13 @@ export interface ActionItem {
 }
 
 export interface RoadmapData {
-  schemaVersion: string;
+  /**
+   * Monotonic integer (wayframe t1) — see CURRENT_SCHEMA_VERSION in
+   * src/lib/document-file/schema.ts, the only place this is compared or
+   * bumped. A document persisted with an older value is upgraded by that
+   * file's migration ladder before it's ever validated against this shape.
+   */
+  schemaVersion: number;
   programName: string;
   generatedAt: string;
   /**
