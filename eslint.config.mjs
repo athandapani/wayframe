@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // party/ is a separate Cloudflare Worker deployable (wayframe#t4) with
+    // its own package.json/tsconfig — not part of this Next.js app.
+    "party/**",
   ]),
 ]);
 

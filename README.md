@@ -49,6 +49,7 @@ TURSO_AUTH_TOKEN=...
 AUTH_SECRET=...            # `npx auth secret`, required in production
 AUTH_GOOGLE_ID=...         # optional locally, required in production — Google Cloud OAuth client
 AUTH_GOOGLE_SECRET=...
+NEXT_PUBLIC_PARTY_HOST=localhost:8787   # optional — defaults to localhost:8787 (see party/)
 ```
 
 Without a key, `/api/extract` and `/api/correct` fail closed with a typed error rather than
@@ -65,6 +66,11 @@ production requires both plus `AUTH_SECRET`.
 Next.js (App Router) + TypeScript + Tailwind CSS, deployed on Vercel via GitHub auto-deploy on
 push to `master`. The Claude API calls (extraction, corrections) run server-side via Vercel
 serverless functions (`src/app/api/`) — the API key is never exposed client-side.
+
+`party/` is a separate deployable — a Cloudflare Worker + Durable Object (Yjs realtime
+collaboration backend, see `party/README.md`) — since Vercel serverless functions can't hold a
+long-lived WebSocket. It has its own `package.json`/`tsconfig.json` and isn't part of the
+Next.js build.
 
 ## License
 

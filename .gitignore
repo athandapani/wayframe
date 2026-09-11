@@ -39,6 +39,10 @@ yarn-error.log*
 # local dev database (libSQL file mode, see src/lib/db/client.ts)
 /.data
 
+# party/ (Cloudflare Worker, wayframe#t4) — separate package, own deps
+/party/node_modules
+/party/.wrangler
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
