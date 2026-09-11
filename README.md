@@ -44,11 +44,15 @@ Extraction and AI corrections need a live key:
 # .env.local
 ANTHROPIC_API_KEY=sk-...
 SMARTSHEET_API_TOKEN=...   # optional, only for the Smartsheet import path
+TURSO_DATABASE_URL=libsql://...   # optional locally, required in production
+TURSO_AUTH_TOKEN=...
 ```
 
 Without a key, `/api/extract` and `/api/correct` fail closed with a typed error rather than
 silently returning bad data — everything else in the app (the `/dev/demo-roadmap` QA route,
-manual editing, export, themes) works without one.
+manual editing, export, themes) works without one. Without `TURSO_DATABASE_URL`, the server
+falls back to a local libSQL file at `.data/wayframe-dev.db` — no Turso project needed for
+local dev (see `src/lib/db/client.ts`); production requires the real Turso credentials.
 
 ## Stack
 

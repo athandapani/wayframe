@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local dev database (libSQL file mode, see src/lib/db/client.ts)
+/.data
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
