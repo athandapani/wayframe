@@ -46,6 +46,9 @@ ANTHROPIC_API_KEY=sk-...
 SMARTSHEET_API_TOKEN=...   # optional, only for the Smartsheet import path
 TURSO_DATABASE_URL=libsql://...   # optional locally, required in production
 TURSO_AUTH_TOKEN=...
+AUTH_SECRET=...            # `npx auth secret`, required in production
+AUTH_GOOGLE_ID=...         # optional locally, required in production — Google Cloud OAuth client
+AUTH_GOOGLE_SECRET=...
 ```
 
 Without a key, `/api/extract` and `/api/correct` fail closed with a typed error rather than
@@ -53,6 +56,9 @@ silently returning bad data — everything else in the app (the `/dev/demo-roadm
 manual editing, export, themes) works without one. Without `TURSO_DATABASE_URL`, the server
 falls back to a local libSQL file at `.data/wayframe-dev.db` — no Turso project needed for
 local dev (see `src/lib/db/client.ts`); production requires the real Turso credentials.
+Without `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`, Google sign-in (`src/lib/auth/auth.ts`) simply
+can't complete a handshake locally until you create an OAuth client in Google Cloud Console;
+production requires both plus `AUTH_SECRET`.
 
 ## Stack
 

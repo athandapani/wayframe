@@ -14,5 +14,7 @@ export async function GET() {
   return NextResponse.json({
     anthropicConfigured: hasEnv("ANTHROPIC_API_KEY"),
     smartsheetConfigured: hasEnv("SMARTSHEET_API_TOKEN"),
+    tursoConfigured: hasEnv("TURSO_DATABASE_URL"),
+    googleAuthConfigured: hasEnv("AUTH_GOOGLE_ID") && hasEnv("AUTH_GOOGLE_SECRET"),
   });
 }
