@@ -37,6 +37,27 @@ that file with the Artifact tool, passing `url` as the URL above — omitting
 - `live_tickets.json`, `merged.json`, `mermaid.txt` — intermediate files from
   the last run, also regenerated each time.
 
+## Build Board (implementation progress)
+
+A separate, sibling dashboard tracks *build* status — which of the 42
+resolved tickets have actually landed in code — as the rebuild is
+implemented session by session:
+
+**https://claude.ai/code/artifact/2c2afd58-1b10-4398-b71b-8ccca0c810e4**
+
+It's driven by the same `tickets-meta.json` (title/blockers/gist) plus a new
+`build-status.json` (`key -> {status: "done"|"in-progress"|"not-started", note}`)
+that only this dashboard uses. **Update `build-status.json` and re-run
+`regen-build-dashboard.sh` at the end of any session that starts or finishes
+implementing a ticket**, then republish `build-dashboard-out.html` with the
+Artifact tool passing the URL above as `url` (omitting it creates a new,
+separate artifact instead of updating this one).
+
+Files: `build-status.json` (edit this), `build-dashboard-template.html` (page
+shell, edit for visual changes), `regen-build-dashboard.sh` (generator),
+`build-dashboard-out.html`/`build-merged.json`/`build-mermaid.txt` (generated,
+safe to ignore/regenerate anytime).
+
 ## Adding new tickets to the map later
 
 1. Create the issue(s) as sub-issues of #74, wire native `blocked_by` edges,

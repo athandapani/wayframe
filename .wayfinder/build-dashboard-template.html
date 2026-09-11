@@ -1,0 +1,372 @@
+<title>Wayfinder Build Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --ground: #f4f5f3;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --line: #dde1e6;
+    --line-soft: #e8eaed;
+    --text-hi: #1a2027;
+    --text-lo: #5b6472;
+    --text-faint: #8891a0;
+    --accent: #2f8c81;
+    --accent-soft: #e4f2ef;
+    --gold: #b5791f;
+    --gold-soft: #faf1de;
+    --green: #2f8f5c;
+    --green-soft: #e7f5ec;
+    --slate: #6a6f93;
+    --slate-soft: #eeeef5;
+    --shadow: 0 1px 2px rgba(20,24,30,0.04), 0 1px 1px rgba(20,24,30,0.03);
+    --font-display: "Fraunces", Georgia, serif;
+    --font-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10141c;
+      --panel: #161c26;
+      --card: #1a212c;
+      --line: #2a3241;
+      --line-soft: #232a37;
+      --text-hi: #eef1f6;
+      --text-lo: #98a2b3;
+      --text-faint: #6b7383;
+      --accent: #5fbdb1;
+      --accent-soft: #1c3230;
+      --gold: #e2a63b;
+      --gold-soft: #332812;
+      --green: #6fbf8b;
+      --green-soft: #1a3226;
+      --slate: #9195c0;
+      --slate-soft: #232840;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #10141c;
+    --panel: #161c26;
+    --card: #1a212c;
+    --line: #2a3241;
+    --line-soft: #232a37;
+    --text-hi: #eef1f6;
+    --text-lo: #98a2b3;
+    --text-faint: #6b7383;
+    --accent: #5fbdb1;
+    --accent-soft: #1c3230;
+    --gold: #e2a63b;
+    --gold-soft: #332812;
+    --green: #6fbf8b;
+    --green-soft: #1a3226;
+    --slate: #9195c0;
+    --slate-soft: #232840;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text-hi);
+    font-family: var(--font-body);
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  ::selection { background: var(--accent-soft); }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 2.75rem 2rem 4rem; }
+
+  /* ---------- header ---------- */
+  header { margin-bottom: 2.25rem; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 0.6rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2rem, 3.4vw, 2.7rem);
+    margin: 0 0 0.5rem;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: var(--text-lo);
+    font-size: 0.98rem;
+    max-width: 62ch;
+    margin: 0;
+  }
+  .sub code { font-family: var(--font-mono); font-size: 0.92em; background: var(--line-soft); padding: 0.1em 0.35em; border-radius: 4px; }
+
+  /* ---------- stat row ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.9rem;
+    margin: 1.75rem 0 2.5rem;
+  }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    box-shadow: var(--shadow);
+  }
+  .stat .n {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .l {
+    font-size: 0.78rem;
+    color: var(--text-lo);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.4rem;
+  }
+  .stat.done .n { color: var(--green); }
+  .stat.progress .n { color: var(--gold); }
+  .stat.pending .n { color: var(--slate); }
+  .stat.total .n { color: var(--accent); }
+
+  /* ---------- section headings ---------- */
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.15rem;
+    margin: 0 0 0.9rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+  h2 .hint { font-family: var(--font-body); font-weight: 400; font-size: 0.82rem; color: var(--text-faint); }
+  section { margin-bottom: 2.75rem; }
+
+  /* ---------- wave board ---------- */
+  .board-scroll { overflow-x: auto; padding-bottom: 0.5rem; }
+  .board {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 232px;
+    gap: 0.9rem;
+    align-items: start;
+  }
+  .wave-col {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0.85rem;
+  }
+  .wave-col .wave-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin: 0 0 0.7rem;
+  }
+  .ticket-card {
+    display: block;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--slate);
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.55rem;
+    cursor: pointer;
+  }
+  .ticket-card:last-child { margin-bottom: 0; }
+  .ticket-card.done { border-left-color: var(--green); }
+  .ticket-card.progress { border-left-color: var(--gold); }
+  .ticket-card .key {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+  }
+  .ticket-card .title {
+    font-size: 0.83rem;
+    margin-top: 0.15rem;
+    color: var(--text-hi);
+  }
+  .ticket-card summary { list-style: none; }
+  .ticket-card summary::-webkit-details-marker { display: none; }
+  .ticket-card .gist {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--line);
+    font-size: 0.78rem;
+    color: var(--text-lo);
+  }
+
+  /* ---------- pill ---------- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.15em 0.55em;
+    border-radius: 999px;
+  }
+  .pill.done { background: var(--green-soft); color: var(--green); }
+  .pill.progress { background: var(--gold-soft); color: var(--gold); }
+  .pill.pending { background: var(--slate-soft); color: var(--slate); }
+
+  /* ---------- graph ---------- */
+  .graph-wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1rem;
+    overflow-x: auto;
+  }
+
+  /* ---------- table ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+  }
+  tr:last-child td { border-bottom: none; }
+  td.key { font-family: var(--font-mono); color: var(--text-faint); white-space: nowrap; }
+  td.wave { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-faint); }
+  td.gist { color: var(--text-lo); max-width: 46ch; }
+
+  footer {
+    margin-top: 2.5rem;
+    font-size: 0.78rem;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ticket-card { transition: transform 0.12s ease, border-color 0.12s ease; }
+    .ticket-card:hover { transform: translateY(-1px); border-color: var(--accent); }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Wayframe · multi-program rebuild</p>
+    <h1>Build Board</h1>
+    <p class="sub">Tracks implementation of the 42 tickets resolved on the <a href="https://github.com/athandapani/wayframe/issues/74" target="_blank" rel="noopener">wayfinder map</a> — grouped by dependency wave, colored by build status. Design decisions live on the sibling <em>Wayfinder</em> dashboard; this one follows the code.</p>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <section>
+    <h2>By dependency wave <span class="hint">— left to right, each column unblocked by the one before it</span></h2>
+    <div class="board-scroll"><div class="board" id="board"></div></div>
+  </section>
+
+  <section>
+    <h2>Dependency graph</h2>
+    <div class="graph-wrap">
+      <pre class="mermaid">
+__MERMAID_SOURCE__
+      </pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>All tickets</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th>Wave</th><th>Status</th><th>Title</th><th>Decision</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>Regenerated by <code>.wayfinder/regen-build-dashboard.sh</code> · last updated __UPDATED_AT__</footer>
+</div>
+
+<script>
+  const TICKETS = __TICKETS_JSON__;
+
+  const statusLabel = { done: "Done", progress: "In progress", pending: "Not started" };
+
+  function pill(status) {
+    return `<span class="pill ${status}">${statusLabel[status]}</span>`;
+  }
+
+  function renderStats() {
+    const counts = { done: 0, progress: 0, pending: 0 };
+    for (const t of TICKETS) counts[t.status]++;
+    const stats = [
+      { cls: "total", n: TICKETS.length, l: "Total tickets" },
+      { cls: "done", n: counts.done, l: "Done" },
+      { cls: "progress", n: counts.progress, l: "In progress" },
+      { cls: "pending", n: counts.pending, l: "Not started" },
+    ];
+    document.getElementById("stats").innerHTML = stats
+      .map((s) => `<div class="stat ${s.cls}"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`)
+      .join("");
+  }
+
+  function renderBoard() {
+    const waves = {};
+    for (const t of TICKETS) (waves[t.wave] ??= []).push(t);
+    const waveKeys = Object.keys(waves).map(Number).sort((a, b) => a - b);
+    document.getElementById("board").innerHTML = waveKeys
+      .map((w) => {
+        const cards = waves[w]
+          .sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }))
+          .map(
+            (t) => `
+          <details class="ticket-card ${t.status}">
+            <summary>
+              <div class="key">${t.key}</div>
+              <div class="title">${t.title}</div>
+            </summary>
+            <div class="gist">${t.gist ?? "(no decision recorded)"}</div>
+          </details>`
+          )
+          .join("");
+        return `<div class="wave-col"><p class="wave-label">Wave ${w}</p>${cards}</div>`;
+      })
+      .join("");
+  }
+
+  function renderTable() {
+    const rows = [...TICKETS].sort((a, b) => a.wave - b.wave || a.key.localeCompare(b.key, undefined, { numeric: true }));
+    document.getElementById("table-body").innerHTML = rows
+      .map(
+        (t) => `<tr>
+          <td class="key">${t.key}</td>
+          <td class="wave">${t.wave}</td>
+          <td>${pill(t.status)}</td>
+          <td>${t.title}</td>
+          <td class="gist">${t.gist ?? ""}</td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  renderStats();
+  renderBoard();
+  renderTable();
+</script>
