@@ -14,7 +14,6 @@
 // individual preference hook) and applies one by calling each hook's own
 // setter, the same setters the options-menu rows already call directly.
 import { useEffect, useReducer, useState } from "react";
-import type { ThemeId } from "./theme";
 import type { GhostStyle } from "./use-ghost-mode";
 import type { AtRiskStyle } from "./RoadmapTimeline";
 import type { CriticalPathStyle } from "./use-critical-path-style";
@@ -28,7 +27,6 @@ import type { PillProgressStyle } from "./use-pill-progress-style";
 import type { DateLabelPlacement } from "./use-date-label-placement";
 
 export interface ViewSnapshot {
-  themeId?: ThemeId;
   ghostEnabled?: boolean;
   ghostStyle?: GhostStyle;
   atRiskEnabled?: boolean;
@@ -72,7 +70,10 @@ export const BUILTIN_VIEWS: SavedView[] = [
     id: "builtin-presentation",
     name: "Presentation",
     builtin: true,
-    snapshot: { themeId: "press", fontScale: 1.15, gridlineStyle: "off", todayOverlayEnabled: false, legendOpen: false },
+    // No theme swap here (wayframe#88/t18): Theme is Portfolio document
+    // content now (CONTEXT.md's doctrine, #76), and applying a viewer's
+    // personal Saved View must never mutate the document.
+    snapshot: { fontScale: 1.15, gridlineStyle: "off", todayOverlayEnabled: false, legendOpen: false },
   },
   {
     id: "builtin-dense",

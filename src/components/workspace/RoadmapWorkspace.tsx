@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { mergeForRender, type Portfolio, type PortfolioDocument, type Program, type RenderableProgram } from "@/components/timeline/types";
 import { RoadmapTimeline, type GhostMode, type AtRiskMode } from "@/components/timeline/RoadmapTimeline";
-import type { Theme } from "@/components/timeline/theme";
+import { defaultPortfolioTheme, resolvePortfolioTheme, type Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
 import { WayframeLogo } from "@/components/brand/WayframeLogo";
@@ -31,7 +31,6 @@ import { useAxisTiers } from "@/components/timeline/use-axis-tiers";
 import type { AxisTierConfig } from "@/components/timeline/axis-tiers";
 import { useLabelDensity, LABEL_DENSITIES } from "@/components/timeline/use-label-density";
 import type { LabelDensity } from "@/components/timeline/title-layout";
-import { useTheme } from "@/components/timeline/use-theme";
 import { THEME_LIST } from "@/components/timeline/theme";
 import { laneColors } from "@/components/timeline/lane-colors";
 import { SwimlaneManager } from "./SwimlaneManager";
@@ -340,7 +339,13 @@ export function RoadmapWorkspace({
   const atRisk = useAtRiskStyle();
   const criticalPath = useCriticalPathVisibility();
   const lastUpdated = useLastUpdatedVisibility();
-  const { themeId, theme, setTheme } = useTheme();
+  // Theme is Portfolio document content (wayframe#88/t18, CONTEXT.md's
+  // doctrine #76), not a viewer preference — read/write through `box`
+  // (the Portfolio's own state) like companyLogo/legendCategories, not a
+  // localStorage-backed hook.
+  const portfolioTheme = box.portfolio.theme ?? defaultPortfolioTheme;
+  const themeId = portfolioTheme.baseId;
+  const theme = resolvePortfolioTheme(portfolioTheme);
   const criticalPathLine = useCriticalPathStyle();
   const topBand = useTopBandStyle();
   const soWhat = useSoWhatStyle();
@@ -361,6 +366,7 @@ export function RoadmapWorkspace({
   const editLock = useEditLock();
   const isViewMode = editLock.mode === "view";
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [themeCustomizeOpen, setThemeCustomizeOpen] = useState(false);
   const savedViews = useSavedViews();
   const [savingViewName, setSavingViewName] = useState<string | null>(null);
   const selection = useSelection();
@@ -376,7 +382,6 @@ export function RoadmapWorkspace({
   // already has its own tests.
   function currentSnapshot(): ViewSnapshot {
     return {
-      themeId,
       ghostEnabled: ghost.enabled,
       ghostStyle: ghost.style,
       atRiskEnabled: atRisk.enabled,
@@ -403,7 +408,9 @@ export function RoadmapWorkspace({
   }
 
   function applyView(snapshot: ViewSnapshot) {
-    if (snapshot.themeId !== undefined) setTheme(snapshot.themeId);
+    // Theme is document content now (wayframe#88/t18) — a Saved View is a
+    // bundle of viewer preferences and must never mutate the document, so
+    // there's no themeId field here to apply anymore (CONTEXT.md's doctrine).
     if (snapshot.ghostEnabled !== undefined) ghost.setEnabled(snapshot.ghostEnabled);
     if (snapshot.ghostStyle !== undefined) ghost.setStyle(snapshot.ghostStyle);
     if (snapshot.atRiskEnabled !== undefined) atRisk.setEnabled(snapshot.atRiskEnabled);
@@ -729,7 +736,7 @@ export function RoadmapWorkspace({
                   {THEME_LIST.map((t) => (
                     <button
                       key={t.id}
-                      onClick={() => setTheme(t.id)}
+                      onClick={() => box.setThemeBase(t.id)}
                       aria-pressed={themeId === t.id}
                       title={t.tagline}
                       style={{
@@ -752,6 +759,111 @@ export function RoadmapWorkspace({
                     </button>
                   ))}
                 </div>
+                <button
+                  onClick={() => setThemeCustomizeOpen((o) => !o)}
+                  aria-expanded={themeCustomizeOpen}
+                  className="mt-1.5 text-[11px] opacity-70 hover:opacity-100"
+                >
+                  {themeCustomizeOpen ? "Hide customization ›" : "Customize ›"}
+                </button>
+                {themeCustomizeOpen && (
+                  <div className="mt-1.5 space-y-2 rounded-lg border p-2" style={{ borderColor: "var(--wf-border)" }}>
+                    <OptionsMenuRow label="Accent">
+                      <input
+                        type="color"
+                        value={theme.accent}
+                        onChange={(e) => box.setThemeOverride({ accent: e.target.value })}
+                        aria-label="Theme accent color"
+                        className="h-6 w-9 rounded border"
+                        style={{ borderColor: "var(--wf-border)" }}
+                      />
+                    </OptionsMenuRow>
+                    <OptionsMenuRow label="Today line">
+                      <input
+                        type="color"
+                        value={theme.todayColor}
+                        onChange={(e) => box.setThemeOverride({ todayColor: e.target.value })}
+                        aria-label="Theme today-line color"
+                        className="h-6 w-9 rounded border"
+                        style={{ borderColor: "var(--wf-border)" }}
+                      />
+                    </OptionsMenuRow>
+                    <OptionsMenuRow label="Lane wash">
+                      <input
+                        type="range"
+                        min={0}
+                        max={0.3}
+                        step={0.005}
+                        value={theme.laneWashOpacity}
+                        onChange={(e) => box.setThemeOverride({ laneWashOpacity: parseFloat(e.target.value) })}
+                        aria-label="Lane wash opacity"
+                        className="w-20"
+                      />
+                      <span className="w-10 text-right font-mono opacity-70">{theme.laneWashOpacity.toFixed(3)}</span>
+                    </OptionsMenuRow>
+                    <OptionsMenuRow label="Lane gutter">
+                      <input
+                        type="range"
+                        min={0}
+                        max={20}
+                        step={1}
+                        value={theme.laneGutter}
+                        onChange={(e) => box.setThemeOverride({ laneGutter: parseFloat(e.target.value) })}
+                        aria-label="Lane gutter px"
+                        className="w-20"
+                      />
+                      <span className="w-10 text-right font-mono opacity-70">{theme.laneGutter}px</span>
+                    </OptionsMenuRow>
+                    {/* Lightness/chroma/start-hue are edited and saved as one atomic
+                        laneRamp override (wayframe#88/t18's "colour family" control),
+                        never as three independently-overridable fields. */}
+                    <OptionsMenuRow label="Lane colour family">
+                      <span className="flex items-center gap-1 font-mono text-[10px] opacity-70">
+                        L
+                        <input
+                          type="number"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={theme.laneRamp.L}
+                          onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, L: parseFloat(e.target.value) } })}
+                          aria-label="Lane ramp lightness"
+                          className="w-12 rounded border px-1"
+                          style={{ borderColor: "var(--wf-border)" }}
+                        />
+                        C
+                        <input
+                          type="number"
+                          min={0}
+                          max={0.4}
+                          step={0.005}
+                          value={theme.laneRamp.C}
+                          onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, C: parseFloat(e.target.value) } })}
+                          aria-label="Lane ramp chroma"
+                          className="w-12 rounded border px-1"
+                          style={{ borderColor: "var(--wf-border)" }}
+                        />
+                        hue
+                        <input
+                          type="number"
+                          min={0}
+                          max={360}
+                          step={1}
+                          value={theme.laneRamp.startHue}
+                          onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, startHue: parseFloat(e.target.value) } })}
+                          aria-label="Lane ramp start hue"
+                          className="w-12 rounded border px-1"
+                          style={{ borderColor: "var(--wf-border)" }}
+                        />
+                      </span>
+                    </OptionsMenuRow>
+                    {portfolioTheme.overrides && Object.keys(portfolioTheme.overrides).length > 0 && (
+                      <button onClick={box.clearThemeOverrides} style={PILL_STYLE} className={pillToggle(true)}>
+                        Reset overrides
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <OptionsMenuRow label="Company logo">
                 <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>

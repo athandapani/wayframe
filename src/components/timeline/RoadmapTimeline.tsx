@@ -51,12 +51,6 @@ const LABEL_LINE_H = 11;
 const LABEL_BASE_DY = -14;
 /** Extra lift for tier-1 labels so they clear a full two-line tier-0 block. */
 const LABEL_TIER_LIFT = 27;
-/**
- * Bare ground left above and below each lane's wash. Lanes used to sit flush
- * against each other with a 1px divider, which read as one continuous field;
- * a real gutter is what makes crossing into a new lane register.
- */
-const LANE_GUTTER = 7;
 const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
 /** Company-logo header slot (wayframe#46/#54) — reserved above the programName block only when data.companyLogo is set. */
@@ -2247,15 +2241,15 @@ export function RoadmapTimeline({
           const laneNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 3, { breakWords: false });
           return (
             <g key={row.swimlane.id}>
-              {/* The wash and rail are inset by LANE_GUTTER so bare ground
-                  shows between lanes. Adjacent washes that touch read as one
-                  continuous field with a hairline in it; a real gap is what
-                  makes the lane change register. */}
+              {/* The wash and rail are inset by theme.laneGutter so bare
+                  ground shows between lanes. Adjacent washes that touch read
+                  as one continuous field with a hairline in it; a real gap
+                  is what makes the lane change register. */}
               <rect
                 x={MARGIN.left}
-                y={y0 + LANE_GUTTER}
+                y={y0 + theme.laneGutter}
                 width={innerWidth}
-                height={row.height - LANE_GUTTER * 2}
+                height={row.height - theme.laneGutter * 2}
                 fill={tint}
                 fillOpacity={theme.laneWashOpacity}
                 style={placementMode?.laneId === row.swimlane.id ? { cursor: "crosshair" } : selectionModeEnabled ? { cursor: "crosshair" } : undefined}
@@ -2281,7 +2275,7 @@ export function RoadmapTimeline({
                   strokeDasharray="3 2"
                 />
               )}
-              <rect x={MARGIN.left - RAIL_W} y={y0 + LANE_GUTTER} width={RAIL_W} height={row.height - LANE_GUTTER * 2} fill={tint} />
+              <rect x={MARGIN.left - RAIL_W} y={y0 + theme.laneGutter} width={RAIL_W} height={row.height - theme.laneGutter * 2} fill={tint} />
               <text fontSize={12.5 * fontScale} fontWeight={600} fill={theme.ink}>
                 {laneNameLines.map((line, i) => (
                   <tspan

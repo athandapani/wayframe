@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import type { ActionItem, Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
+import type { PortfolioTheme } from "@/components/timeline/theme";
 import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
 
 const StatusSchema = z.enum(["not-started", "on-track", "at-risk", "delayed", "complete"]);
@@ -36,6 +37,59 @@ const LegendCategorySchema = z
     id: z.string().min(1),
     name: z.string(),
     color: z.string(),
+  })
+  .strict();
+
+/** Mirrors theme.ts's `LaneRamp` — edited/merged as one atomic field, never exploded into per-key L/C/startHue overrides (see PortfolioTheme's doc). */
+const LaneRampSchema = z.object({ L: z.number(), C: z.number(), startHue: z.number() }).strict();
+
+/**
+ * Every `Theme` field except `id` (wayframe#88/t18) — `id` is `baseId`'s job,
+ * not something an override can shadow. `.partial()` since `overrides` is
+ * always sparse: a Portfolio only ever stores the fields someone actually
+ * hand-edited off the base preset.
+ */
+const ThemeOverridesSchema = z
+  .object({
+    name: z.string(),
+    tagline: z.string(),
+    mode: z.enum(["light", "dark"]),
+    font: z.string(),
+    ground: z.string(),
+    ink: z.string(),
+    inkMuted: z.string(),
+    rowDivider: z.string(),
+    axisBg: z.string(),
+    axisText: z.string(),
+    separatorBg: z.string(),
+    separatorText: z.string(),
+    laneWashOpacity: z.number(),
+    laneGutter: z.number(),
+    laneRamp: LaneRampSchema,
+    statusColor: z.object({ "not-started": z.string(), complete: z.string(), "on-track": z.string(), "at-risk": z.string(), delayed: z.string() }).strict(),
+    criticalPathColor: z.string(),
+    traceColor: z.string(),
+    connector: z.string(),
+    markerHalo: z.string(),
+    todayColor: z.string(),
+    annotationColor: z.string(),
+    tooltipBg: z.string(),
+    tooltipInk: z.string(),
+    ragColor: z.object({ green: z.string(), amber: z.string(), red: z.string() }).strict(),
+    pageBg: z.string(),
+    panelBg: z.string(),
+    panelBorder: z.string(),
+    panelInk: z.string(),
+    accent: z.string(),
+  })
+  .strict()
+  .partial();
+
+/** Base preset id + sparse override map (wayframe#88/t18) — see PortfolioTheme's doc in theme.ts for why this beats a whole-Theme blob field under concurrent edits. */
+const PortfolioThemeSchema = z
+  .object({
+    baseId: z.enum(["blueprint", "graphite", "press"]),
+    overrides: ThemeOverridesSchema.optional(),
   })
   .strict();
 
@@ -133,6 +187,7 @@ const PortfolioSchema = z
     // was dropped on every Open, without a schema-validation error to catch it.
     companyLogo: z.object({ dataUrl: z.string(), dx: z.number().optional(), dy: z.number().optional(), scale: z.number().optional() }).strict().optional(),
     legendCategories: z.array(LegendCategorySchema).optional(),
+    theme: PortfolioThemeSchema.optional(),
   })
   .strict();
 
@@ -165,6 +220,8 @@ type _PortfolioSchemaMatchesPortfolio = AssertTrue<Equals<z.infer<typeof Portfol
 type _PortfolioDocumentSchemaMatchesPortfolioDocument = AssertTrue<Equals<z.infer<typeof PortfolioDocumentSchema>, PortfolioDocument>>;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ActionItemSchemaMatchesActionItem = AssertTrue<Equals<z.infer<typeof ActionItemSchema>, ActionItem>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _PortfolioThemeSchemaMatchesPortfolioTheme = AssertTrue<Equals<z.infer<typeof PortfolioThemeSchema>, PortfolioTheme>>;
 
 export type LoadResult = { ok: true; document: PortfolioDocument } | { ok: false; message: string; issues: string[] };
 

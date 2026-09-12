@@ -11,6 +11,8 @@
 // rather than added here unilaterally. The milestone short-form label gap
 // from the same prototype is resolved below (`Milestone.shortLabel`).
 
+import type { PortfolioTheme } from "@/components/timeline/theme";
+
 export type Status = "not-started" | "on-track" | "at-risk" | "delayed" | "complete";
 
 /** Executive-view rollup color (wayframe issue #8). */
@@ -262,9 +264,9 @@ export interface Program {
  * `companyLogo`, and `legendCategories` live here now instead of on each
  * Program, since they're shared, Portfolio-wide editorial vocabulary (a
  * merged all-Programs view shows one legend/logo, not one per Program). No
- * stored `baseline`/Scenario/Snapshot fields yet — those are t13/t18/t31's
- * own tickets to add once their shapes are decided; this type only
- * establishes the envelope and identity split.
+ * stored `baseline`/Scenario/Snapshot fields yet — those are t13/t31's own
+ * tickets to add once their shapes are decided; this type only establishes
+ * the envelope and identity split.
  */
 export interface Portfolio {
   id: string;
@@ -299,6 +301,17 @@ export interface Portfolio {
    * a second legend row when non-empty (see ChartLegend.tsx).
    */
   legendCategories?: LegendCategory[];
+  /**
+   * Theme is Portfolio document content (wayframe#88/t18, CONTEXT.md's
+   * doctrine #76) — reclassified from a viewer-local localStorage
+   * preference so a shared or snapshotted Portfolio renders with the
+   * author's intended palette rather than each viewer's own. Optional, like
+   * `companyLogo`/`legendCategories`: a Portfolio with no `theme` yet just
+   * falls back to `defaultPortfolioTheme` (theme.ts) rather than needing a
+   * schema migration. See PortfolioTheme's own doc for the base+override
+   * shape and why it beats a whole-Theme blob field under concurrent edits.
+   */
+  theme?: PortfolioTheme;
 }
 
 /** The root shape round-tripped through localStorage/file save-open (wayframe t11) — see Portfolio's doc for why Program's shared fields live one level up. */

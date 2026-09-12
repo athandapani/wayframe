@@ -57,6 +57,37 @@ describe("validatePortfolioDocument", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("accepts a Portfolio with no theme field at all (wayframe#88/t18 — optional, like companyLogo/legendCategories)", () => {
+    const result = validatePortfolioDocument(demoDocument);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.document.portfolio.theme).toBeUndefined();
+  });
+
+  it("accepts a Portfolio theme with a base id and a sparse override map (wayframe#88/t18)", () => {
+    const withTheme: PortfolioDocument = {
+      ...demoDocument,
+      portfolio: { ...demoPortfolio, theme: { baseId: "graphite", overrides: { accent: "#0bb0a8", laneRamp: { L: 0.6, C: 0.14, startHue: 10 } } } },
+    };
+    const result = validatePortfolioDocument(withTheme);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.document.portfolio.theme).toEqual({ baseId: "graphite", overrides: { accent: "#0bb0a8", laneRamp: { L: 0.6, C: 0.14, startHue: 10 } } });
+  });
+
+  it("rejects an unrecognized theme base id", () => {
+    const withTheme: PortfolioDocument = { ...demoDocument, portfolio: { ...demoPortfolio, theme: { baseId: "neon" as never } } };
+    const result = validatePortfolioDocument(withTheme);
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects an unknown key inside theme.overrides (.strict() applies recursively)", () => {
+    const withTheme: PortfolioDocument = {
+      ...demoDocument,
+      portfolio: { ...demoPortfolio, theme: { baseId: "blueprint", overrides: { notAThemeField: true } as never } },
+    };
+    const result = validatePortfolioDocument(withTheme);
+    expect(result.ok).toBe(false);
+  });
+
   it("rejects a Program whose portfolioId doesn't match its Portfolio (wayframe t11)", () => {
     const result = validatePortfolioDocument({ ...demoDocument, programs: [{ ...demoRoadmap, portfolioId: "some-other-portfolio" }] });
     expect(result.ok).toBe(false);

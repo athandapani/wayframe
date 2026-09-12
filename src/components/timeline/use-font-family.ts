@@ -1,8 +1,8 @@
 "use client";
 
 // Independent font-family viewer preference (wayframe#42/#50) — its own
-// localStorage key, same pattern as use-theme.ts. Deliberately layered OVER
-// whichever theme is active rather than folded into Theme.font: #42's
+// localStorage key, same pattern as use-ghost-mode.ts. Deliberately layered
+// OVER whichever theme is active rather than folded into Theme.font: #42's
 // verdict was that family follows the prototype's Variant A/C model (a
 // curated picker independent of theme), not Variant B's (family locked to
 // theme). "default" resolves to `undefined` so RoadmapTimeline falls back to

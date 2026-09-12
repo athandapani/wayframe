@@ -62,6 +62,8 @@ export interface Theme {
 
   /** Opacity of the lane-colour wash across the plot area. Keep it faint. */
   laneWashOpacity: number;
+  /** Gap (px) the lane wash/rail are inset by, so bare ground shows between adjacent lanes (wayframe#88/t18 — previously a hardcoded RoadmapTimeline constant). Identical across every theme today, hence living in SHARED_TOKENS below rather than being tuned per-theme. */
+  laneGutter: number;
   /**
    * Lane accents are generated from this spec for however many lanes the
    * document has — see lane-colors.ts. It used to be a fixed array of six
@@ -121,6 +123,8 @@ const SHARED_TOKENS = {
   tooltipBg: "#18181b",
   tooltipInk: "#ffffff",
   ragColor: { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" } satisfies Record<Rag, string>,
+  /** wayframe#88/t18 — byte-identical to the old hardcoded RoadmapTimeline LANE_GUTTER constant. */
+  laneGutter: 7,
 };
 
 /** Shared light-theme status ramp: lightness descends as severity rises. */
@@ -263,3 +267,43 @@ export const THEMES: Record<ThemeId, Theme> = {
 export const THEME_LIST: Theme[] = [blueprintTheme, graphiteTheme, pressTheme];
 
 export const defaultTheme = blueprintTheme;
+
+/**
+ * Theme document model (wayframe#88, resolved by t18) — Theme is Portfolio
+ * document content (CONTEXT.md's doctrine, #76), stored as a base preset id
+ * plus a sparse override map, resolved live: `{ baseId, overrides }`. Same
+ * base+override idiom #87 settled for Scenario deltas, chosen over storing
+ * the whole resolved Theme as one blob field specifically because a blob
+ * field is a single register merged whole-value LWW — a live comparison on
+ * wayframe#88's prototype (prototype/theme-collab-88) showed a blob-model
+ * write silently reverting whatever the *other* peer's concurrent edit to
+ * any other field, since each write carries forward that peer's own
+ * possibly-stale local snapshot for everything it didn't touch. Keying each
+ * override by field instead gives every field its own independent register
+ * (a plain object today; a Y.Map entry once t14 wires Portfolio into a real
+ * Y.Doc) — two peers touching different fields both land, and only a
+ * literal same-field edit is a real conflict, resolved by last-write-wins.
+ *
+ * `overrides` deliberately excludes `id`: which built-in theme a Portfolio
+ * is based on is `baseId`'s job, not something to shadow via an override.
+ *
+ * `laneRamp` is the one field the prototype's walkthrough #5 called out as
+ * an exception worth documenting: even though it's one key in `overrides`
+ * like any other, the theme editor's "colour family" control (lightness +
+ * chroma + start hue, edited together) makes a laneRamp edit atomic by
+ * construction — a second edit fully replaces the first, the same as
+ * overwriting any other single field, not a partial merge across the three
+ * numbers. That's expected, not a gap: it matches the control's own save
+ * granularity.
+ */
+export interface PortfolioTheme {
+  baseId: ThemeId;
+  overrides?: Partial<Omit<Theme, "id">>;
+}
+
+export const defaultPortfolioTheme: PortfolioTheme = { baseId: "blueprint" };
+
+/** Merges a PortfolioTheme's base + sparse overrides into a renderable Theme — the base+override idiom's read side. */
+export function resolvePortfolioTheme(portfolioTheme: PortfolioTheme): Theme {
+  return { ...THEMES[portfolioTheme.baseId], ...portfolioTheme.overrides };
+}

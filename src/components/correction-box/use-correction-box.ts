@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useState } from "react";
 import type { Portfolio, PortfolioDocument, Rag, Milestone, Program, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
+import { defaultPortfolioTheme, type Theme, type ThemeId } from "@/components/timeline/theme";
 import {
   coercePatchOp,
   type AcceptBaselineOp,
@@ -156,6 +157,16 @@ export type CorrectionBoxAction =
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
+  // Theme is Portfolio document content (wayframe#88/t18) — setThemeBase
+  // swaps the base preset (keeping any overrides live on top of it, per the
+  // prototype's "base swap racing an override tweak" walkthrough);
+  // setThemeOverride patches one or more override fields at once (mirrors
+  // setCompanyLogoGeometry bundling a few related field writes together);
+  // clearThemeOverrides resets to the base preset with no overrides, as its
+  // own explicit action distinct from picking a new base theme.
+  | { type: "setThemeBase"; baseId: ThemeId }
+  | { type: "setThemeOverride"; patch: Partial<Omit<Theme, "id">> }
+  | { type: "clearThemeOverrides" }
   | { type: "snapshotRollups"; today: Date }
   | { type: "addCategory"; name: string; color: string; newId: string }
   | { type: "renameCategory"; id: string; name: string }
@@ -610,6 +621,35 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setThemeBase": {
+      return {
+        ...state,
+        data: stampUpdated(state.data),
+        portfolio: { ...state.portfolio, theme: { baseId: action.baseId, overrides: state.portfolio.theme?.overrides } },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "setThemeOverride": {
+      const baseId = state.portfolio.theme?.baseId ?? defaultPortfolioTheme.baseId;
+      return {
+        ...state,
+        data: stampUpdated(state.data),
+        portfolio: { ...state.portfolio, theme: { baseId, overrides: { ...state.portfolio.theme?.overrides, ...action.patch } } },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "clearThemeOverrides": {
+      const baseId = state.portfolio.theme?.baseId ?? defaultPortfolioTheme.baseId;
+      return {
+        ...state,
+        data: stampUpdated(state.data),
+        portfolio: { ...state.portfolio, theme: { baseId } },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
     case "snapshotRollups": {
       // Passive once-per-calendar-day-per-lane rollup snapshot for the
       // Executive-view trend arrow (wayframe#33) — same "not a user edit"
@@ -801,6 +841,12 @@ export interface UseCorrectionBoxResult {
   clearCompanyLogo: () => void;
   /** Commits a drag/resize gesture's final dx/dy/scale (wayframe#64) — a no-op if there's no logo to move. */
   setCompanyLogoGeometry: (dx: number, dy: number, scale: number) => void;
+  /** Switches the Portfolio's base theme preset — existing overrides stay live on top of it (wayframe#88/t18). */
+  setThemeBase: (baseId: ThemeId) => void;
+  /** Patches one or more Theme override fields (wayframe#88/t18) — see PortfolioTheme's doc in theme.ts. */
+  setThemeOverride: (patch: Partial<Omit<Theme, "id">>) => void;
+  /** Resets to the base preset with no overrides (wayframe#88/t18) — its own explicit action, distinct from picking a new base theme. */
+  clearThemeOverrides: () => void;
   /** Legend category vocabulary management — see CategoryManager.tsx. */
   addCategory: (name: string, color: string) => void;
   renameCategory: (id: string, name: string) => void;
@@ -1083,6 +1129,9 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const setCompanyLogo = useCallback((dataUrl: string) => dispatch({ type: "setCompanyLogo", dataUrl }), []);
   const clearCompanyLogo = useCallback(() => dispatch({ type: "clearCompanyLogo" }), []);
   const setCompanyLogoGeometry = useCallback((dx: number, dy: number, scale: number) => dispatch({ type: "setCompanyLogoGeometry", dx, dy, scale }), []);
+  const setThemeBase = useCallback((baseId: ThemeId) => dispatch({ type: "setThemeBase", baseId }), []);
+  const setThemeOverride = useCallback((patch: Partial<Omit<Theme, "id">>) => dispatch({ type: "setThemeOverride", patch }), []);
+  const clearThemeOverrides = useCallback(() => dispatch({ type: "clearThemeOverrides" }), []);
   const addCategory = useCallback((name: string, color: string) => dispatch({ type: "addCategory", name, color, newId: nanoid() }), []);
   const renameCategory = useCallback((id: string, name: string) => dispatch({ type: "renameCategory", id, name }), []);
   const recolorCategory = useCallback((id: string, color: string) => dispatch({ type: "recolorCategory", id, color }), []);
@@ -1136,6 +1185,9 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     setCompanyLogo,
     clearCompanyLogo,
     setCompanyLogoGeometry,
+    setThemeBase,
+    setThemeOverride,
+    clearThemeOverrides,
     addCategory,
     renameCategory,
     recolorCategory,

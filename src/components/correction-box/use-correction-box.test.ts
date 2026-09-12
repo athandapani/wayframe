@@ -254,6 +254,56 @@ describe("setCompanyLogoGeometry reducer action (wayframe#64)", () => {
   });
 });
 
+describe("theme reducer actions (wayframe#88/t18)", () => {
+  it("setThemeBase sets baseId and leaves the Portfolio otherwise untouched when there's no existing theme", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setThemeBase", baseId: "graphite" });
+    expect(next.portfolio.theme).toEqual({ baseId: "graphite", overrides: undefined });
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("setThemeBase keeps existing overrides live on top of the new base (prototype/theme-collab-88 walkthrough #3)", () => {
+    const state = initialState();
+    state.portfolio.theme = { baseId: "blueprint", overrides: { accent: "#ff8800" } };
+    const next = reduce(state, { type: "setThemeBase", baseId: "graphite" });
+    expect(next.portfolio.theme).toEqual({ baseId: "graphite", overrides: { accent: "#ff8800" } });
+  });
+
+  it("setThemeOverride patches a field onto the default base when there's no existing theme", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setThemeOverride", patch: { accent: "#0bb0a8" } });
+    expect(next.portfolio.theme).toEqual({ baseId: "blueprint", overrides: { accent: "#0bb0a8" } });
+  });
+
+  it("setThemeOverride merges onto existing overrides without dropping unrelated fields", () => {
+    const state = initialState();
+    state.portfolio.theme = { baseId: "press", overrides: { accent: "#0bb0a8" } };
+    const next = reduce(state, { type: "setThemeOverride", patch: { laneWashOpacity: 0.15 } });
+    expect(next.portfolio.theme).toEqual({ baseId: "press", overrides: { accent: "#0bb0a8", laneWashOpacity: 0.15 } });
+  });
+
+  it("setThemeOverride replaces laneRamp wholesale — it's one atomic field, not a per-key merge", () => {
+    const state = initialState();
+    state.portfolio.theme = { baseId: "blueprint", overrides: { laneRamp: { L: 0.6, C: 0.14, startHue: 10 } } };
+    const next = reduce(state, { type: "setThemeOverride", patch: { laneRamp: { L: 0.5, C: 0.2, startHue: 200 } } });
+    expect(next.portfolio.theme?.overrides?.laneRamp).toEqual({ L: 0.5, C: 0.2, startHue: 200 });
+  });
+
+  it("clearThemeOverrides keeps baseId but drops every override", () => {
+    const state = initialState();
+    state.portfolio.theme = { baseId: "press", overrides: { accent: "#0bb0a8", laneWashOpacity: 0.15 } };
+    const next = reduce(state, { type: "clearThemeOverrides" });
+    expect(next.portfolio.theme).toEqual({ baseId: "press" });
+  });
+
+  it("theme actions are undoable", () => {
+    const state = initialState();
+    const set = reduce(state, { type: "setThemeBase", baseId: "graphite" });
+    const undone = reduce(set, { type: "undo" });
+    expect(undone.portfolio.theme).toBeUndefined();
+  });
+});
+
 describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
   it("merges a blufOp touching only the statement, leaving bullets/label untouched", () => {
     const withPending: CorrectionBoxState = {
