@@ -3,6 +3,17 @@
   "name": "wayframe-party",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
+  // TURSO_DATABASE_URL/TURSO_AUTH_TOKEN (wayframe#t12) — the same Turso
+  // database src/lib/db/client.ts talks to, reached here over HTTP via
+  // @libsql/client/web (see src/db.ts) since Workers have no filesystem for
+  // libSQL's embedded-replica/file mode. Set them as real secrets before
+  // deploying, not as plaintext `vars` here:
+  //   wrangler secret put TURSO_DATABASE_URL
+  //   wrangler secret put TURSO_AUTH_TOKEN
+  // For local `wrangler dev`, either point these at a real Turso branch or
+  // at `turso dev`'s local HTTP emulator via a `.dev.vars` file (gitignored)
+  // — there's no local-file fallback on this side, unlike the Next.js app's
+  // dev-mode `file:.data/wayframe-dev.db`.
   "durable_objects": {
     "bindings": [
       {
