@@ -108,7 +108,8 @@ function computeRows(
   return out;
 }
 
-function computeDomain(data: RenderableProgram): { domainMin: number; domainMax: number } {
+/** Exported for use-zoom-window.ts (wayframe t10) — the full-document domain a zoom window clamps against. */
+export function computeDomain(data: RenderableProgram): { domainMin: number; domainMax: number } {
   const allDates = [
     ...data.milestones.map((m) => m.date),
     ...data.milestones.filter((m) => m.endDate).map((m) => m.endDate!),
@@ -1205,6 +1206,14 @@ export interface RoadmapTimelineProps {
   onToggleSelect?: (id: string) => void;
   /** Fired once a marquee drag completes, with every milestone id it covered. */
   onMarqueeSelect?: (ids: string[]) => void;
+  /**
+   * Forces the rendered date domain instead of deriving it from `data` via
+   * computeDomain (wayframe t10) — computeDomain's own ±14-day content-derived
+   * pad otherwise floors how tight a zoomed-in window can render. Set by
+   * use-zoom-window.ts once a requested window settles; omit to render the
+   * full document (the default, unzoomed behavior).
+   */
+  domainOverride?: { min: number; max: number };
 }
 
 export function RoadmapTimeline({
@@ -1250,6 +1259,7 @@ export function RoadmapTimeline({
   selectedIds,
   onToggleSelect,
   onMarqueeSelect,
+  domainOverride,
 }: RoadmapTimelineProps) {
   // Auto lane height — only ever shrinks the fixed
   // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
@@ -1399,7 +1409,7 @@ export function RoadmapTimeline({
     if (!row) return laneColorAt(theme.laneRamp, 0, laneCount);
     return laneColor(row.swimlane, row.laneIndex);
   }
-  const { domainMin, domainMax } = computeDomain(data);
+  const { domainMin, domainMax } = domainOverride ? { domainMin: domainOverride.min, domainMax: domainOverride.max } : computeDomain(data);
   const todayTs = today.getTime();
 
   const innerWidth = width - MARGIN.left - MARGIN.right;

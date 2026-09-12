@@ -60,6 +60,8 @@ import { CategoryManager } from "./CategoryManager";
 import { useSavedViews, type ViewSnapshot } from "@/components/timeline/use-saved-views";
 import { useSelection } from "@/components/timeline/use-selection";
 import { SelectionToolbar } from "./SelectionToolbar";
+import { useZoomWindow, filterToWindow, type UseZoomWindowResult } from "@/components/timeline/use-zoom-window";
+import { ZoomControls, ZoomPreviewFrame } from "@/components/timeline/ZoomControls";
 
 type Mode = "executive" | "program";
 
@@ -140,6 +142,7 @@ function RoadmapView({
   selectedIds,
   onToggleSelect,
   onMarqueeSelect,
+  zoom,
 }: {
   mode: Mode;
   data: RenderableProgram;
@@ -207,53 +210,61 @@ function RoadmapView({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onMarqueeSelect?: (ids: string[]) => void;
+  /** Zoom & fit-to-screen (wayframe t10) — omit for the off-screen export capture, same convention as onEditDocument; export always renders the full document. */
+  zoom?: UseZoomWindowResult;
 }) {
   if (mode === "program") {
+    const zoomedData = zoom?.active ? filterToWindow(data, zoom.committedWindow) : data;
+    const chart = (
+      <RoadmapTimeline
+        data={zoomedData}
+        today={today}
+        width={chartWidth}
+        ghostMode={ghostMode}
+        atRiskMode={atRiskMode}
+        showCriticalPath={showCriticalPath}
+        criticalPathStyle={criticalPathStyle}
+        theme={theme}
+        onMilestoneClick={onMilestoneClick}
+        onTopLevelItemClick={onTopLevelItemClick}
+        onAddMilestone={onAddMilestone}
+        onPickShape={onPickShape}
+        placementMode={placementMode}
+        onAddTopLevelItem={onAddTopLevelItem}
+        topBandStyle={topBandStyle}
+        periodGridlineStyle={periodGridlineStyle}
+        axisTiers={axisTiers}
+        axisYearColor={axisYearColor}
+        onAxisTiersChange={onAxisTiersChange}
+        onMilestoneDateChange={onMilestoneDateChange}
+        tracedIds={tracedIds}
+        labelDensity={labelDensity}
+        fontScale={fontScale}
+        fontFamily={fontFamily}
+        metricsScale={fontScale}
+        onEditDocument={onEditDocument}
+        onCompanyLogoChange={onCompanyLogoChange}
+        connectorStyle={connectorStyle}
+        connectorDash={connectorDash}
+        connectorArrow={connectorArrow}
+        todayOverlayEnabled={todayOverlayEnabled}
+        pillProgressStyle={pillProgressStyle}
+        autoLaneHeight={autoLaneHeight}
+        dateLabelPlacement={dateLabelPlacement}
+        legendCategoryFillEnabled={legendCategoryFillEnabled}
+        swimlaneOwnerVisible={swimlaneOwnerVisible}
+        onMilestoneDateRangeChange={onMilestoneDateRangeChange}
+        selectionModeEnabled={selectionModeEnabled}
+        selectedIds={selectedIds}
+        onToggleSelect={onToggleSelect}
+        onMarqueeSelect={onMarqueeSelect}
+        domainOverride={zoom?.active ? zoom.committedWindow : undefined}
+      />
+    );
     return (
       <div className="relative mx-auto max-w-[1600px] p-8 pt-16" style={{ background: theme.ground }}>
-        <RoadmapTimeline
-          data={data}
-          today={today}
-          width={chartWidth}
-          ghostMode={ghostMode}
-          atRiskMode={atRiskMode}
-          showCriticalPath={showCriticalPath}
-          criticalPathStyle={criticalPathStyle}
-          theme={theme}
-          onMilestoneClick={onMilestoneClick}
-          onTopLevelItemClick={onTopLevelItemClick}
-          onAddMilestone={onAddMilestone}
-          onPickShape={onPickShape}
-          placementMode={placementMode}
-          onAddTopLevelItem={onAddTopLevelItem}
-          topBandStyle={topBandStyle}
-          periodGridlineStyle={periodGridlineStyle}
-          axisTiers={axisTiers}
-          axisYearColor={axisYearColor}
-          onAxisTiersChange={onAxisTiersChange}
-          onMilestoneDateChange={onMilestoneDateChange}
-          tracedIds={tracedIds}
-          labelDensity={labelDensity}
-          fontScale={fontScale}
-          fontFamily={fontFamily}
-          metricsScale={fontScale}
-          onEditDocument={onEditDocument}
-          onCompanyLogoChange={onCompanyLogoChange}
-          connectorStyle={connectorStyle}
-          connectorDash={connectorDash}
-          connectorArrow={connectorArrow}
-          todayOverlayEnabled={todayOverlayEnabled}
-          pillProgressStyle={pillProgressStyle}
-          autoLaneHeight={autoLaneHeight}
-          dateLabelPlacement={dateLabelPlacement}
-          legendCategoryFillEnabled={legendCategoryFillEnabled}
-          swimlaneOwnerVisible={swimlaneOwnerVisible}
-          onMilestoneDateRangeChange={onMilestoneDateRangeChange}
-          selectionModeEnabled={selectionModeEnabled}
-          selectedIds={selectedIds}
-          onToggleSelect={onToggleSelect}
-          onMarqueeSelect={onMarqueeSelect}
-        />
+        {zoom && <ZoomControls state={zoom} />}
+        {zoom ? <ZoomPreviewFrame state={zoom}>{chart}</ZoomPreviewFrame> : chart}
         {legend}
         <BlufCallout
           bluf={data.bluf}
@@ -354,6 +365,7 @@ export function RoadmapWorkspace({
   const [savingViewName, setSavingViewName] = useState<string | null>(null);
   const selection = useSelection();
   const [selectMode, setSelectMode] = useState(false);
+  const zoom = useZoomWindow(renderable);
 
   // Saved Views — reads every preference hook already
   // instantiated above into one snapshot / writes one back out through each
@@ -1290,6 +1302,7 @@ export function RoadmapWorkspace({
             selectedIds={selection.selectedIds}
             onToggleSelect={selection.toggle}
             onMarqueeSelect={selection.addAll}
+            zoom={zoom}
             legend={
               <ChartLegend
                 theme={theme}
