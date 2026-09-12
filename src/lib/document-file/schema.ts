@@ -10,6 +10,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import type { ActionItem, Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import type { PortfolioTheme } from "@/components/timeline/theme";
+import type { MilestoneOverride, MilestonePatch, Scenario, TopLevelItemOverride, TopLevelItemPatch } from "@/lib/scenario/types";
 import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
 
 const StatusSchema = z.enum(["not-started", "on-track", "at-risk", "delayed", "complete"]);
@@ -116,14 +117,66 @@ const MilestoneSchema = z
       .optional(),
     potentialDate: IsoDate.optional(),
     categoryId: z.string().nullable().optional(),
+    // Drift counter (t13, wayframe#87) — optional, same "documents from
+    // before this field existed just don't have one yet" treatment as
+    // lastUpdatedAt. See Milestone.rev's doc in types.ts.
+    rev: z.number().optional(),
   })
   .strict();
 
 const TopLevelItemSchema = z.discriminatedUnion("type", [
-  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional() }).strict(),
-  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional() }).strict(),
-  z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate, message: z.string() }).strict(),
+  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), rev: z.number().optional() }).strict(),
+  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional(), rev: z.number().optional() }).strict(),
+  z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate, message: z.string(), rev: z.number().optional() }).strict(),
 ]);
+
+/** Same fields MilestoneSchema has, minus identity (`id`) and the drift counter (`rev`) an override doesn't get to shadow — mirrors ThemeOverridesSchema's `.strict().partial()` shape. */
+const MilestonePatchSchema = MilestoneSchema.omit({ id: true, rev: true }).partial();
+
+/**
+ * Mirrors TopLevelItemPatch's doc in scenario/types.ts: TopLevelItem's three
+ * variants only share `id`/`type`/`title` in common, so this is written out
+ * as the flat union of every variant's own patchable fields (each optional)
+ * rather than derived mechanically from TopLevelItemSchema the way
+ * MilestonePatchSchema is from MilestoneSchema.
+ */
+const TopLevelItemPatchSchema = z
+  .object({
+    title: z.string().optional(),
+    date: IsoDate.optional(),
+    status: StatusSchema.optional(),
+    showReferenceLine: z.boolean().optional(),
+    potentialDate: IsoDate.optional(),
+    startDate: IsoDate.optional(),
+    endDate: IsoDate.optional(),
+    message: z.string().optional(),
+  })
+  .strict();
+
+/** Hides the Baseline item in this Scenario (t13, wayframe#87) — see RemoveOverride's doc in scenario/types.ts. */
+const RemoveOverrideSchema = z.object({ op: z.literal("remove") }).strict();
+
+const MilestoneOverrideSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("modify"), patch: MilestonePatchSchema, baseRevAtCreation: z.number() }).strict(),
+  RemoveOverrideSchema,
+]);
+
+const TopLevelItemOverrideSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("modify"), patch: TopLevelItemPatchSchema, baseRevAtCreation: z.number() }).strict(),
+  RemoveOverrideSchema,
+]);
+
+/** Sparse delta list (t13, wayframe#87) — see Scenario's own doc in scenario/types.ts. */
+const ScenarioSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string(),
+    milestoneOverrides: z.record(z.string(), MilestoneOverrideSchema),
+    topLevelItemOverrides: z.record(z.string(), TopLevelItemOverrideSchema),
+    milestoneAdditions: z.record(z.string(), MilestoneSchema),
+    topLevelItemAdditions: z.record(z.string(), TopLevelItemSchema),
+  })
+  .strict();
 
 const ActionItemSchema = z
   .object({
@@ -188,6 +241,7 @@ const PortfolioSchema = z
     companyLogo: z.object({ dataUrl: z.string(), dx: z.number().optional(), dy: z.number().optional(), scale: z.number().optional() }).strict().optional(),
     legendCategories: z.array(LegendCategorySchema).optional(),
     theme: PortfolioThemeSchema.optional(),
+    scenarios: z.array(ScenarioSchema).optional(),
   })
   .strict();
 
@@ -222,6 +276,16 @@ type _PortfolioDocumentSchemaMatchesPortfolioDocument = AssertTrue<Equals<z.infe
 type _ActionItemSchemaMatchesActionItem = AssertTrue<Equals<z.infer<typeof ActionItemSchema>, ActionItem>>;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _PortfolioThemeSchemaMatchesPortfolioTheme = AssertTrue<Equals<z.infer<typeof PortfolioThemeSchema>, PortfolioTheme>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _MilestonePatchSchemaMatchesMilestonePatch = AssertTrue<Equals<z.infer<typeof MilestonePatchSchema>, MilestonePatch>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _TopLevelItemPatchSchemaMatchesTopLevelItemPatch = AssertTrue<Equals<z.infer<typeof TopLevelItemPatchSchema>, TopLevelItemPatch>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _MilestoneOverrideSchemaMatchesMilestoneOverride = AssertTrue<Equals<z.infer<typeof MilestoneOverrideSchema>, MilestoneOverride>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _TopLevelItemOverrideSchemaMatchesTopLevelItemOverride = AssertTrue<Equals<z.infer<typeof TopLevelItemOverrideSchema>, TopLevelItemOverride>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _ScenarioSchemaMatchesScenario = AssertTrue<Equals<z.infer<typeof ScenarioSchema>, Scenario>>;
 
 export type LoadResult = { ok: true; document: PortfolioDocument } | { ok: false; message: string; issues: string[] };
 

@@ -12,6 +12,7 @@
 // from the same prototype is resolved below (`Milestone.shortLabel`).
 
 import type { PortfolioTheme } from "@/components/timeline/theme";
+import type { Scenario } from "@/lib/scenario/types";
 
 export type Status = "not-started" | "on-track" | "at-risk" | "delayed" | "complete";
 
@@ -98,9 +99,11 @@ export type TopLevelItem =
       showReferenceLine?: boolean;
       /** Forward-looking slip-risk projection (wayframe#61/#72) — mirrors Milestone.potentialDate; see its doc there. */
       potentialDate?: string;
+      /** Per-item drift counter (t13, wayframe#87) — see Milestone.rev's doc for what it's for and why it's optional. */
+      rev?: number;
     }
-  | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: Status; potentialDate?: string }
-  | { id: string; type: "annotation"; title: string; date: string; message: string };
+  | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: Status; potentialDate?: string; rev?: number }
+  | { id: string; type: "annotation"; title: string; date: string; message: string; rev?: number };
 
 export interface DependencyEdge {
   id: string; // predecessor milestone id
@@ -185,6 +188,24 @@ export interface Milestone {
    * null/undefined = no category, renders exactly as before.
    */
   categoryId?: string | null;
+  /**
+   * Per-item drift counter (t13, wayframe#87), bumped by
+   * use-correction-box.ts's `stampUpdated`/`bumpChangedRevs` whenever this
+   * milestone's fields actually change. Powers a Scenario `modify` override's
+   * "plan moved since I set this" staleness check (see
+   * src/lib/scenario/resolve.ts's `resolveScenario`) — an override records
+   * the Baseline item's `rev` at the moment it's created
+   * (`baseRevAtCreation`); if the live item's `rev` has since advanced past
+   * that, the override still wins but the conflict is surfaced as
+   * informational, not silently swallowed.
+   *
+   * Optional rather than required, same reasoning as `lastUpdatedAt`: a
+   * document persisted before this field existed (or extracted fresh via the
+   * AI pipeline, which doesn't set it) just doesn't have one yet.
+   * `bumpRev`/every rev-comparison site treats a missing `rev` as 1, so a
+   * never-yet-edited item and one explicitly at `rev: 1` behave identically.
+   */
+  rev?: number;
 }
 
 export interface ActionItem {
@@ -263,10 +284,14 @@ export interface Program {
  * The container a Portfolio's Programs share (wayframe t11) — `schemaVersion`,
  * `companyLogo`, and `legendCategories` live here now instead of on each
  * Program, since they're shared, Portfolio-wide editorial vocabulary (a
- * merged all-Programs view shows one legend/logo, not one per Program). No
- * stored `baseline`/Scenario/Snapshot fields yet — those are t13/t31's own
- * tickets to add once their shapes are decided; this type only establishes
- * the envelope and identity split.
+ * merged all-Programs view shows one legend/logo, not one per Program).
+ *
+ * Still deliberately no stored `baseline` field (t13, wayframe#87, per t11's
+ * own gist): Baseline isn't a snapshot or a distinct stored shape at all —
+ * it's just whatever a Program's `milestones`/`topLevelItems` currently are,
+ * with no Scenario applied. Don't add one; a `scenarios` entry that's
+ * literally empty is exactly Baseline already. Snapshot is still t31's open
+ * job. `scenarios` (below) is the one that landed.
  */
 export interface Portfolio {
   id: string;
@@ -312,6 +337,20 @@ export interface Portfolio {
    * shape and why it beats a whole-Theme blob field under concurrent edits.
    */
   theme?: PortfolioTheme;
+  /**
+   * Named alternate plans layered over Baseline (t13, wayframe#87) — see
+   * Scenario's own doc in src/lib/scenario/types.ts for the sparse
+   * delta-list shape and src/lib/scenario/resolve.ts's `resolveScenario` for
+   * how one gets merged live against a Program's current state. Optional and
+   * order-free, same treatment as `theme`/`legendCategories`: a Portfolio
+   * with no Scenarios yet just has Baseline. Portfolio-scoped, not
+   * Program-scoped, because a Scenario's deltas can touch any Program in the
+   * Portfolio (CONTEXT.md's Scenario glossary entry). Which Scenario a
+   * viewer is looking at is deliberately not stored here — that's
+   * viewer-local UI state for a future ticket to add, same as CONTEXT.md
+   * already documents for Baseline/Scenario selection generally.
+   */
+  scenarios?: Scenario[];
 }
 
 /** The root shape round-tripped through localStorage/file save-open (wayframe t11) — see Portfolio's doc for why Program's shared fields live one level up. */
@@ -334,4 +373,15 @@ export type RenderableProgram = Program & Pick<Portfolio, "companyLogo" | "legen
 /** Builds the render layer's flat shape from the split edit-time state (wayframe t11) — see RenderableProgram's doc. */
 export function mergeForRender(portfolio: Portfolio, program: Program): RenderableProgram {
   return { ...program, companyLogo: portfolio.companyLogo, legendCategories: portfolio.legendCategories };
+}
+
+/**
+ * Reads a possibly-unset `rev` as 1 (t13, wayframe#87) — the one place that
+ * convention is spelled out, since every rev-comparison/bump site (
+ * use-correction-box.ts's `bumpChangedRevs`, src/lib/scenario/resolve.ts's
+ * `resolveScenario`) needs to agree that a never-yet-edited item and one
+ * explicitly at `rev: 1` are the same thing.
+ */
+export function currentRev(item: { rev?: number }): number {
+  return item.rev ?? 1;
 }

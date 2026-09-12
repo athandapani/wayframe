@@ -561,6 +561,61 @@ describe("lastUpdatedAt stamping (wayframe#40/#49)", () => {
   });
 });
 
+describe("rev bumping (t13, wayframe#87)", () => {
+  it("bumps a milestone's rev when a field edit actually changes it", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
+    };
+    const next = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    expect(next.data.milestones[0].rev).toBe(2);
+  });
+
+  it("bumps again on a second real edit, compounding from the item's own last rev rather than resetting", () => {
+    let state: CorrectionBoxState = {
+      ...initialState(),
+      pending: { inputText: "mark m1 complete", ops: [{ targetId: "m1", field: "status", newValue: "complete", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
+    };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    const next = reduce(state, { type: "setMilestoneDate", id: "m1", date: "2026-02-01" });
+    expect(next.data.milestones[0].rev).toBe(3);
+  });
+
+  it("does not bump rev on an untouched milestone, even when a sibling milestone in the same action changes", () => {
+    const state = initialState();
+    state.data.milestones.push({ id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-02-01", status: "not-started", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false });
+    const next = reduce(state, { type: "setMilestoneDate", id: "m1", date: "2026-03-01" });
+    expect(next.data.milestones.find((m) => m.id === "m2")?.rev).toBeUndefined();
+  });
+
+  it("does not bump rev on a brand-new milestone — it starts unset (read as 1), not force-bumped to 2", () => {
+    const next = reduce(initialState(), { type: "addMilestone", laneId: "lane-1", date: "2026-02-01", newId: "new-1" });
+    expect(next.data.milestones.find((m) => m.id === "new-1")?.rev).toBeUndefined();
+  });
+
+  it("bumps rev on a milestone whose dependsOn is cleaned up as a side effect of removing its predecessor", () => {
+    const state = initialState();
+    state.data.milestones.push({ id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-02-01", status: "not-started", dependsOn: [{ id: "m1", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: false });
+    const next = reduce(state, { type: "removeMilestone", id: "m1" });
+    const m2 = next.data.milestones.find((m) => m.id === "m2");
+    expect(m2?.dependsOn).toEqual([]);
+    expect(m2?.rev).toBe(2);
+  });
+
+  it("bumps a topLevelItem's rev on editTopLevelItem", () => {
+    const state = initialState();
+    state.data.topLevelItems.push({ id: "t1", type: "phase", title: "Phase 1", startDate: "2026-01-01", endDate: "2026-02-01", status: "not-started" });
+    const next = reduce(state, { type: "editTopLevelItem", id: "t1", patch: { status: "at-risk" } });
+    expect(next.data.topLevelItems[0].rev).toBe(2);
+  });
+
+  it("does not bump rev when a reducer action leaves the document's Program unchanged", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setThemeBase", baseId: "graphite" });
+    expect(next.data.milestones[0].rev).toBeUndefined();
+  });
+});
+
 describe("snapshotRollups reducer action (wayframe#33)", () => {
   // baseData's m1 is not-started with date 2026-01-01, so as of 2026-06-10
   // it's overdue -> rag "red" per ragForLane's date-aware refinement.

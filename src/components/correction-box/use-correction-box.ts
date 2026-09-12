@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { Portfolio, PortfolioDocument, Rag, Milestone, Program, RollupSnapshot, TopLevelItem } from "@/components/timeline/types";
+import { currentRev, type Portfolio, type PortfolioDocument, type Rag, type Milestone, type Program, type RollupSnapshot, type TopLevelItem } from "@/components/timeline/types";
 import { defaultPortfolioTheme, type Theme, type ThemeId } from "@/components/timeline/theme";
 import {
   coercePatchOp,
@@ -177,13 +177,60 @@ export type CorrectionBoxAction =
   | { type: "bulkEdit"; patchOps: PatchOp[]; laneReassignments: { id: string; laneId: string }[]; acceptBaselineOps: AcceptBaselineOp[] };
 
 /**
- * Stamps `lastUpdatedAt` (wayframe#40/#49) on a document-changing edit —
- * every case below that pushes onto the undo `history` stack calls this on
- * its way out. `hydrated` and `snapshotRollups` skip it, same as they skip
- * the history push: neither is a user edit.
+ * Stamps `lastUpdatedAt` (wayframe#40/#49) and bumps `Milestone`/`TopLevelItem.rev`
+ * (t13, wayframe#87) on a document-changing edit — every case below that
+ * pushes onto the undo `history` stack calls this on its way out, passing
+ * `state.data` as `previous` so rev-bumping has something to diff against.
+ * `hydrated` and `snapshotRollups` skip it, same as they skip the history
+ * push: neither is a user edit.
+ *
+ * Rev-bumping is centralized here via `bumpChangedRevs` rather than threaded
+ * through each of apply.ts/apply-document.ts/bulk-edit's own mutation
+ * functions individually — this reducer is the one place every
+ * document-changing action already funnels through on its way out, so
+ * diffing previous-vs-next here can't silently miss a mutation call site the
+ * way hand-adding a `rev + 1` at each of the ~10 scattered places that touch
+ * a Milestone/TopLevelItem field could.
  */
-function stampUpdated(data: Program): Program {
-  return { ...data, lastUpdatedAt: new Date().toISOString() };
+function stampUpdated(previous: Program, next: Program): Program {
+  return {
+    ...next,
+    lastUpdatedAt: new Date().toISOString(),
+    milestones: bumpChangedRevs(previous.milestones, next.milestones),
+    topLevelItems: bumpChangedRevs(previous.topLevelItems, next.topLevelItems),
+  };
+}
+
+/**
+ * Bumps `rev` on every item whose non-`rev` fields actually changed between
+ * `previous` and `next` (t13, wayframe#87's per-item drift counter — see
+ * `resolveScenario` in src/lib/scenario/resolve.ts for what consumes it). A
+ * brand-new item (present in `next` but not `previous`, e.g. `addMilestone`)
+ * is left exactly as constructed rather than force-bumped, so it starts at
+ * whatever `rev` its constructor gave it (typically unset, which every
+ * rev-comparison site treats as 1 — see `bumpRev`'s doc in types.ts).
+ *
+ * Note this also bumps an item whose only change was a side effect of the
+ * edit elsewhere in the document — e.g. `withComputedCriticalPath` flipping
+ * `isCriticalPath` on a downstream milestone because an unrelated
+ * predecessor's date moved. That's intentional, not a gap: `isCriticalPath`
+ * is itself persisted document content today, so a Scenario override
+ * touching it really can go stale from a change elsewhere in the graph.
+ * (t14's plan to stop persisting `isCriticalPath` — computed live instead,
+ * like Theme/Scenario — removes this source of rev churn once it lands.)
+ */
+function bumpChangedRevs<T extends { id: string; rev?: number }>(previous: readonly T[], next: readonly T[]): T[] {
+  const prevById = new Map(previous.map((item) => [item.id, item]));
+  return next.map((item) => {
+    const before = prevById.get(item.id);
+    if (!before) return item;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { rev: _beforeRev, ...beforeRest } = before;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { rev: _afterRev, ...afterRest } = item;
+    if (JSON.stringify(beforeRest) === JSON.stringify(afterRest)) return item;
+    return { ...item, rev: currentRev(before) + 1 };
+  });
 }
 
 /**
@@ -230,7 +277,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         : withBluf;
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(withDocument)),
+        data: stampUpdated(state.data, withComputedCriticalPath(withDocument)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         pending: null,
         error: null,
@@ -279,7 +326,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const cascaded = applyCascade(state.data.milestones, action.ops);
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -291,7 +338,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // recompute: clearing originalDate never touches `date`.
       return {
         ...state,
-        data: stampUpdated({
+        data: stampUpdated(state.data, {
           ...state.data,
           milestones: applyAcceptBaselineOps(state.data.milestones, [{ scope: "one", targetId: action.id, reason: "Accepted baseline" }]),
         }),
@@ -304,7 +351,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // action, confirmed inline by the caller before dispatching.
       return {
         ...state,
-        data: stampUpdated({
+        data: stampUpdated(state.data, {
           ...state.data,
           milestones: applyAcceptBaselineOps(state.data.milestones, [{ scope: "all", reason: "Accepted all baselines" }]),
         }),
@@ -320,7 +367,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // critical path still needs recomputing here (wayframe#34/#35).
       return {
         ...state,
-        data: stampUpdated(
+        data: stampUpdated(state.data, 
           withComputedCriticalPath({
             ...state.data,
             topLevelItems: state.data.topLevelItems.map((t) => (t.id === action.id ? ({ ...t, ...action.patch } as TopLevelItem) : t)),
@@ -338,7 +385,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // itself in the prototype). Doesn't touch critical path.
       return {
         ...state,
-        data: stampUpdated({ ...state.data, bluf: { ...state.data.bluf, ...action.patch } }),
+        data: stampUpdated(state.data, { ...state.data, bluf: { ...state.data.bluf, ...action.patch } }),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -349,7 +396,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // same instant-save, shared-undo-stack treatment as editBluf.
       return {
         ...state,
-        data: stampUpdated({ ...state.data, ...action.patch }),
+        data: stampUpdated(state.data, { ...state.data, ...action.patch }),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -361,7 +408,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // per the standing rule adopted in #55/#56.
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyAttachmentOps(state.data.milestones, action.ops) })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones: applyAttachmentOps(state.data.milestones, action.ops) })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -374,7 +421,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // button, not a destructive dead end.
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(action.data)),
+        data: stampUpdated(state.data, withComputedCriticalPath(action.data)),
         portfolio: action.portfolio ?? state.portfolio,
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         pending: null,
@@ -394,7 +441,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // it's a normal undoable edit, unlike the theme itself.
       return {
         ...state,
-        data: stampUpdated(setLaneColorOp(state.data, action.laneId, action.color)),
+        data: stampUpdated(state.data, setLaneColorOp(state.data, action.laneId, action.color)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -405,7 +452,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // override back to the computed worst-status-wins rollup.
       return {
         ...state,
-        data: stampUpdated(setRagOverrideOp(state.data, action.id, action.rag)),
+        data: stampUpdated(state.data, setRagOverrideOp(state.data, action.id, action.rag)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -415,7 +462,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // SwimlaneManager.tsx, same undo-tracked treatment as setRagOverride.
       return {
         ...state,
-        data: stampUpdated(setLaneDensityOp(state.data, action.id, action.density)),
+        data: stampUpdated(state.data, setLaneDensityOp(state.data, action.id, action.density)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -440,7 +487,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones: [...state.data.milestones, milestone] })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -457,7 +504,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
             : { id: action.newId, type: "phase", title: "New phase", status: "not-started", startDate: action.date, endDate: action.date };
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, topLevelItems: [...state.data.topLevelItems, item] })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, topLevelItems: [...state.data.topLevelItems, item] })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -465,7 +512,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "removeMilestone": {
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(removeMilestoneOp(state.data, action.id))),
+        data: stampUpdated(state.data, withComputedCriticalPath(removeMilestoneOp(state.data, action.id))),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -476,7 +523,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // reference is cleared rather than left dangling (wayframe#58).
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(removeTopLevelItemOp(state.data, action.id))),
+        data: stampUpdated(state.data, withComputedCriticalPath(removeTopLevelItemOp(state.data, action.id))),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -489,7 +536,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const cascaded = applyCascade(state.data.milestones, ops);
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -507,7 +554,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const cascaded = applyCascade(state.data.milestones, ops);
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones: applyOps(state.data.milestones, cascaded) })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -528,7 +575,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       ]);
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -542,7 +589,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const name = action.swimlaneType === "lane" ? "New lane" : "New group";
       return {
         ...state,
-        data: stampUpdated(addSwimlaneOp(state.data, action.swimlaneType, name, action.newId)),
+        data: stampUpdated(state.data, addSwimlaneOp(state.data, action.swimlaneType, name, action.newId)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -550,7 +597,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "renameSwimlane": {
       return {
         ...state,
-        data: stampUpdated(renameSwimlaneOp(state.data, action.id, action.name)),
+        data: stampUpdated(state.data, renameSwimlaneOp(state.data, action.id, action.name)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -563,7 +610,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // here rather than left for a save/reload to discover.
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath(removeSwimlaneOp(state.data, action.id))),
+        data: stampUpdated(state.data, withComputedCriticalPath(removeSwimlaneOp(state.data, action.id))),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -573,7 +620,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       if (moved === state.data) return state;
       return {
         ...state,
-        data: stampUpdated(moved),
+        data: stampUpdated(state.data, moved),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -587,7 +634,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // view, it's still "the last time I edited something while looking at this Program."
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: { ...state.portfolio, companyLogo: { dataUrl: action.dataUrl } },
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -598,7 +645,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       delete rest.companyLogo;
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: rest,
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -615,7 +662,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       if (!state.portfolio.companyLogo) return state;
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: { ...state.portfolio, companyLogo: { ...state.portfolio.companyLogo, dx: action.dx, dy: action.dy, scale: action.scale } },
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -624,7 +671,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "setThemeBase": {
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: { ...state.portfolio, theme: { baseId: action.baseId, overrides: state.portfolio.theme?.overrides } },
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -634,7 +681,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const baseId = state.portfolio.theme?.baseId ?? defaultPortfolioTheme.baseId;
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: { ...state.portfolio, theme: { baseId, overrides: { ...state.portfolio.theme?.overrides, ...action.patch } } },
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -644,7 +691,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const baseId = state.portfolio.theme?.baseId ?? defaultPortfolioTheme.baseId;
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: { ...state.portfolio, theme: { baseId } },
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -674,7 +721,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // reason about categories yet), so a small dedicated action instead.
       return {
         ...state,
-        data: stampUpdated({
+        data: stampUpdated(state.data, {
           ...state.data,
           milestones: state.data.milestones.map((m) => (m.id === action.id ? { ...m, categoryId: action.categoryId } : m)),
         }),
@@ -698,7 +745,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const milestones = [...updatedExisting, ...action.adds];
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, swimlanes, milestones })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, swimlanes, milestones })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -722,7 +769,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       }
       return {
         ...state,
-        data: stampUpdated(withComputedCriticalPath({ ...state.data, milestones })),
+        data: stampUpdated(state.data, withComputedCriticalPath({ ...state.data, milestones })),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -736,7 +783,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       const category = { id: action.newId, name: action.name, color: action.color };
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: { ...state.portfolio, legendCategories: [...(state.portfolio.legendCategories ?? []), category] },
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
@@ -745,7 +792,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "renameCategory": {
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: {
           ...state.portfolio,
           legendCategories: (state.portfolio.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, name: action.name } : c)),
@@ -757,7 +804,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
     case "recolorCategory": {
       return {
         ...state,
-        data: stampUpdated(state.data),
+        data: stampUpdated(state.data, state.data),
         portfolio: {
           ...state.portfolio,
           legendCategories: (state.portfolio.legendCategories ?? []).map((c) => (c.id === action.id ? { ...c, color: action.color } : c)),
@@ -774,7 +821,7 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // category id that no longer exists.
       return {
         ...state,
-        data: stampUpdated({
+        data: stampUpdated(state.data, {
           ...state.data,
           milestones: state.data.milestones.map((m) => (m.categoryId === action.id ? { ...m, categoryId: null } : m)),
         }),
