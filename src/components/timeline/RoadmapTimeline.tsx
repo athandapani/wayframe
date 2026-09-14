@@ -13,9 +13,20 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RenderableProgram, RenderableMilestone, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
+import type { RenderableProgram, RenderableMilestone, Swimlane, Milestone, TopLevelItem, LegendCategory, MarkerShape, Program } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
+import {
+  resolveDateLabelPosition,
+  resolveFontScale,
+  resolveHidden,
+  resolveMarkerColor,
+  resolveMarkerScale,
+  resolveMarkerShape,
+  resolvePhaseShape,
+  resolvePhaseSize,
+  resolveTitleLabelPosition,
+} from "./style-resolution";
 import { darken, lighten, contrastText } from "./color-utils";
 import { parseDate, formatDateShort, formatDateCompact } from "./date-utils";
 
@@ -250,11 +261,31 @@ function AxisTriangleButton({
   );
 }
 
-// rotated rounded-square = softened "cushion" diamond
+/** 5-point star path, outer radius `rOuter`, inner radius `rInner`, apex pointing up (wayframe#t19 markerShape). */
+function starPath(cx: number, cy: number, rOuter: number, rInner: number): string {
+  const points: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = -Math.PI / 2 + i * (Math.PI / 5);
+    const radius = i % 2 === 0 ? rOuter : rInner;
+    const px = cx + radius * Math.cos(angle);
+    const py = cy + radius * Math.sin(angle);
+    points.push(`${i === 0 ? "M" : "L"}${px},${py}`);
+  }
+  return `${points.join(" ")} Z`;
+}
+
+// Marker silhouette (wayframe#t19 markerShape) — "diamond" is the original,
+// still-default rotated rounded-square = softened "cushion" diamond; the
+// other five are a pure editorial choice (theme.ts's own doc: status stays
+// color-only, silhouette is never an automatic status encoding). Every
+// variant is parameterized purely by (cx, cy, r) so an existing call site
+// drawing a bigger ring via a bigger `r` keeps working unmodified for any
+// shape.
 function CushionMarker({
   cx,
   cy,
   r,
+  shape = "diamond",
   fill,
   stroke,
   strokeWidth,
@@ -264,54 +295,29 @@ function CushionMarker({
   cx: number;
   cy: number;
   r: number;
+  shape?: MarkerShape;
   fill: string;
   stroke: string;
   strokeWidth: number;
   strokeDasharray?: string;
   fillOpacity?: number;
 }) {
-  return (
-    <rect
-      x={cx - r}
-      y={cy - r}
-      width={r * 2}
-      height={r * 2}
-      rx={r * 0.4}
-      fill={fill}
-      fillOpacity={fillOpacity}
-      stroke={stroke}
-      strokeWidth={strokeWidth}
-      strokeDasharray={strokeDasharray}
-      transform={`rotate(45 ${cx} ${cy})`}
-    />
-  );
-}
-
-/**
- * Marker fill/stroke resolution — two rule
- * changes layered on top of the original "status is the fill, halo is
- * always the same ring" scheme:
- *
- *   - A not-started marker renders hollow (ground-colored fill, its own
- *     status color as the ring) rather than filled gray. This is a
- *     conscious deviation from the rebuild-spec.md constraint that
- *     status is color-only, silhouette-invariant — accepted as-built
- *     rather than re-derived, per the product owner's call.
- *   - When legend category-fill encoding is on and this milestone carries a
- *     category, the category's color takes over the fill and status moves
- *     to the ring instead — "what track is this" becomes the dominant
- *     read, "how healthy is it" becomes the secondary one.
- */
-function resolveMarkerPaint(m: Milestone, theme: Theme, category?: LegendCategory): { fill: string; stroke: string; strokeWidth: number } {
-  const notStarted = m.status === "not-started";
-  if (category) {
-    return { fill: notStarted ? theme.ground : category.color, stroke: theme.statusColor[m.status], strokeWidth: 1.75 };
+  const common = { fill, fillOpacity, stroke, strokeWidth, strokeDasharray };
+  switch (shape) {
+    case "square":
+      return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={r * 0.4} {...common} />;
+    case "rectangle":
+      return <rect x={cx - r * 1.2} y={cy - r * 0.8} width={r * 2.4} height={r * 1.6} rx={3} {...common} />;
+    case "circle":
+      return <circle cx={cx} cy={cy} r={r} {...common} />;
+    case "star":
+      return <path d={starPath(cx, cy, r, r * 0.42)} {...common} />;
+    case "flag":
+      return <path d={`M${cx - r},${cy - r} L${cx + r},${cy - r} L${cx},${cy + r * 0.5} Z`} {...common} />;
+    case "diamond":
+    default:
+      return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={r * 0.4} transform={`rotate(45 ${cx} ${cy})`} {...common} />;
   }
-  return {
-    fill: notStarted ? theme.ground : theme.statusColor[m.status],
-    stroke: notStarted ? theme.statusColor[m.status] : theme.markerHalo,
-    strokeWidth: notStarted ? 1.75 : 1.5,
-  };
 }
 
 /**
@@ -938,11 +944,14 @@ function MilestoneMarker({
   dateLabelPlacement = "below",
   selected = false,
   remoteColor,
+  program,
 }: {
   m: RenderableMilestone;
   cx: number;
   cy: number;
   theme: Theme;
+  /** Needed for t19's style-resolution ladder's Program-default rung. */
+  program: Program;
   primary: TitlePlacement | null;
   date: { text: string; tier: 0 | 1 | 2 };
   onClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
@@ -984,9 +993,14 @@ function MilestoneMarker({
    */
   remoteColor?: string;
 }) {
-  const r = 8;
+  const shape = resolveMarkerShape(m, program, theme);
+  const markerScale = resolveMarkerScale(m, program, theme);
+  const r = 8 * markerScale;
+  const effectiveFontScale = fontScale * resolveFontScale(m, program);
+  const titlePos = resolveTitleLabelPosition(m);
+  const datePos = resolveDateLabelPosition(m);
   const dateDy = DATE_TIER_DY[date.tier];
-  const paint = resolveMarkerPaint(m, theme, category);
+  const paint = resolveMarkerColor(m, theme, program, category);
   const strikeDate = m.status === "delayed";
   // Label block grows upward from its baseline, so the last line sits
   // closest to the marker and the first line ends up on top. The gap and
@@ -1031,38 +1045,70 @@ function MilestoneMarker({
       {/* Critical path is an ink collar, never a red ring — red already
           means "delayed", and the two measured 1.28:1 apart, so the
           highest-severity state used to be the least legible. */}
-      {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
-      {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
-      {selected && <CushionMarker cx={cx} cy={cy} r={r + 11} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
-      {remoteColor && <CushionMarker cx={cx} cy={cy} r={r + 15} fill="none" stroke={remoteColor} strokeWidth={2} strokeDasharray="4 2" />}
-      <CushionMarker cx={cx} cy={cy} r={r} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
-      {primary && (
-        <g
-          transform={titleOffset.dx || titleOffset.dy ? `translate(${titleOffset.dx} ${titleOffset.dy})` : undefined}
-          className={onTitleDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
-          onPointerDown={onTitleDragStart}
+      {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} shape={shape} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
+      {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} shape={shape} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
+      {selected && <CushionMarker cx={cx} cy={cy} r={r + 11} shape={shape} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
+      {remoteColor && <CushionMarker cx={cx} cy={cy} r={r + 15} shape={shape} fill="none" stroke={remoteColor} strokeWidth={2} strokeDasharray="4 2" />}
+      <CushionMarker cx={cx} cy={cy} r={r} shape={shape} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
+      {titlePos ? (
+        // Fixed-position title override (wayframe#t19 titleLabelPosition) —
+        // bypasses the tiered collision-avoidance layout entirely; no leader
+        // line, no drag handle, since there's no collision math to escalate
+        // against for a fixed compass placement.
+        <text
+          x={titlePos === "left" ? cx - r - 6 : titlePos === "right" ? cx + r + 6 : cx}
+          y={titlePos === "top" ? cy - r - 6 : titlePos === "bottom" ? cy + r + 14 : titlePos === "inside" ? cy + 3 : cy + 3}
+          textAnchor={titlePos === "left" ? "end" : titlePos === "right" ? "start" : "middle"}
+          fontSize={(titlePos === "inside" ? 8 : 10) * effectiveFontScale}
+          fontWeight={600}
+          fill="currentColor"
         >
-          {primary.lines.map((line, i) => (
-            <text
-              key={i}
-              x={cx}
-              y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H * fontScale}
-              textAnchor="middle"
-              fontSize={10 * fontScale}
-              fontWeight={600}
-              fill="currentColor"
-            >
-              {line}
-            </text>
-          ))}
-        </g>
+          {primary?.lines[0] ?? m.title}
+        </text>
+      ) : (
+        primary && (
+          <g
+            transform={titleOffset.dx || titleOffset.dy ? `translate(${titleOffset.dx} ${titleOffset.dy})` : undefined}
+            className={onTitleDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
+            onPointerDown={onTitleDragStart}
+          >
+            {primary.lines.map((line, i) => (
+              <text
+                key={i}
+                x={cx}
+                y={cy + labelBaseDy - (primary.lines.length - 1 - i) * LABEL_LINE_H * fontScale}
+                textAnchor="middle"
+                fontSize={10 * effectiveFontScale}
+                fontWeight={600}
+                fill="currentColor"
+              >
+                {line}
+              </text>
+            ))}
+          </g>
+        )
       )}
-      {dateLabelPlacement === "inline" ? (
+      {datePos ? (
+        // Fixed-position date override (wayframe#t19 dateLabelPosition) —
+        // same treatment as titlePos above, independent of
+        // dateLabelPlacement's inline/tiered choice.
+        <text
+          x={datePos === "left" ? cx - r - 6 : datePos === "right" ? cx + r + 6 : cx}
+          y={datePos === "top" ? cy - r - 6 : datePos === "bottom" ? cy + r + 14 : datePos === "inside" ? cy + 3 : cy + 3}
+          textAnchor={datePos === "left" ? "end" : datePos === "right" ? "start" : "middle"}
+          fontSize={9 * effectiveFontScale}
+          fill="currentColor"
+          opacity={0.6}
+          textDecoration={strikeDate ? "line-through" : undefined}
+        >
+          {date.text}
+        </text>
+      ) : dateLabelPlacement === "inline" ? (
         // Inline placement — a fixed slot beside the
         // marker rather than the tiered below-marker system, so it opts out
         // of drag-to-reposition (dateOffset) entirely; there's no collision
         // math to escalate against here.
-        <text x={cx + r + 6} y={cy + 3} textAnchor="start" fontSize={9 * fontScale} fill="currentColor" opacity={0.6} textDecoration={strikeDate ? "line-through" : undefined}>
+        <text x={cx + r + 6} y={cy + 3} textAnchor="start" fontSize={9 * effectiveFontScale} fill="currentColor" opacity={0.6} textDecoration={strikeDate ? "line-through" : undefined}>
           {date.text}
         </text>
       ) : (
@@ -1071,7 +1117,7 @@ function MilestoneMarker({
           className={onDateDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined}
           onPointerDown={onDateDragStart}
         >
-          <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * fontScale} fill="currentColor" opacity={0.6} textDecoration={strikeDate ? "line-through" : undefined}>
+          <text x={cx} y={cy + dateDy} textAnchor="middle" fontSize={9 * effectiveFontScale} fill="currentColor" opacity={0.6} textDecoration={strikeDate ? "line-through" : undefined}>
             {date.text}
           </text>
         </g>
@@ -1085,7 +1131,7 @@ function MilestoneMarker({
           dx={ghostOffset.dx}
           dy={ghostOffset.dy}
           onDragStart={onGhostDragStart}
-          fontScale={fontScale}
+          fontScale={effectiveFontScale}
           metricsScale={metricsScale}
         />
       )}
@@ -1094,11 +1140,11 @@ function MilestoneMarker({
           <svg>, which desyncs SSR/client, so this is the workaround. */}
       <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
         <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasGhost ? 34 : 20} rx={4} fill={theme.tooltipBg} />
-        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * fontScale} fill={theme.tooltipInk}>
+        <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * effectiveFontScale} fill={theme.tooltipInk}>
           {m.title}
         </text>
         {hasGhost && (
-          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9 * fontScale} fill={theme.tooltipInk} opacity={0.7}>
+          <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9 * effectiveFontScale} fill={theme.tooltipInk} opacity={0.7}>
             <tspan textDecoration="line-through">{formatDateShort(m.originalDate!)}</tspan> → {formatDateShort(m.date)}
           </text>
         )}
@@ -2102,9 +2148,15 @@ export function RoadmapTimeline({
         {data.topLevelItems.map((t: TopLevelItem) => {
           const y = topBandY + topBandHeight / 2;
           if (t.type === "phase") {
+            if (resolveHidden(t, data)) return null;
             const px = x(t.startDate);
-            const h = PILL_HEIGHT_LG * boxScale;
+            const phaseSize = resolvePhaseSize(t, data, theme);
+            const sizeMultiplier = phaseSize === "lean" ? 0.75 : phaseSize === "tall" ? 1.35 : 1;
+            const h = PILL_HEIGHT_LG * boxScale * sizeMultiplier;
+            const phaseShape = resolvePhaseShape(t, data, theme);
+            const rx = phaseShape === "pill" ? h / 2 : 3;
             const w = Math.max(h, x(t.endDate) - px);
+            const effectiveFontScale = fontScale * resolveFontScale(t, data);
             // Clipped to the pill's own pixel width, same pattern as the
             // in-lane duration pills below — otherwise a bigger fontScale
             // (with boxScale left at 1) runs the label straight into its
@@ -2118,13 +2170,13 @@ export function RoadmapTimeline({
                   y={y - h / 2}
                   width={w}
                   height={h}
-                  rx={h / 2}
+                  rx={rx}
                   fill={theme.statusColor[t.status]}
                   fillOpacity={0.35}
                   stroke={theme.statusColor[t.status]}
                 />
                 {label && (
-                  <text x={px + h / 2} y={y + 4} fontSize={11 * fontScale} fontWeight={600}>
+                  <text x={px + h / 2} y={y + 4} fontSize={11 * effectiveFontScale} fontWeight={600}>
                     {label}
                   </text>
                 )}
@@ -2145,11 +2197,23 @@ export function RoadmapTimeline({
             );
           }
           if (t.type === "milestone") {
+            if (resolveHidden(t, data)) return null;
             const cx = x(t.date);
+            const shape = resolveMarkerShape(t, data, theme);
+            const markerScale = resolveMarkerScale(t, data, theme);
+            const r = 10 * markerScale;
+            const effectiveFontScale = fontScale * resolveFontScale(t, data);
+            const titlePos = resolveTitleLabelPosition(t);
             return (
               <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
-                <CushionMarker cx={cx} cy={y} r={10} fill={theme.statusColor[t.status]} stroke={theme.markerHalo} strokeWidth={2} />
-                <text x={cx} y={y - 18} textAnchor="middle" fontSize={11 * fontScale} fontWeight={600}>
+                <CushionMarker cx={cx} cy={y} r={r} shape={shape} fill={theme.statusColor[t.status]} stroke={theme.markerHalo} strokeWidth={2} />
+                <text
+                  x={titlePos === "left" ? cx - r - 6 : titlePos === "right" ? cx + r + 6 : cx}
+                  y={titlePos === "top" ? y - r - 6 : titlePos === "bottom" ? y + r + 14 : titlePos === "inside" ? y + 3 : titlePos === "left" || titlePos === "right" ? y + 3 : y - 18}
+                  textAnchor={titlePos === "left" ? "end" : titlePos === "right" ? "start" : "middle"}
+                  fontSize={(titlePos === "inside" ? 8 : 11) * effectiveFontScale}
+                  fontWeight={600}
+                >
                   {t.title}
                 </text>
                 {atRiskMode !== "off" && t.potentialDate && (
@@ -2564,7 +2628,7 @@ export function RoadmapTimeline({
 
         {/* milestones on top of connectors — point-in-time only; endDate milestones render as duration pills above instead */}
         {data.milestones
-          .filter((m) => !m.endDate)
+          .filter((m) => !m.endDate && !resolveHidden(m, data))
           .map((m) => (
             <MilestoneMarker
               key={m.id}
@@ -2572,6 +2636,7 @@ export function RoadmapTimeline({
               cx={x(m.date)}
               cy={laneY(m.laneId)}
               theme={theme}
+              program={data}
               primary={primaryPlacement.get(m.id) ?? null}
               date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
               onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
@@ -2601,7 +2666,7 @@ export function RoadmapTimeline({
         {/* Forward-looking slip-risk projection (wayframe#61/#72) — point milestones only; duration pills render their own projection above. */}
         {atRiskMode !== "off" &&
           data.milestones
-            .filter((m) => !m.endDate && m.potentialDate)
+            .filter((m) => !m.endDate && m.potentialDate && !resolveHidden(m, data))
             .map((m) => (
               <AtRiskProjection
                 key={`at-risk-${m.id}`}

@@ -282,6 +282,65 @@ describe("swimlane density (\"normal vs lean\" row height)", () => {
   });
 });
 
+describe("style-override resolution ladder rendering (wayframe#t19)", () => {
+  it("renders a circle marker when styleOverride.markerShape is 'circle', instead of the default rotated-rect diamond", () => {
+    const circleRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: sampleRoadmap.milestones.map((m) => (m.id === "m1" ? { ...m, styleOverride: { markerShape: "circle" as const } } : m)),
+    };
+    const { container } = render(<RoadmapTimeline data={circleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(container.querySelector("circle")).not.toBeNull();
+  });
+
+  it("hides a milestone marker when styleOverride.hidden is true, leaving an unhidden sibling visible", () => {
+    const hiddenRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: sampleRoadmap.milestones.map((m) => (m.id === "m1" ? { ...m, styleOverride: { hidden: true } } : m)),
+    };
+    render(<RoadmapTimeline data={hiddenRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(screen.queryByText("First milestone")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Second milestone").length).toBeGreaterThan(0);
+  });
+
+  it("renders a top-band phase pill with a small corner radius when styleOverride.phaseShape is 'rectangle'", () => {
+    const rectRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-1" ? { ...t, styleOverride: { phaseShape: "rectangle" as const } } : t)),
+    };
+    const { container } = render(<RoadmapTimeline data={rectRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(container.querySelector('rect[rx="3"]')).not.toBeNull();
+  });
+
+  it("scales a milestone's own title font-size by styleOverride.fontScale, multiplicatively on top of the ambient fontScale", () => {
+    const scaledRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: sampleRoadmap.milestones.map((m) => (m.id === "m1" ? { ...m, styleOverride: { fontScale: 2 } } : m)),
+    };
+    const { container } = render(<RoadmapTimeline data={scaledRoadmap} today={new Date("2026-01-20T00:00:00Z")} fontScale={1} />);
+    const titleLine = [...container.querySelectorAll("text")].find((t) => t.textContent === "First milestone");
+    expect(titleLine).toBeTruthy();
+    expect(titleLine!.getAttribute("font-size")).toBe("20");
+  });
+
+  it("renders a milestone's title with 'end' text-anchor, offset left of the marker, when styleOverride.titleLabelPosition is 'left' — bypassing the tiered layout's centered placement", () => {
+    const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const baseTitle = [...base.querySelectorAll("text")].find((t) => t.textContent === "First milestone")!;
+    expect(baseTitle).toBeTruthy();
+    expect(baseTitle.getAttribute("text-anchor")).toBe("middle");
+
+    const leftPosRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: sampleRoadmap.milestones.map((m) => (m.id === "m1" ? { ...m, styleOverride: { titleLabelPosition: "left" as const } } : m)),
+    };
+    const { container: overridden } = render(<RoadmapTimeline data={leftPosRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const overriddenTitle = [...overridden.querySelectorAll("text")].find((t) => t.textContent === "First milestone")!;
+    expect(overriddenTitle).toBeTruthy();
+
+    expect(overriddenTitle.getAttribute("text-anchor")).toBe("end");
+    expect(Number(overriddenTitle.getAttribute("x"))).toBeLessThan(Number(baseTitle.getAttribute("x")));
+  });
+});
+
 describe("deriveShortLabel", () => {
   it("takes initials of significant words", () => {
     expect(deriveShortLabel("Chassis design freeze")).toBe("CDF");

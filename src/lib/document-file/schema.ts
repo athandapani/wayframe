@@ -68,6 +68,10 @@ const ThemeOverridesSchema = z
     laneGutter: z.number(),
     laneRamp: LaneRampSchema,
     statusColor: z.object({ "not-started": z.string(), complete: z.string(), "on-track": z.string(), "at-risk": z.string(), delayed: z.string() }).strict(),
+    markerShapeDefault: z.enum(["star", "flag", "square", "rectangle", "circle", "diamond"]),
+    markerScaleDefault: z.number(),
+    phaseShapeDefault: z.enum(["pill", "rectangle"]),
+    phaseSizeDefault: z.enum(["normal", "lean", "tall"]),
     criticalPathColor: z.string(),
     traceColor: z.string(),
     connector: z.string(),
@@ -94,6 +98,21 @@ const PortfolioThemeSchema = z
   })
   .strict();
 
+/** Mirrors StyleOverride exactly (wayframe#t19) — see its doc in types.ts and the resolution ladder in style-resolution.ts. */
+const StyleOverrideSchema = z
+  .object({
+    markerShape: z.enum(["star", "flag", "square", "rectangle", "circle", "diamond"]).optional(),
+    markerScale: z.number().optional(),
+    fontScale: z.number().optional(),
+    titleLabelPosition: z.enum(["inside", "top", "right", "bottom", "left"]).optional(),
+    dateLabelPosition: z.enum(["inside", "top", "right", "bottom", "left"]).optional(),
+    hidden: z.boolean().optional(),
+    color: z.string().optional(),
+    phaseShape: z.enum(["pill", "rectangle"]).optional(),
+    phaseSize: z.enum(["normal", "lean", "tall"]).optional(),
+  })
+  .strict();
+
 const MilestoneSchema = z
   .object({
     id: z.string().min(1),
@@ -116,6 +135,7 @@ const MilestoneSchema = z
       .optional(),
     potentialDate: IsoDate.optional(),
     categoryId: z.string().nullable().optional(),
+    styleOverride: StyleOverrideSchema.optional(),
     // Drift counter (t13, wayframe#87) — optional, same "documents from
     // before this field existed just don't have one yet" treatment as
     // lastUpdatedAt. See Milestone.rev's doc in types.ts.
@@ -124,8 +144,8 @@ const MilestoneSchema = z
   .strict();
 
 const TopLevelItemSchema = z.discriminatedUnion("type", [
-  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), rev: z.number().optional() }).strict(),
-  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional(), rev: z.number().optional() }).strict(),
+  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
+  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
   z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate, message: z.string(), rev: z.number().optional() }).strict(),
 ]);
 
@@ -149,6 +169,7 @@ const TopLevelItemPatchSchema = z
     startDate: IsoDate.optional(),
     endDate: IsoDate.optional(),
     message: z.string().optional(),
+    styleOverride: StyleOverrideSchema.optional(),
   })
   .strict();
 
@@ -207,6 +228,7 @@ const ProgramSchema = z
     owner: z.string(),
     reportsTo: z.string().optional(),
     nextReviewDate: z.string().optional(),
+    styleDefaults: StyleOverrideSchema.optional(),
     bluf: z
       .object({
         statement: z.string(),

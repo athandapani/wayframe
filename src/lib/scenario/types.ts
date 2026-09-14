@@ -1,4 +1,4 @@
-import type { Milestone, Status, TopLevelItem } from "@/components/timeline/types";
+import type { Milestone, Status, StyleOverride, TopLevelItem } from "@/components/timeline/types";
 
 /**
  * Scenario document model (t13, wayframe#87) — a named alternate plan layered
@@ -62,6 +62,7 @@ export interface TopLevelItemPatch {
   startDate?: string;
   endDate?: string;
   message?: string;
+  styleOverride?: StyleOverride;
 }
 
 /** Hides the Baseline item in this Scenario — no conflict regardless of what Baseline does to it afterward (resolveScenario), until/unless it later gets GC'd (gcScenario) once Baseline agrees by deleting the target too. */

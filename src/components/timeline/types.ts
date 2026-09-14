@@ -20,6 +20,38 @@ export type Status = "not-started" | "on-track" | "at-risk" | "delayed" | "compl
 /** Executive-view rollup color (wayframe issue #8). */
 export type Rag = "green" | "amber" | "red";
 
+export type MarkerShape = "star" | "flag" | "square" | "rectangle" | "circle" | "diamond";
+export type PhaseShape = "pill" | "rectangle";
+export type PhaseSize = "normal" | "lean" | "tall";
+export type LabelPosition = "inside" | "top" | "right" | "bottom" | "left";
+
+/**
+ * The locked, document-content style-override property set (wayframe#t19)
+ * — a per-item escape hatch layered on top of Theme/Program defaults. Every
+ * field optional; an unset field means "fall through to the next rung of
+ * t19's resolution ladder," not "use some default value of this type." See
+ * src/components/timeline/style-resolution.ts for the ladder itself.
+ * `titleLabelPosition`/`dateLabelPosition` are independently settable (the
+ * ticket's own "independently-attachable title/date label position" ask) —
+ * only meaningful on a point-in-time Milestone/TopLevelItem-milestone
+ * marker, which has two separate labels; a phase has one combined label and
+ * doesn't read either field. `phaseShape`/`phaseSize` are the phase-specific
+ * mirror of that split — only meaningful on a TopLevelItem "phase".
+ */
+export interface StyleOverride {
+  markerShape?: MarkerShape;
+  markerScale?: number;
+  /** Composes MULTIPLICATIVELY with the global viewer font-scale (t19's gist) — not a substitute for it. */
+  fontScale?: number;
+  titleLabelPosition?: LabelPosition;
+  dateLabelPosition?: LabelPosition;
+  hidden?: boolean;
+  /** Raw color override, distinct from `categoryId` (an identity tag that resolves to a color one rung down the ladder — see resolveMarkerColor in style-resolution.ts). */
+  color?: string;
+  phaseShape?: PhaseShape;
+  phaseSize?: PhaseSize;
+}
+
 /**
  * One calendar day's rollup, snapshotted for the Executive-view trend arrow
  * (wayframe issue #33). No `date` field — it lives as the key in
@@ -112,8 +144,21 @@ export type TopLevelItem =
       potentialDate?: string;
       /** Per-item drift counter (t13, wayframe#87) — see Milestone.rev's doc for what it's for and why it's optional. */
       rev?: number;
+      /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc. */
+      styleOverride?: StyleOverride;
     }
-  | { id: string; type: "phase"; title: string; startDate: string; endDate: string; status: Status; potentialDate?: string; rev?: number }
+  | {
+      id: string;
+      type: "phase";
+      title: string;
+      startDate: string;
+      endDate: string;
+      status: Status;
+      potentialDate?: string;
+      rev?: number;
+      /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc. */
+      styleOverride?: StyleOverride;
+    }
   | { id: string; type: "annotation"; title: string; date: string; message: string; rev?: number };
 
 export interface DependencyEdge {
@@ -199,6 +244,8 @@ export interface Milestone {
    * null/undefined = no category, renders exactly as before.
    */
   categoryId?: string | null;
+  /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc in this file and the resolution ladder in style-resolution.ts. */
+  styleOverride?: StyleOverride;
   /**
    * Per-item drift counter (t13, wayframe#87), bumped by
    * use-correction-box.ts's `stampUpdated`/`bumpChangedRevs` whenever this
@@ -257,6 +304,17 @@ export interface Program {
   owner: string;
   reportsTo?: string;
   nextReviewDate?: string;
+  /**
+   * Program-level style defaults (wayframe#t19) — the ladder's Program rung,
+   * one step more specific than a Theme token and one step less specific
+   * than a per-item `styleOverride`. Distinct from `Portfolio.theme` (the
+   * Theme rung, one step further out, shared across every Program) — this
+   * lets one Program in a Portfolio diverge from its siblings' defaults
+   * (e.g. "phases in this Program are always rectangles") without touching
+   * the shared Theme. See style-resolution.ts for how the ladder actually
+   * reads this field.
+   */
+  styleDefaults?: StyleOverride;
   bluf: {
     /**
      * Sanitized rich-text HTML (wayframe#38 item 4 / #39), not plain text —

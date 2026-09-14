@@ -35,7 +35,7 @@
 // advances (darker/more chromatic on light grounds, brighter on dark),
 // calm recedes. It doesn't fully solve greyscale, but it is a real
 // improvement over the shipped palette and it costs the reader nothing.
-import type { Rag, Status } from "./types";
+import type { MarkerShape, PhaseShape, PhaseSize, Rag, Status } from "./types";
 import type { LaneRamp } from "./lane-colors";
 
 export interface Theme {
@@ -73,6 +73,11 @@ export interface Theme {
   laneRamp: LaneRamp;
 
   statusColor: Record<Status, string>;
+  /** t19's Theme-rung defaults for the properties whose ladder includes one — the last non-hardcoded rung before the fallback. */
+  markerShapeDefault: MarkerShape;
+  markerScaleDefault: number;
+  phaseShapeDefault: PhaseShape;
+  phaseSizeDefault: PhaseSize;
   /** Critical-path line colour — always red, always the same meaning. */
   criticalPathColor: string;
   /** Ad-hoc trace highlight. Deliberately not red, so it can never be read as critical. */
@@ -125,6 +130,16 @@ const SHARED_TOKENS = {
   ragColor: { green: "#22c55e", amber: "#f59e0b", red: "#ef4444" } satisfies Record<Rag, string>,
   /** wayframe#88/t18 — byte-identical to the old hardcoded RoadmapTimeline LANE_GUTTER constant. */
   laneGutter: 7,
+  /**
+   * wayframe#t19 — byte-identical to today's hardcoded rendering (all
+   * markers are diamonds at scale 1, all phases are pills at normal size),
+   * so a document/theme/Program with no style override anywhere renders
+   * pixel-for-pixel the same chart it always has.
+   */
+  markerShapeDefault: "diamond" as MarkerShape,
+  markerScaleDefault: 1,
+  phaseShapeDefault: "pill" as PhaseShape,
+  phaseSizeDefault: "normal" as PhaseSize,
 };
 
 /** Shared light-theme status ramp: lightness descends as severity rises. */
