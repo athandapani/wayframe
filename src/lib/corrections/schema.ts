@@ -20,6 +20,14 @@ import { RagSchema, StatusSchema } from "@/lib/extraction/schema";
  * `previousValue` is deliberately not part of any op: the client derives it
  * by looking up the live document, so a stale or hallucinated echo can't
  * desync from truth.
+ *
+ * "Portfolio-scoped correction ops" (a question wayframe#t35's gist raised)
+ * is a category error: every op here is already Program-scoped — `targetId`
+ * is drawn from one Program's live data — so `/api/correct` only needs to
+ * know which Program's row it's addressing, not this schema. The field
+ * union's existing absence of `laneId`/`categoryId` (see bulk-edit/apply.ts's
+ * `bulkSetLane` doc) now implicitly also forbids reassigning an item's
+ * Program — same manual-only doctrine, one level up.
  */
 export const PatchOpSchema = z.discriminatedUnion("field", [
   z.object({

@@ -14,6 +14,7 @@ import type { Milestone, Program } from "@/components/timeline/types";
 import type { PatchOp } from "@/lib/corrections/schema";
 import { parseCsvFile } from "@/lib/import/parse-csv";
 import { rowsToText, type ParsedRow } from "@/lib/import/rows-to-text";
+import { useOwnedPortfolioId } from "@/lib/auth/use-owned-portfolio-id";
 import { SpreadsheetImportTab } from "./SpreadsheetImportTab";
 
 interface LoadedSource {
@@ -91,6 +92,9 @@ export function ImportPanel({
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const targetPortfolioId = useOwnedPortfolioId();
+  const [createAsNewProgram, setCreateAsNewProgram] = useState(false);
+  const [createdConfirmation, setCreatedConfirmation] = useState(false);
 
   async function loadFile(file: File) {
     setFileError(null);
@@ -155,8 +159,20 @@ export function ImportPanel({
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error?.message ?? "Extraction failed.");
-      onExtracted(body.document as Program);
-      onClose();
+
+      if (createAsNewProgram && targetPortfolioId) {
+        const createRes = await fetch(`/api/portfolios/${targetPortfolioId}/programs/extract`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document: body.document }),
+        });
+        const createBody = await createRes.json().catch(() => null);
+        if (!createRes.ok) throw new Error(createBody?.error ?? "Couldn't create the new Program.");
+        setCreatedConfirmation(true);
+      } else {
+        onExtracted(body.document as Program);
+        onClose();
+      }
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : "Extraction failed.");
     } finally {
@@ -220,6 +236,12 @@ export function ImportPanel({
                   </p>
                   <RowPreviewTable rows={fileSource.rows} />
                 </div>
+              )}
+              {targetPortfolioId && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={createAsNewProgram} onChange={(e) => setCreateAsNewProgram(e.target.checked)} />
+                  Add as a new Program in my Portfolio (instead of replacing this one)
+                </label>
               )}
             </div>
           )}
@@ -289,13 +311,22 @@ export function ImportPanel({
             </div>
             <pre className="max-h-48 overflow-auto rounded-lg bg-zinc-100 p-3 text-xs whitespace-pre-wrap dark:bg-zinc-950">{combined || "(nothing selected)"}</pre>
             {extractError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{extractError}</p>}
-            <button
-              onClick={extract}
-              disabled={!combined || extracting}
-              className="mt-3 w-full rounded-lg bg-zinc-900 py-2 text-sm text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-            >
-              {extracting ? "Extracting…" : "Extract roadmap →"}
-            </button>
+            {createdConfirmation ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Added as a new Program in your Portfolio.</p>
+                <button onClick={onClose} className="w-full rounded-lg bg-zinc-900 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">
+                  Done
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={extract}
+                disabled={!combined || extracting}
+                className="mt-3 w-full rounded-lg bg-zinc-900 py-2 text-sm text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+              >
+                {extracting ? "Extracting…" : createAsNewProgram ? "Extract & create Program →" : "Extract roadmap →"}
+              </button>
+            )}
           </div>
         )}
       </div>

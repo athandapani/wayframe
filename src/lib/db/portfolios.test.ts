@@ -107,6 +107,83 @@ describe("portfolio content (wayframe#t17)", () => {
   });
 });
 
+describe("appendLegendCategories (wayframe#t35)", () => {
+  it("appends brand-new categories to a portfolio with no content yet, returning an identity id-remap", async () => {
+    const { createPortfolioWithOwner, appendLegendCategories, getPortfolioContent } = await import("./portfolios");
+    await createPortfolioWithOwner("p1", "user-1");
+
+    const remap = await appendLegendCategories("p1", [
+      { id: "cat-1", name: "Risk", color: "#f00" },
+      { id: "cat-2", name: "Regulatory", color: "#00f" },
+    ]);
+
+    expect(remap).toEqual(
+      new Map([
+        ["cat-1", "cat-1"],
+        ["cat-2", "cat-2"],
+      ]),
+    );
+    const content = await getPortfolioContent("p1");
+    expect(content?.legendCategories).toEqual([
+      { id: "cat-1", name: "Risk", color: "#f00" },
+      { id: "cat-2", name: "Regulatory", color: "#00f" },
+    ]);
+  });
+
+  it("remaps to the existing category's id instead of duplicating when a name already exists", async () => {
+    const { createPortfolioWithOwner, setPortfolioContent, appendLegendCategories, getPortfolioContent } = await import(
+      "./portfolios"
+    );
+    await createPortfolioWithOwner("p1", "user-1");
+    await setPortfolioContent("p1", { schemaVersion: 3, legendCategories: [{ id: "existing-1", name: "Risk", color: "#f00" }] });
+
+    const remap = await appendLegendCategories("p1", [{ id: "new-1", name: "Risk", color: "#a00" }]);
+
+    expect(remap).toEqual(new Map([["new-1", "existing-1"]]));
+    const content = await getPortfolioContent("p1");
+    expect(content?.legendCategories).toEqual([{ id: "existing-1", name: "Risk", color: "#f00" }]);
+  });
+
+  it("handles a mix of new and already-existing categories in one call", async () => {
+    const { createPortfolioWithOwner, setPortfolioContent, appendLegendCategories, getPortfolioContent } = await import(
+      "./portfolios"
+    );
+    await createPortfolioWithOwner("p1", "user-1");
+    await setPortfolioContent("p1", { schemaVersion: 3, legendCategories: [{ id: "existing-1", name: "Risk", color: "#f00" }] });
+
+    const remap = await appendLegendCategories("p1", [
+      { id: "new-1", name: "Risk", color: "#a00" },
+      { id: "new-2", name: "Regulatory", color: "#00f" },
+    ]);
+
+    expect(remap).toEqual(
+      new Map([
+        ["new-1", "existing-1"],
+        ["new-2", "new-2"],
+      ]),
+    );
+    const content = await getPortfolioContent("p1");
+    expect(content?.legendCategories).toEqual([
+      { id: "existing-1", name: "Risk", color: "#f00" },
+      { id: "new-2", name: "Regulatory", color: "#00f" },
+    ]);
+  });
+
+  it("is a no-op for an empty category list — content is untouched", async () => {
+    const { createPortfolioWithOwner, setPortfolioContent, appendLegendCategories, getPortfolioContent } = await import(
+      "./portfolios"
+    );
+    await createPortfolioWithOwner("p1", "user-1");
+    await setPortfolioContent("p1", { schemaVersion: 3, legendCategories: [{ id: "existing-1", name: "Risk", color: "#f00" }] });
+
+    const remap = await appendLegendCategories("p1", []);
+
+    expect(remap.size).toBe(0);
+    const content = await getPortfolioContent("p1");
+    expect(content?.legendCategories).toEqual([{ id: "existing-1", name: "Risk", color: "#f00" }]);
+  });
+});
+
 describe("getOwnedPortfolioId (wayframe#t17)", () => {
   it("returns the owner's portfolio id", async () => {
     const { createPortfolioWithOwner, getOwnedPortfolioId } = await import("./portfolios");

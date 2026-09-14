@@ -1,6 +1,7 @@
 import { getDbClient } from "./client";
 import { ensureSchema } from "./schema";
-import type { Portfolio } from "@/components/timeline/types";
+import { CURRENT_SCHEMA_VERSION } from "@/lib/document-file/schema";
+import type { LegendCategory, Portfolio } from "@/components/timeline/types";
 
 // Membership/role storage per wayframe#t16's resolution: three roles
 // (owner/editor/viewer) held per-identity on a Portfolio, checked
@@ -133,6 +134,39 @@ export async function getPortfolioContent(portfolioId: string): Promise<Portfoli
   const result = await client.execute({ sql: "SELECT content FROM portfolios WHERE id = ?", args: [portfolioId] });
   const row = result.rows[0];
   return row ? (JSON.parse(String(row.content)) as PortfolioContent) : null;
+}
+
+/**
+ * Additively merges newly-invented categories into a Portfolio's legend
+ * (wayframe#t35) — an existing category (matched by `name`) is kept as-is,
+ * never overwritten, so this never stomps a category another Program
+ * already references. Returns a map from each input category's id to the
+ * id it should actually be referenced by (its own id if newly added, or
+ * the existing category's id if one with that name already existed) — the
+ * caller uses this to remap any `categoryId` the new content assigned
+ * before this merge ran. No-ops (and skips the write entirely) if every
+ * input category already exists by name.
+ */
+export async function appendLegendCategories(portfolioId: string, categories: LegendCategory[]): Promise<Map<string, string>> {
+  const content = await getPortfolioContent(portfolioId);
+  const existing = content?.legendCategories ?? [];
+  const byName = new Map(existing.map((c) => [c.name, c]));
+  const idRemap = new Map<string, string>();
+  const merged = [...existing];
+  for (const cat of categories) {
+    const match = byName.get(cat.name);
+    if (match) {
+      idRemap.set(cat.id, match.id);
+    } else {
+      merged.push(cat);
+      byName.set(cat.name, cat);
+      idRemap.set(cat.id, cat.id);
+    }
+  }
+  if (merged.length !== existing.length) {
+    await setPortfolioContent(portfolioId, { ...content, schemaVersion: content?.schemaVersion ?? CURRENT_SCHEMA_VERSION, legendCategories: merged });
+  }
+  return idRemap;
 }
 
 /**
