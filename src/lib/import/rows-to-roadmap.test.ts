@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { guessColumnMapping, rowsToRoadmap, type ColumnMapping } from "./rows-to-roadmap";
+import { guessColumnMapping, rowsToRoadmap, type ColumnMapping, type NewMilestone } from "./rows-to-roadmap";
 import type { Program } from "@/components/timeline/types";
 
 function baseData(): Program {
@@ -95,5 +95,34 @@ describe("rowsToRoadmap", () => {
     const result = rowsToRoadmap(baseData(), [{ Task: "X", Date: "not-a-date" }], mapping);
     expect(result.adds).toHaveLength(0);
     expect(result.skipped[0].reason).toMatch(/no parseable date/);
+  });
+
+  // wayframe#t39: the "target a brand-new Program" case (sibling to #t35's
+  // AI-extraction path) matches every row against an empty seed document
+  // instead of a live one — nothing to update against, so every row must
+  // fall through to `adds`.
+  it("against an empty seed document, every row becomes an add with no updates", () => {
+    const empty: Program = {
+      id: "",
+      portfolioId: "",
+      order: 0,
+      programName: "",
+      generatedAt: "",
+      owner: "",
+      bluf: { statement: "", bullets: [] },
+      actionItems: [],
+      swimlanes: [],
+      topLevelItems: [],
+      milestones: [],
+    };
+    const rows = [
+      { Task: "Kickoff", Lane: "Engineering", Date: "2026-01-01" },
+      { Task: "Design Review", Lane: "Engineering", Date: "2026-03-01" },
+    ];
+    const result = rowsToRoadmap(empty, rows, mapping, idGen());
+    expect(result.updates).toHaveLength(0);
+    expect(result.adds).toHaveLength(2);
+    expect(result.newLaneNames).toEqual(["Engineering"]);
+    expect(result.adds.every((m) => (m as NewMilestone).__newLaneName === "Engineering")).toBe(true);
   });
 });
