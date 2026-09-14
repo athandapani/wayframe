@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
+import { SessionProviderWrapper } from "@/components/auth/SessionProviderWrapper";
 import Home from "./page";
 
 const STORAGE_KEY = "wayframe:document";
@@ -41,7 +42,11 @@ describe("Home", () => {
   });
 
   it("shows the entry form when no roadmap is saved", async () => {
-    render(<Home />);
+    render(
+      <SessionProviderWrapper>
+        <Home />
+      </SessionProviderWrapper>,
+    );
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Build your roadmap" })).toBeInTheDocument();
     });
@@ -50,7 +55,11 @@ describe("Home", () => {
   it("lands back in the saved roadmap when one already exists in localStorage", async () => {
     const document: PortfolioDocument = { portfolio: basePortfolio(), programs: [baseData()] };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
-    render(<Home />);
+    render(
+      <SessionProviderWrapper>
+        <Home />
+      </SessionProviderWrapper>,
+    );
     await waitFor(() => {
       expect(screen.getByText("Everything is on track.")).toBeInTheDocument();
     });

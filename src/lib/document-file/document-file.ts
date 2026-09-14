@@ -12,11 +12,12 @@
 // readable reason is the same posture /api/extract already takes.
 //
 // The file holds a full PortfolioDocument (portfolio + programs), not just
-// one Program (wayframe t11) — an interim choice ahead of t17's proper
-// ".wayframe.json vs .wayframeportfolio.json" design: today's app only ever
-// has one Program in view, and forcing a Program-only file now would just
-// drop working functionality (logo, legend categories) for no present
-// benefit, since there's no multi-Program workflow yet to gain from it.
+// one Program (wayframe t11) — and wayframe#t17 has now settled this as the
+// permanent shape for this format, not an interim one: `.wayframe.json`
+// stays the Program-level interchange format (by convention one Program per
+// file, nothing enforces it), while a whole-Portfolio export with N Programs
+// gets its own new sibling container instead (`.wayframeportfolio.json`,
+// see portfolio-export.ts) rather than redesigning this one.
 import type { PortfolioDocument } from "@/components/timeline/types";
 import { validatePortfolioDocument, type LoadResult } from "./schema";
 

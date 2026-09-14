@@ -77,3 +77,55 @@ describe("portfolios membership", () => {
     expect(await resolveShareLink("not-a-real-token")).toBeNull();
   });
 });
+
+describe("portfolio content (wayframe#t17)", () => {
+  it("getPortfolioContent defaults to an empty object before setPortfolioContent is ever called", async () => {
+    const { createPortfolioWithOwner, getPortfolioContent } = await import("./portfolios");
+    await createPortfolioWithOwner("p1", "user-1");
+    expect(await getPortfolioContent("p1")).toEqual({});
+  });
+
+  it("getPortfolioContent returns null for a portfolio id that doesn't exist", async () => {
+    const { getPortfolioContent } = await import("./portfolios");
+    expect(await getPortfolioContent("never-created")).toBeNull();
+  });
+
+  it("setPortfolioContent/getPortfolioContent round-trip", async () => {
+    const { createPortfolioWithOwner, setPortfolioContent, getPortfolioContent } = await import("./portfolios");
+    await createPortfolioWithOwner("p1", "user-1");
+    await setPortfolioContent("p1", {
+      schemaVersion: 3,
+      companyLogo: { dataUrl: "data:image/png;base64,x" },
+      legendCategories: [{ id: "cat-1", name: "Risk", color: "#f00" }],
+    });
+
+    expect(await getPortfolioContent("p1")).toEqual({
+      schemaVersion: 3,
+      companyLogo: { dataUrl: "data:image/png;base64,x" },
+      legendCategories: [{ id: "cat-1", name: "Risk", color: "#f00" }],
+    });
+  });
+});
+
+describe("getOwnedPortfolioId (wayframe#t17)", () => {
+  it("returns the owner's portfolio id", async () => {
+    const { createPortfolioWithOwner, getOwnedPortfolioId } = await import("./portfolios");
+    await createPortfolioWithOwner("p1", "user-1");
+    expect(await getOwnedPortfolioId("user-1")).toBe("p1");
+  });
+
+  it("returns null for an identity with no membership at all", async () => {
+    const { getOwnedPortfolioId } = await import("./portfolios");
+    expect(await getOwnedPortfolioId("stranger")).toBeNull();
+  });
+
+  it("returns null for an identity that's only an editor or viewer, not owner", async () => {
+    const { createPortfolioWithOwner, setMember, getOwnedPortfolioId } = await import("./portfolios");
+    await createPortfolioWithOwner("p1", "user-1");
+    await setMember("p1", "user-2", "editor");
+    await setMember("p1", "user-3", "viewer");
+
+    expect(await getOwnedPortfolioId("user-2")).toBeNull();
+    expect(await getOwnedPortfolioId("user-3")).toBeNull();
+  });
+});

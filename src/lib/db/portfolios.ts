@@ -1,5 +1,6 @@
 import { getDbClient } from "./client";
 import { ensureSchema } from "./schema";
+import type { Portfolio } from "@/components/timeline/types";
 
 // Membership/role storage per wayframe#t16's resolution: three roles
 // (owner/editor/viewer) held per-identity on a Portfolio, checked
@@ -111,4 +112,45 @@ export async function deleteShareLink(token: string): Promise<void> {
   const client = getDbClient();
   await ensureSchema(client);
   await client.execute({ sql: "DELETE FROM portfolio_share_links WHERE token = ?", args: [token] });
+}
+
+/** The Portfolio-level shared fields (wayframe#t17) — everything Portfolio carries except `id`, which is the row's own primary key. */
+export type PortfolioContent = Omit<Portfolio, "id">;
+
+/** Overwrites a Portfolio row's content blob wholesale — same whole-object-write posture as t12's Program snapshot, appropriate here since there's no concurrent-write path onto this column yet (only the t17 migration trigger writes it today). */
+export async function setPortfolioContent(portfolioId: string, content: PortfolioContent): Promise<void> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  await client.execute({
+    sql: "UPDATE portfolios SET content = ? WHERE id = ?",
+    args: [JSON.stringify(content), portfolioId],
+  });
+}
+
+export async function getPortfolioContent(portfolioId: string): Promise<PortfolioContent | null> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const result = await client.execute({ sql: "SELECT content FROM portfolios WHERE id = ?", args: [portfolioId] });
+  const row = result.rows[0];
+  return row ? (JSON.parse(String(row.content)) as PortfolioContent) : null;
+}
+
+/**
+ * wayframe#t17's migration-idempotency check: does `identity` already own a
+ * Portfolio? The local-artifact migration trigger calls this before writing
+ * anything so a second sign-in (a second browser, or the same browser after
+ * `wayframe:portfolio-migrated` somehow got cleared) re-uses the existing
+ * Portfolio instead of creating a duplicate. Deliberately scoped to the
+ * `owner` role only — an identity that's merely an editor/viewer on someone
+ * else's shared Portfolio has nothing local of their own to have migrated.
+ */
+export async function getOwnedPortfolioId(identity: string): Promise<string | null> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const result = await client.execute({
+    sql: "SELECT portfolio_id FROM portfolio_members WHERE identity = ? AND role = 'owner' LIMIT 1",
+    args: [identity],
+  });
+  const row = result.rows[0];
+  return row ? String(row.portfolio_id) : null;
 }

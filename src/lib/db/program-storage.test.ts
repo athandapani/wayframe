@@ -1,6 +1,7 @@
 import { createClient, type Client } from "@libsql/client";
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { demoRoadmap } from "@/data/demo-roadmap";
 
 let testClient: Client;
 
@@ -104,5 +105,27 @@ describe("program-storage", () => {
 
     const rows = await listProgramSnapshotsForPortfolio("portfolio-1");
     expect(rows.map((r) => r.id)).toEqual(["pA"]);
+  });
+
+  it("createProgramFromData (wayframe#t17) seeds a snapshot that round-trips the whole Program object", async () => {
+    const { createProgramFromData, getProgramSnapshot } = await import("./program-storage");
+    const program = { ...demoRoadmap, id: "prog-migrated", portfolioId: "portfolio-1" };
+    await createProgramFromData(program);
+
+    const snapshot = await getProgramSnapshot("prog-migrated");
+    expect(snapshot).not.toBeNull();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, snapshot!);
+    expect(doc.getMap("program").get("data")).toEqual(program);
+  });
+
+  it("createProgramFromData rows are visible to the All-Programs read path", async () => {
+    const { createProgramFromData, listProgramSnapshotsForPortfolio } = await import("./program-storage");
+    const program = { ...demoRoadmap, id: "prog-migrated", portfolioId: "portfolio-1" };
+    await createProgramFromData(program);
+
+    const [row] = await listProgramSnapshotsForPortfolio("portfolio-1");
+    expect(row.id).toBe("prog-migrated");
+    expect(row.rev).toBe(1);
   });
 });

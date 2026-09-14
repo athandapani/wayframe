@@ -38,9 +38,16 @@ const SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS program_updates_program_id ON program_updates (program_id)`,
+  // `content` (wayframe#t17): the Portfolio-level shared fields
+  // (schemaVersion/companyLogo/legendCategories/theme/scenarios) as one JSON
+  // blob — see portfolios.ts's setPortfolioContent/getPortfolioContent. A
+  // local dev DB file (`.data/wayframe-dev.db`) created before this column
+  // existed needs deleting to pick it up, same "no ALTER ladder yet" caveat
+  // this file's header comment already carries.
   `CREATE TABLE IF NOT EXISTS portfolios (
     id TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '{}'
   )`,
   `CREATE TABLE IF NOT EXISTS portfolio_members (
     portfolio_id TEXT NOT NULL,

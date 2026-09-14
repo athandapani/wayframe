@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import { getDbClient } from "./client";
 import { ensureSchema } from "./schema";
+import type { Program } from "@/components/timeline/types";
 
 // Read/write topology per wayframe#t12's resolution: one row per Program
 // (a Yjs-snapshot blob keyed by program id) in `programs`, never a
@@ -100,6 +101,31 @@ export async function compactProgram(id: string, portfolioId: string): Promise<v
     ],
     "write",
   );
+}
+
+/**
+ * wayframe#t17's local-artifact migration primitive: seeds a brand-new
+ * `programs` row directly from a whole Program object, with no prior
+ * content, no concurrent editor, and no undo history to clobber — the same
+ * "legitimate bulk seed, not a swap" reasoning t35's gist already uses for
+ * AI-extraction's own new-Program case. The real field-level Program-JSON-
+ * to-Y.Map bridge doesn't exist yet (see party/src/index.ts's own comment on
+ * this), so this embeds the whole object as one value under a single
+ * `program` Y.Map key rather than decomposing it into per-field shared
+ * types — an honest interim encoding, not a design decision meant to
+ * survive once that bridge lands. Caller must set `program.portfolioId`
+ * correctly first; it's persisted as given, not overridden here.
+ */
+export async function createProgramFromData(program: Program): Promise<void> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const doc = new Y.Doc();
+  doc.getMap("program").set("data", program);
+  const snapshot = Y.encodeStateAsUpdate(doc);
+  await client.execute({
+    sql: "INSERT INTO programs (id, portfolio_id, snapshot, rev, updated_at) VALUES (?, ?, ?, 1, ?)",
+    args: [program.id, program.portfolioId, snapshot, new Date().toISOString()],
+  });
 }
 
 /** The cheap All-Programs read path (wayframe#t12) — a single indexed query against `programs` only, never `program_updates`. */

@@ -13,6 +13,7 @@ import type { PortfolioDocument } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
 import { loadPersistedDocument } from "@/components/correction-box/use-correction-box";
+import { AuthControls } from "@/components/auth/AuthControls";
 
 interface StorageCheck {
   checked: boolean;
@@ -37,16 +38,19 @@ export default function Home() {
 
   if (!checked) return null;
 
-  if (roadmap) {
-    return (
-      <RoadmapWorkspace
-        initialData={roadmap.programs[0]}
-        initialPortfolio={roadmap.portfolio}
-        today={today}
-        onStartNew={() => setStorageCheck({ checked: true, roadmap: null })}
-      />
-    );
-  }
-
-  return <EntryForm onExtracted={setRoadmap} />;
+  return (
+    <>
+      <AuthControls />
+      {roadmap ? (
+        <RoadmapWorkspace
+          initialData={roadmap.programs[0]}
+          initialPortfolio={roadmap.portfolio}
+          today={today}
+          onStartNew={() => setStorageCheck({ checked: true, roadmap: null })}
+        />
+      ) : (
+        <EntryForm onExtracted={setRoadmap} />
+      )}
+    </>
+  );
 }
