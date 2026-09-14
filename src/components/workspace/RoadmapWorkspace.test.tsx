@@ -200,6 +200,37 @@ describe("RoadmapWorkspace export to deck", () => {
   });
 });
 
+describe("RoadmapWorkspace company logo upload (t40)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("rejects an oversized logo with an inline error and leaves companyLogo unset", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
+
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+    const oversizedLogo = new File([new Uint8Array(3 * 1024 * 1024)], "logo.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [oversizedLogo] } });
+
+    await waitFor(() => expect(screen.getByText(/too large/i)).toBeInTheDocument());
+    // Button still reads "Upload", not "Replace" — the oversized file never became companyLogo.
+    expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("accepts a logo under the size cap", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
+
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+    const smallLogo = new File([new Uint8Array(1024)], "logo.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [smallLogo] } });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Replace" })).toBeInTheDocument());
+    expect(screen.queryByText(/too large/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
   beforeEach(() => {
     window.localStorage.clear();

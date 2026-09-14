@@ -70,6 +70,12 @@ type Mode = "executive" | "program";
 // keeping both permanently mounted would duplicate accessible page content.
 const OFFSCREEN_CLASS = "pointer-events-none absolute top-0 -left-[99999px]";
 
+// t40 (Binary asset storage boundary) — companyLogo.dataUrl stays an inline
+// string in the document rather than moving to a blob store, so this is the
+// one guardrail that keeps that decision sound: a rare, small, user-initiated
+// write, not unbounded row growth.
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
 function deckFileName(programName: string): string {
   const slug = programName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${slug || "roadmap"}-deck.pptx`;
@@ -498,8 +504,16 @@ export function RoadmapWorkspace({
   // Company-logo upload (wayframe#46/#54) — stored as a data URL directly on
   // the document (see Portfolio.companyLogo), no blob store. A second
   // upload overwrites the first via the same setCompanyLogo action, so this
-  // one handler covers both "upload" and "replace".
+  // one handler covers both "upload" and "replace". The size cap (t40) is
+  // the guardrail that keeps this inline-storage decision viable: the
+  // dataUrl rides along in every snapshot of #86's per-Program row, so a
+  // sane per-asset ceiling here is what bounds that row instead of a blob
+  // store or dedup layer.
   function handleUploadLogo(file: File) {
+    if (file.size > MAX_LOGO_BYTES) {
+      setFileError({ message: "That logo is too large (max 2MB) — try a smaller image.", issues: [] });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === "string") box.setCompanyLogo(reader.result);
