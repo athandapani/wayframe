@@ -11,7 +11,6 @@ function milestone(overrides: Partial<Milestone> = {}): Milestone {
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
     ...overrides,
   };
 }

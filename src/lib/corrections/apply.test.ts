@@ -10,7 +10,6 @@ function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date"
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
     ...overrides,
   };
 }
@@ -174,7 +173,7 @@ describe("applyAddTopLevelItemOps (wayframe#59)", () => {
 
 describe("applyDependencyOps (wayframe#59)", () => {
   function milestone2(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date">): Milestone {
-    return { laneId: "lane-1", title: overrides.id, status: "not-started", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false, ...overrides };
+    return { laneId: "lane-1", title: overrides.id, status: "not-started", dependsOn: [], linksToTopLevelMilestone: null, ...overrides };
   }
 
   it("adds an edge defaulting showConnector to true when unset", () => {

@@ -3,7 +3,7 @@
 // the RAG-governance fog item) wins when a lead has set one. Trend compares
 // the current rollup against the lane's rollupHistory (wayframe issue #33) —
 // undefined until a lane has at least one snapshot dated before today.
-import type { Program, Swimlane, Milestone, Status, Rag } from "@/components/timeline/types";
+import type { Program, RenderableProgram, RollupSnapshot, Swimlane, Milestone, Status, Rag } from "@/components/timeline/types";
 
 export type { Rag };
 
@@ -60,12 +60,16 @@ const RAG_ORDER: Record<Rag, number> = { green: 0, amber: 1, red: 2 };
 
 /**
  * Most recent rollupHistory entry strictly before today — string comparison
- * is safe since dates are always "YYYY-MM-DD" (see cascade.ts's isBefore).
+ * of the record's date keys is safe since dates are always "YYYY-MM-DD"
+ * (see cascade.ts's isBefore).
  */
-function priorSnapshot(lane: Swimlane, todayKey: string) {
-  return (lane.rollupHistory ?? [])
-    .filter((s) => s.date < todayKey)
-    .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+function priorSnapshot(lane: Swimlane, todayKey: string): RollupSnapshot | undefined {
+  const history = lane.rollupHistory ?? {};
+  const priorKey = Object.keys(history)
+    .filter((date) => date < todayKey)
+    .sort()
+    .at(-1);
+  return priorKey ? history[priorKey] : undefined;
 }
 
 function trendForLane(lane: Swimlane, currentRag: Rag, todayKey: string): LaneRollup["trend"] {
@@ -93,8 +97,8 @@ export function laneRollups(data: Program, today: Date): LaneRollup[] {
     });
 }
 
-/** Ranks by severity, critical-path first, then soonest date. */
-export function topRisks(data: Program, limit = 3): RiskItem[] {
+/** Ranks by severity, critical-path first, then soonest date. Takes RenderableProgram (t14) since isCriticalPath is computed at the render boundary, not persisted on Program's own Milestone. */
+export function topRisks(data: RenderableProgram, limit = 3): RiskItem[] {
   const laneNameById = new Map(data.swimlanes.map((l) => [l.id, l.name]));
   return data.milestones
     .filter((m) => SEVERITY[m.status] > 0)

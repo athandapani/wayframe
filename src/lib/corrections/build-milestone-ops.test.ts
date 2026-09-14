@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Milestone } from "@/components/timeline/types";
+import type { RenderableMilestone } from "@/components/timeline/types";
 import { buildMilestoneEditOps, milestoneToEditableFields } from "./build-milestone-ops";
 
-function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date">): Milestone {
+function milestone(overrides: Partial<RenderableMilestone> & Pick<RenderableMilestone, "id" | "date">): RenderableMilestone {
   return {
     laneId: "lane-1",
     title: overrides.id,

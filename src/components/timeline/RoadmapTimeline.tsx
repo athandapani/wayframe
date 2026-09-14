@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RenderableProgram, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
+import type { RenderableProgram, RenderableMilestone, Swimlane, Milestone, TopLevelItem, LegendCategory } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import { darken, lighten, contrastText } from "./color-utils";
@@ -939,7 +939,7 @@ function MilestoneMarker({
   selected = false,
   remoteColor,
 }: {
-  m: Milestone;
+  m: RenderableMilestone;
   cx: number;
   cy: number;
   theme: Theme;

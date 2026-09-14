@@ -7,7 +7,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Program } from "../timeline/types";
+import type { RenderableProgram } from "../timeline/types";
 import { formatDateShort } from "../timeline/date-utils";
 import { laneRollups, topRisks, type Rag } from "./rag";
 import { ExecutiveTimeline } from "./ExecutiveTimeline";
@@ -95,7 +95,7 @@ export function ExecutiveView({
   timelineSummary,
   onEditDocument,
 }: {
-  data: Program;
+  data: RenderableProgram;
   today: Date;
   /** Generated on demand via RoadmapWorkspace's OptionsMenu trigger (wayframe#37) — undefined until the first "Generate" click. */
   timelineSummary?: ExecutiveTimelineSummary | null;

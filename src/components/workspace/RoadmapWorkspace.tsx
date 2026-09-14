@@ -327,11 +327,13 @@ export function RoadmapWorkspace({
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
-  const timelineSummary = useTimelineSummary(box.data);
   // The render layer (RoadmapTimeline, MilestoneEditorModal, CategoryManager)
   // stays Portfolio-agnostic (wayframe t11) — this is the one seam that
   // reassembles the flat shape it expects from the split edit-time state.
+  // Computed before useTimelineSummary since that needs the render layer's
+  // resolved isCriticalPath (t14) too, not persisted-state's Program.
   const renderable = mergeForRender(box.portfolio, box.data);
+  const timelineSummary = useTimelineSummary(renderable);
   // What Save/Open round-trip through .wayframe.json (wayframe t11) — the
   // whole PortfolioDocument, not just this one Program (see document-file.ts).
   const portfolioDocument: PortfolioDocument = { portfolio: box.portfolio, programs: [box.data] };
@@ -471,7 +473,10 @@ export function RoadmapWorkspace({
   const visibleCaptureRef = useRef<HTMLDivElement>(null);
   const offscreenCaptureRef = useRef<HTMLDivElement>(null);
 
-  const selectedMilestone = box.data.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
+  // From `renderable`, not `box.data` (t14): MilestoneEditorModal needs the
+  // render-layer's computed isCriticalPath, which only RenderableProgram's
+  // milestones carry.
+  const selectedMilestone = renderable.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const selectedTopLevelItemRaw = box.data.topLevelItems.find((t) => t.id === selectedTopLevelItemId) ?? null;
   const selectedTopLevelItem = selectedTopLevelItemRaw && isEditableTopLevelItem(selectedTopLevelItemRaw) ? selectedTopLevelItemRaw : null;
 

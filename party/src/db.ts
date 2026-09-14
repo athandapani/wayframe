@@ -2,7 +2,7 @@ import { createClient, type Client } from "@libsql/client/web";
 
 // party/'s own minimal Turso client (wayframe#t12) — duplicated from
 // src/lib/db/client.ts/schema.ts/program-storage.ts rather than imported,
-// per t4's own comment on PortfolioRoom: this Worker is a separate
+// per t4's own comment on the room class (ProgramRoom, t14): this Worker is a separate
 // deployable from the Next.js app (different runtime — Cloudflare Workers
 // has no Node `fs`, so it needs libSQL's fetch-based `/web` client, not the
 // Node client `src/lib/db/client.ts` uses for its local-file dev fallback).
@@ -17,6 +17,10 @@ import { createClient, type Client } from "@libsql/client/web";
 export interface PartyEnv {
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN?: string;
+  // Room-access token signing secret (wayframe#t16) — must equal the
+  // Next.js app's AUTH_SECRET exactly, or every token verification fails
+  // closed. `wrangler secret put AUTH_SECRET` before deploying.
+  AUTH_SECRET?: string;
 }
 
 let client: Client | undefined;
@@ -46,6 +50,27 @@ const SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS program_updates_program_id ON program_updates (program_id)`,
+  // Membership/role tables (wayframe#t16) — see src/lib/db/schema.ts for
+  // the doc comment; kept in sync by hand like the rest of this file.
+  `CREATE TABLE IF NOT EXISTS portfolios (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS portfolio_members (
+    portfolio_id TEXT NOT NULL,
+    identity TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (portfolio_id, identity)
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_members_portfolio_id ON portfolio_members (portfolio_id)`,
+  `CREATE TABLE IF NOT EXISTS portfolio_share_links (
+    token TEXT PRIMARY KEY,
+    portfolio_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('editor','viewer')),
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_share_links_portfolio_id ON portfolio_share_links (portfolio_id)`,
 ];
 
 let schemaReady: Promise<void> | undefined;
@@ -61,17 +86,13 @@ function toBytes(value: unknown): Uint8Array {
   throw new Error("Expected a BLOB column value");
 }
 
-export interface ProgramSnapshotRow {
-  id: string;
-  snapshot: Uint8Array;
-}
-
-/** Mirrors src/lib/db/program-storage.ts's listProgramSnapshotsForPortfolio — this Worker only needs id+snapshot to seed each Program subdoc on room start. */
-export async function loadProgramSnapshotsForPortfolio(env: PartyEnv, portfolioId: string): Promise<ProgramSnapshotRow[]> {
+/** Mirrors src/lib/db/program-storage.ts's getProgramSnapshot — one room per Program (t14) only ever needs its own single row to seed its doc on room start. Returns undefined when the Program has no row yet (a brand-new Program). */
+export async function loadProgramSnapshot(env: PartyEnv, programId: string): Promise<Uint8Array | undefined> {
   const db = getPartyDbClient(env);
   await ensureSchema(db);
-  const result = await db.execute({ sql: "SELECT id, snapshot FROM programs WHERE portfolio_id = ?", args: [portfolioId] });
-  return result.rows.map((row) => ({ id: String(row.id), snapshot: toBytes(row.snapshot) }));
+  const result = await db.execute({ sql: "SELECT snapshot FROM programs WHERE id = ?", args: [programId] });
+  const row = result.rows[0];
+  return row ? toBytes(row.snapshot) : undefined;
 }
 
 /** Mirrors src/lib/db/program-storage.ts's appendProgramUpdate — the hot path a Program subdoc's own `update` event calls on every edit. Never touches `programs`; compaction (the Next.js app's job, not this Worker's) is what folds these into a snapshot. */

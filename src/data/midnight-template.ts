@@ -43,7 +43,6 @@ export function createMidnightTemplate(today: Date): PortfolioDocument {
             status: "not-started",
             dependsOn: [],
             linksToTopLevelMilestone: null,
-            isCriticalPath: false,
           },
         ],
       },

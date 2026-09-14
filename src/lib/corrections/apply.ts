@@ -35,7 +35,6 @@ export function applyAddMilestoneOps(
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
   }));
 }
 

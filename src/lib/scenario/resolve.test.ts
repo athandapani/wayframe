@@ -11,7 +11,6 @@ function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date"
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
     ...overrides,
   };
 }

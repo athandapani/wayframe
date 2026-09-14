@@ -15,6 +15,13 @@ import type { Client } from "@libsql/client";
 // `update_bytes` (not `update`, despite the ticket's own preview) — `UPDATE`
 // is a SQL reserved keyword; naming the column literally `update` would
 // need quoting at every call site, so it's spelled out instead.
+// Membership/role tables (wayframe#t16's resolution) — three roles
+// (owner/editor/viewer) held per-identity on a Portfolio, checked
+// server-side (see party/src/membership.ts + party/src/index.ts's
+// onBeforeConnect) rather than trusted from any client-supplied value.
+// `portfolio_share_links` is the public-link mechanism: it hands out
+// editor/viewer to whoever holds the token via a lightweight guest
+// identity, not a fourth role, so it never appears in `portfolio_members`.
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS programs (
     id TEXT PRIMARY KEY,
@@ -31,6 +38,25 @@ const SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS program_updates_program_id ON program_updates (program_id)`,
+  `CREATE TABLE IF NOT EXISTS portfolios (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS portfolio_members (
+    portfolio_id TEXT NOT NULL,
+    identity TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (portfolio_id, identity)
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_members_portfolio_id ON portfolio_members (portfolio_id)`,
+  `CREATE TABLE IF NOT EXISTS portfolio_share_links (
+    token TEXT PRIMARY KEY,
+    portfolio_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('editor','viewer')),
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_share_links_portfolio_id ON portfolio_share_links (portfolio_id)`,
 ];
 
 // Memoized per-Client instance (not module-global) so tests pointing

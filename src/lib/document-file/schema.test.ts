@@ -148,4 +148,34 @@ describe("validatePortfolioDocument", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toMatch(/broken references/);
   });
+
+  it("migrates a v2 document's isCriticalPath removal and rollupHistory array->record shape (t14, wayframe#89)", () => {
+    const v2Document = {
+      portfolio: { ...demoPortfolio, schemaVersion: 2 },
+      programs: [
+        {
+          ...demoRoadmap,
+          milestones: [{ ...demoRoadmap.milestones[0], isCriticalPath: true }],
+          swimlanes: [
+            {
+              ...demoRoadmap.swimlanes[0],
+              rollupHistory: [{ date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 }],
+            },
+            ...demoRoadmap.swimlanes.slice(1),
+          ],
+        },
+      ],
+    };
+
+    const result = validatePortfolioDocument(v2Document);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.document.portfolio.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    const migratedMilestone = result.document.programs[0].milestones[0] as unknown as Record<string, unknown>;
+    expect(migratedMilestone.isCriticalPath).toBeUndefined();
+    expect(result.document.programs[0].swimlanes[0].rollupHistory).toEqual({
+      "2026-06-09": { rag: "amber", atRiskCount: 1, delayedCount: 0 },
+    });
+  });
 });

@@ -25,7 +25,6 @@ function milestone(id: string, laneId: string, overrides: Partial<Milestone> = {
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
     ...overrides,
   };
 }

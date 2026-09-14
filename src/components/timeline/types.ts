@@ -13,15 +13,24 @@
 
 import type { PortfolioTheme } from "@/components/timeline/theme";
 import type { Scenario } from "@/lib/scenario/types";
+import { computeCriticalPathIds } from "@/lib/critical-path/compute";
 
 export type Status = "not-started" | "on-track" | "at-risk" | "delayed" | "complete";
 
 /** Executive-view rollup color (wayframe issue #8). */
 export type Rag = "green" | "amber" | "red";
 
-/** One calendar day's rollup, snapshotted for the Executive-view trend arrow (wayframe issue #33). */
+/**
+ * One calendar day's rollup, snapshotted for the Executive-view trend arrow
+ * (wayframe issue #33). No `date` field — it lives as the key in
+ * Swimlane.rollupHistory's record, not duplicated inside the value (t14,
+ * wayframe#89): a plain Y.Array of these used to let two collaborators who
+ * both pass the "no entry for today yet" guard against their own local copy
+ * both append, producing two entries for the same day; keying by date
+ * instead makes concurrent same-day writes converge to one entry via Yjs's
+ * per-key Y.Map LWW, the same way any other keyed field does.
+ */
 export interface RollupSnapshot {
-  date: string;
   rag: Rag;
   atRiskCount: number;
   delayedCount: number;
@@ -34,10 +43,10 @@ export interface Swimlane {
   name: string;
   /**
    * Manual override for the Executive-view RAG rollup — mirrors
-   * Milestone.isCriticalPath's manual-flag pattern. Auto (worst-status-wins,
-   * see src/components/executive-view/rag.ts) is the default; when set,
-   * this wins instead. Decided in the wayfinder map's RAG-governance fog
-   * item alongside #8.
+   * Milestone.isCriticalPathOverride's manual-flag pattern. Auto
+   * (worst-status-wins, see src/components/executive-view/rag.ts) is the
+   * default; when set, this wins instead. Decided in the wayfinder map's
+   * RAG-governance fog item alongside #8.
    */
   ragOverride?: Rag;
   /**
@@ -48,13 +57,15 @@ export interface Swimlane {
    */
   color?: string;
   /**
-   * Append-only, unbounded daily rollup log — one entry written passively per
-   * calendar day per lane on document load/view (wayframe issue #33), never
-   * through useCorrectionBox's undo-tracked reducer actions (same treatment
-   * as its existing "hydrated" case). Powers LaneRollup.trend in
+   * Append-only, unbounded daily rollup log, keyed by ISO `YYYY-MM-DD` date
+   * (t14, wayframe#89 — see RollupSnapshot's doc for why a plain array was
+   * replaced) — one entry written passively per calendar day per lane on
+   * document load/view (wayframe issue #33), never through
+   * useCorrectionBox's undo-tracked reducer actions (same treatment as its
+   * existing "hydrated" case). Powers LaneRollup.trend in
    * src/components/executive-view/rag.ts.
    */
-  rollupHistory?: RollupSnapshot[];
+  rollupHistory?: Record<string, RollupSnapshot>;
   /**
    * Row-height variant — "lean" renders at 75% of the normal lane height
    * (see LANE_HEIGHT in RoadmapTimeline.tsx), for lanes with few milestones
@@ -128,18 +139,18 @@ export interface Milestone {
   dependsOn: DependencyEdge[];
   linksToTopLevelMilestone: string | null;
   /**
-   * Resolved/rendered critical-path flag — computed by computeCriticalPath
-   * (src/lib/critical-path/compute.ts, wayframe#34/#35) and overlaid with
-   * isCriticalPathOverride, then written back into the reducer's state
-   * (same "recompute and persist" treatment as the cascade engine, not a
-   * derived selector — see #34's resolution for why). Don't hand-set this
-   * field directly; set isCriticalPathOverride instead.
-   */
-  isCriticalPath: boolean;
-  /**
    * Manual override for the computed critical-path flag — mirrors
    * Swimlane.ragOverride's placement/pattern. Wins over the computed value
-   * when set; undefined defers to computeCriticalPath's result.
+   * when set; undefined defers to computeCriticalPathIds's result.
+   *
+   * The computed flag itself (`isCriticalPath`) is no longer a field on this
+   * type (t14, wayframe#89) — until CRDT documents land, a value recomputed
+   * on every mutation and written back into persisted state has nowhere
+   * meaningful to converge if N clients each recompute and write it
+   * concurrently, so it's derived at the render boundary instead (see
+   * `RenderableMilestone`/`mergeForRender` below), never persisted or
+   * hand-set. This deletes the concurrent-write question rather than
+   * answering it, the same treatment Theme (t18) and Scenario (t13) got.
    */
   isCriticalPathOverride?: boolean;
   attachments?: Attachment[];
@@ -360,19 +371,41 @@ export interface PortfolioDocument {
 }
 
 /**
+ * A Milestone with its critical-path flag resolved (t14, wayframe#89) — see
+ * Milestone.isCriticalPathOverride's doc for why the flag itself isn't a
+ * persisted field. Only the render layer ever sees this shape.
+ */
+export type RenderableMilestone = Milestone & { isCriticalPath: boolean };
+
+/**
  * What the render layer (RoadmapTimeline, MilestoneEditorModal, ChartLegend,
  * CategoryManager) actually consumes — one Program's content reassembled
  * with its Portfolio's shared fields, structurally identical to the flat
- * document shape that existed before t11's Portfolio/Program split. Keeps
- * the split entirely an edit/persistence-layer concern: nothing under
- * src/components/timeline needs to know Portfolio exists. Built by
- * mergeForRender (RoadmapWorkspace.tsx).
+ * document shape that existed before t11's Portfolio/Program split, plus
+ * each milestone's critical-path flag resolved (t14). Keeps both concerns
+ * entirely an edit/persistence-layer-adjacent thing: nothing under
+ * src/components/timeline needs to know Portfolio exists or that
+ * isCriticalPath is computed rather than stored. Built by mergeForRender.
  */
-export type RenderableProgram = Program & Pick<Portfolio, "companyLogo" | "legendCategories">;
+export type RenderableProgram = Omit<Program, "milestones"> &
+  Pick<Portfolio, "companyLogo" | "legendCategories"> & { milestones: RenderableMilestone[] };
 
-/** Builds the render layer's flat shape from the split edit-time state (wayframe t11) — see RenderableProgram's doc. */
+/**
+ * Builds the render layer's flat shape from the split edit-time state
+ * (wayframe t11), and resolves each milestone's critical-path flag
+ * (wayframe t14) — overlaying computeCriticalPathIds's result with any
+ * isCriticalPathOverride, the same formula the old withComputedCriticalPath
+ * used to write back into persisted state, just run here instead. See
+ * RenderableProgram's doc.
+ */
 export function mergeForRender(portfolio: Portfolio, program: Program): RenderableProgram {
-  return { ...program, companyLogo: portfolio.companyLogo, legendCategories: portfolio.legendCategories };
+  const critical = computeCriticalPathIds(program);
+  return {
+    ...program,
+    milestones: program.milestones.map((m) => ({ ...m, isCriticalPath: m.isCriticalPathOverride ?? critical.has(m.id) })),
+    companyLogo: portfolio.companyLogo,
+    legendCategories: portfolio.legendCategories,
+  };
 }
 
 /**

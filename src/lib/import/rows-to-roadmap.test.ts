@@ -23,7 +23,6 @@ function baseData(): Program {
         status: "not-started",
         dependsOn: [],
         linksToTopLevelMilestone: null,
-        isCriticalPath: false,
       },
     ],
   };

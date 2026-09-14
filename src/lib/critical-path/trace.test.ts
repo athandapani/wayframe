@@ -11,7 +11,6 @@ function m(id: string, deps: string[] = []): Milestone {
     status: "not-started",
     dependsOn: deps.map((d) => ({ id: d, showConnector: false })),
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
   };
 }
 

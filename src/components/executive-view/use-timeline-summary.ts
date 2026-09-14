@@ -6,10 +6,10 @@
 "use client";
 
 import { useState } from "react";
-import type { Program } from "@/components/timeline/types";
+import type { RenderableProgram } from "@/components/timeline/types";
 import { generateExecutiveSummary, type ExecutiveTimelineSummary } from "./timeline-summary";
 
-export function useTimelineSummary(data: Program) {
+export function useTimelineSummary(data: RenderableProgram) {
   const [summary, setSummary] = useState<ExecutiveTimelineSummary | null>(null);
 
   function update() {

@@ -26,7 +26,7 @@ describe("laneRollups trend (wayframe#33)", () => {
 
   it("is undefined when the only history entry is today's own", () => {
     const data = baseData();
-    data.swimlanes[0].rollupHistory = [{ date: "2026-06-10", rag: "red", atRiskCount: 1, delayedCount: 1 }];
+    data.swimlanes[0].rollupHistory = { "2026-06-10": { rag: "red", atRiskCount: 1, delayedCount: 1 } };
     const [rollup] = laneRollups(data, new Date("2026-06-10"));
     expect(rollup.trend).toBeUndefined();
   });
@@ -34,7 +34,7 @@ describe("laneRollups trend (wayframe#33)", () => {
   it("is up when current rag improved vs. the most recent prior entry", () => {
     const data = baseData();
     data.swimlanes[0].ragOverride = "green";
-    data.swimlanes[0].rollupHistory = [{ date: "2026-06-09", rag: "red", atRiskCount: 2, delayedCount: 1 }];
+    data.swimlanes[0].rollupHistory = { "2026-06-09": { rag: "red", atRiskCount: 2, delayedCount: 1 } };
     const [rollup] = laneRollups(data, new Date("2026-06-10"));
     expect(rollup.trend).toBe("up");
   });
@@ -42,7 +42,7 @@ describe("laneRollups trend (wayframe#33)", () => {
   it("is down when current rag worsened vs. the most recent prior entry", () => {
     const data = baseData();
     data.swimlanes[0].ragOverride = "red";
-    data.swimlanes[0].rollupHistory = [{ date: "2026-06-09", rag: "green", atRiskCount: 0, delayedCount: 0 }];
+    data.swimlanes[0].rollupHistory = { "2026-06-09": { rag: "green", atRiskCount: 0, delayedCount: 0 } };
     const [rollup] = laneRollups(data, new Date("2026-06-10"));
     expect(rollup.trend).toBe("down");
   });
@@ -50,7 +50,7 @@ describe("laneRollups trend (wayframe#33)", () => {
   it("is flat when current rag is unchanged vs. the most recent prior entry", () => {
     const data = baseData();
     data.swimlanes[0].ragOverride = "amber";
-    data.swimlanes[0].rollupHistory = [{ date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 }];
+    data.swimlanes[0].rollupHistory = { "2026-06-09": { rag: "amber", atRiskCount: 1, delayedCount: 0 } };
     const [rollup] = laneRollups(data, new Date("2026-06-10"));
     expect(rollup.trend).toBe("flat");
   });
@@ -58,10 +58,10 @@ describe("laneRollups trend (wayframe#33)", () => {
   it("compares against the most recent prior entry, not the oldest", () => {
     const data = baseData();
     data.swimlanes[0].ragOverride = "red";
-    data.swimlanes[0].rollupHistory = [
-      { date: "2026-06-01", rag: "red", atRiskCount: 2, delayedCount: 1 },
-      { date: "2026-06-09", rag: "green", atRiskCount: 0, delayedCount: 0 },
-    ];
+    data.swimlanes[0].rollupHistory = {
+      "2026-06-01": { rag: "red", atRiskCount: 2, delayedCount: 1 },
+      "2026-06-09": { rag: "green", atRiskCount: 0, delayedCount: 0 },
+    };
     const [rollup] = laneRollups(data, new Date("2026-06-10"));
     expect(rollup.trend).toBe("down");
   });

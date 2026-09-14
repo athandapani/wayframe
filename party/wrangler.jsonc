@@ -14,18 +14,25 @@
   // at `turso dev`'s local HTTP emulator via a `.dev.vars` file (gitignored)
   // — there's no local-file fallback on this side, unlike the Next.js app's
   // dev-mode `file:.data/wayframe-dev.db`.
+  //
+  // AUTH_SECRET (wayframe#t16) — must be set to the *exact same value* as
+  // the Next.js app's AUTH_SECRET, since room-token.ts's HMAC signatures
+  // are only verifiable with the secret that signed them:
+  //   wrangler secret put AUTH_SECRET
+  // Falls back to the same dev-only literal src/lib/auth/auth.ts uses when
+  // unset, so local `wrangler dev` works without a `.dev.vars` entry.
   "durable_objects": {
     "bindings": [
       {
-        "name": "PortfolioRoom",
-        "class_name": "PortfolioRoom"
+        "name": "ProgramRoom",
+        "class_name": "ProgramRoom"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["PortfolioRoom"]
+      "new_sqlite_classes": ["ProgramRoom"]
     }
   ]
 }

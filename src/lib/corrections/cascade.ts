@@ -1,4 +1,4 @@
-import type { Milestone } from "@/components/timeline/types";
+import { currentRev, type Milestone } from "@/components/timeline/types";
 import type { PatchOp } from "./schema";
 
 /**
@@ -69,4 +69,33 @@ export function applyCascade(milestones: readonly Milestone[], directOps: readon
   }
 
   return ops;
+}
+
+/**
+ * Reused rev-staleness check (t14, wayframe#89 walkthrough 4) — the same
+ * "plan moved" doctrine t13/#87 uses for a Scenario override whose target
+ * advanced past `baseRevAtCreation`, applied here to a cascade instead: a
+ * cascade's direct ops are computed once (e.g. by /api/correct, against
+ * whatever document state the model saw), but time can pass before the user
+ * applies them, during which someone else's concurrent edit may have bumped
+ * one of the cascade's target milestones' `rev`. Applying the cascade
+ * anyway would silently overwrite that concurrent edit's effect. This never
+ * mutates or blocks the apply itself — same "surface, don't reject" doctrine
+ * as scanReferentialProblems — it only reports which targets moved so a
+ * caller can warn the user and offer a recompute.
+ *
+ * `draftedRevs` records each direct op's target's `rev` at the moment the
+ * cascade was drafted (e.g. captured alongside the correction preview).
+ * Unconsumed today: no caller records `draftedRevs` yet, since that needs an
+ * async correction-preview window a concurrent edit can land during — same
+ * "scaffolded, not yet wired" treatment as scanReferentialProblems.
+ */
+export function staleCascadeTargets(milestones: readonly Milestone[], draftedRevs: Readonly<Record<string, number>>): string[] {
+  const byId = new Map(milestones.map((m) => [m.id, m]));
+  const stale: string[] = [];
+  for (const [targetId, draftedRev] of Object.entries(draftedRevs)) {
+    const live = byId.get(targetId);
+    if (live && currentRev(live) !== draftedRev) stale.push(targetId);
+  }
+  return stale;
 }

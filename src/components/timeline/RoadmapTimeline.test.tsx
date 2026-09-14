@@ -6,7 +6,7 @@ import { RoadmapTimeline } from "./RoadmapTimeline";
 import { BlufCallout } from "./BlufCallout";
 import { sampleRoadmap } from "./__fixtures__/sample-roadmap";
 import { deriveShortLabel } from "./short-label";
-import type { Program } from "./types";
+import type { RenderableProgram } from "./types";
 
 describe("RoadmapTimeline", () => {
   it("renders swimlanes, separators, and milestones", () => {
@@ -52,7 +52,7 @@ describe("RoadmapTimeline", () => {
 });
 
 describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
-  const slippedRoadmap: Program = {
+  const slippedRoadmap: RenderableProgram = {
     ...sampleRoadmap,
     milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, originalDate: "2026-01-25" } : m)),
   };
@@ -90,7 +90,7 @@ describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
 });
 
 describe("at-risk slip-risk projection (wayframe#61/#72)", () => {
-  const atRiskRoadmap: Program = {
+  const atRiskRoadmap: RenderableProgram = {
     ...sampleRoadmap,
     milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, potentialDate: "2026-03-08" } : m)),
   };
@@ -134,7 +134,7 @@ describe("at-risk slip-risk projection (wayframe#61/#72)", () => {
 });
 
 describe("ghost-badge collision-avoidance (wayframe#47)", () => {
-  function withGhostedMilestone(title: string): Program {
+  function withGhostedMilestone(title: string): RenderableProgram {
     return {
       ...sampleRoadmap,
       milestones: [
@@ -257,7 +257,7 @@ describe("swimlane density (\"normal vs lean\" row height)", () => {
     const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
     const baseHeight = Number(base.querySelector("svg")!.getAttribute("height"));
 
-    const leanRoadmap: Program = {
+    const leanRoadmap: RenderableProgram = {
       ...sampleRoadmap,
       swimlanes: sampleRoadmap.swimlanes.map((l) => (l.id === "lane-a" ? { ...l, density: "lean" as const } : l)),
     };
@@ -271,7 +271,7 @@ describe("swimlane density (\"normal vs lean\" row height)", () => {
     const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
     const baseHeight = Number(base.querySelector("svg")!.getAttribute("height"));
 
-    const normalRoadmap: Program = {
+    const normalRoadmap: RenderableProgram = {
       ...sampleRoadmap,
       swimlanes: sampleRoadmap.swimlanes.map((l) => ({ ...l, density: "normal" as const })),
     };

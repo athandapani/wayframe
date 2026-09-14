@@ -136,15 +136,3 @@ export function computeCriticalPathIds(data: Pick<Program, "milestones" | "topLe
   }
   return critical;
 }
-
-/** Recomputes every milestone's isCriticalPath (override-overlaid) and returns a new Program. */
-export function withComputedCriticalPath(data: Program): Program {
-  const critical = computeCriticalPathIds(data);
-  return {
-    ...data,
-    milestones: data.milestones.map((m) => ({
-      ...m,
-      isCriticalPath: m.isCriticalPathOverride ?? critical.has(m.id),
-    })),
-  };
-}

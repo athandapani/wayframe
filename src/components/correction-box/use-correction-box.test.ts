@@ -30,7 +30,6 @@ function baseData(): Program {
         status: "not-started",
         dependsOn: [],
         linksToTopLevelMilestone: null,
-        isCriticalPath: false,
       },
     ],
   };
@@ -211,7 +210,6 @@ describe("acceptBaseline/acceptAllBaselines reducer actions (wayframe#62)", () =
       status: "not-started",
       dependsOn: [],
       linksToTopLevelMilestone: null,
-      isCriticalPath: false,
     });
     const next = reduce(state, { type: "acceptAllBaselines" });
     expect(next.data.milestones[0].originalDate).toBeUndefined();
@@ -583,7 +581,7 @@ describe("rev bumping (t13, wayframe#87)", () => {
 
   it("does not bump rev on an untouched milestone, even when a sibling milestone in the same action changes", () => {
     const state = initialState();
-    state.data.milestones.push({ id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-02-01", status: "not-started", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false });
+    state.data.milestones.push({ id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-02-01", status: "not-started", dependsOn: [], linksToTopLevelMilestone: null });
     const next = reduce(state, { type: "setMilestoneDate", id: "m1", date: "2026-03-01" });
     expect(next.data.milestones.find((m) => m.id === "m2")?.rev).toBeUndefined();
   });
@@ -595,7 +593,7 @@ describe("rev bumping (t13, wayframe#87)", () => {
 
   it("bumps rev on a milestone whose dependsOn is cleaned up as a side effect of removing its predecessor", () => {
     const state = initialState();
-    state.data.milestones.push({ id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-02-01", status: "not-started", dependsOn: [{ id: "m1", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: false });
+    state.data.milestones.push({ id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-02-01", status: "not-started", dependsOn: [{ id: "m1", showConnector: true }], linksToTopLevelMilestone: null });
     const next = reduce(state, { type: "removeMilestone", id: "m1" });
     const m2 = next.data.milestones.find((m) => m.id === "m2");
     expect(m2?.dependsOn).toEqual([]);
@@ -622,25 +620,25 @@ describe("snapshotRollups reducer action (wayframe#33)", () => {
   it("appends today's rollup snapshot to a lane with no history yet, without pushing undo history", () => {
     const state = initialState();
     const next = reduce(state, { type: "snapshotRollups", today: new Date("2026-06-10") });
-    expect(next.data.swimlanes[0].rollupHistory).toEqual([{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }]);
+    expect(next.data.swimlanes[0].rollupHistory).toEqual({ "2026-06-10": { rag: "red", atRiskCount: 0, delayedCount: 0 } });
     expect(next.history).toHaveLength(0);
   });
 
   it("is a no-op (same state reference) when today's entry already exists for every lane", () => {
     const state = initialState();
-    state.data.swimlanes[0].rollupHistory = [{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }];
+    state.data.swimlanes[0].rollupHistory = { "2026-06-10": { rag: "red", atRiskCount: 0, delayedCount: 0 } };
     const next = reduce(state, { type: "snapshotRollups", today: new Date("2026-06-10") });
     expect(next).toBe(state);
   });
 
   it("appends a new day's entry alongside prior history rather than replacing it", () => {
     const state = initialState();
-    state.data.swimlanes[0].rollupHistory = [{ date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 }];
+    state.data.swimlanes[0].rollupHistory = { "2026-06-09": { rag: "amber", atRiskCount: 1, delayedCount: 0 } };
     const next = reduce(state, { type: "snapshotRollups", today: new Date("2026-06-10") });
-    expect(next.data.swimlanes[0].rollupHistory).toEqual([
-      { date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 },
-      { date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 },
-    ]);
+    expect(next.data.swimlanes[0].rollupHistory).toEqual({
+      "2026-06-09": { rag: "amber", atRiskCount: 1, delayedCount: 0 },
+      "2026-06-10": { rag: "red", atRiskCount: 0, delayedCount: 0 },
+    });
   });
 });
 
@@ -653,7 +651,7 @@ describe("useCorrectionBox rollup snapshot wiring (wayframe#33)", () => {
     const { result } = renderHook(() => useCorrectionBox(baseData(), basePortfolio(), false, new Date("2026-06-10")));
 
     await waitFor(() => {
-      expect(result.current.data.swimlanes[0].rollupHistory).toEqual([{ date: "2026-06-10", rag: "red", atRiskCount: 0, delayedCount: 0 }]);
+      expect(result.current.data.swimlanes[0].rollupHistory).toEqual({ "2026-06-10": { rag: "red", atRiskCount: 0, delayedCount: 0 } });
     });
     expect(result.current.historyLength).toBe(0);
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Milestone } from "@/components/timeline/types";
-import { applyCascade } from "./cascade";
+import { applyCascade, staleCascadeTargets } from "./cascade";
 import type { PatchOp } from "./schema";
 
 function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date">): Milestone {
@@ -10,7 +10,6 @@ function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date"
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
     ...overrides,
   };
 }
@@ -78,5 +77,29 @@ describe("applyCascade", () => {
     ];
     const ops = applyCascade(milestones, directOps);
     expect(ops).toHaveLength(1);
+  });
+});
+
+describe("staleCascadeTargets", () => {
+  it("reports no stale targets when nothing moved since drafting", () => {
+    const target = milestone({ id: "m2", date: "2026-04-01", rev: 3 });
+    expect(staleCascadeTargets([target], { m2: 3 })).toEqual([]);
+  });
+
+  it("reports a target whose rev advanced since the cascade was drafted", () => {
+    // Same shape as the prototype's walkthrough 4: a correction is drafted
+    // against m2.rev=1, then a concurrent edit bumps it before apply time.
+    const target = milestone({ id: "m2", date: "2026-04-10", rev: 2 });
+    expect(staleCascadeTargets([target], { m2: 1 })).toEqual(["m2"]);
+  });
+
+  it("treats an unset rev as 1, matching currentRev's convention", () => {
+    const target = milestone({ id: "m2", date: "2026-04-01" });
+    expect(staleCascadeTargets([target], { m2: 1 })).toEqual([]);
+    expect(staleCascadeTargets([target], { m2: 2 })).toEqual(["m2"]);
+  });
+
+  it("ignores a drafted target that no longer exists (a different, already-surfaced problem)", () => {
+    expect(staleCascadeTargets([], { gone: 1 })).toEqual([]);
   });
 });

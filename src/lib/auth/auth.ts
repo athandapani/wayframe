@@ -19,10 +19,16 @@ if (process.env.NODE_ENV === "production") {
 // version) — fall back to a fixed, clearly-labeled dev-only value so
 // `npm run dev`/tests work without a manual step; requireEnv above already
 // blocks this path in production.
-const secret = process.env.AUTH_SECRET ?? "wayframe-dev-only-insecure-secret";
+//
+// wayframe#t16's room-token.ts signs with this exact same env var/fallback
+// (duplicated there rather than imported — importing this module pulls in
+// NextAuth's full bootstrap, which breaks under vitest's module resolution)
+// so a room-access token verifies against the same secret Auth.js itself
+// uses, without configuring a second one.
+export const authSecret = process.env.AUTH_SECRET ?? "wayframe-dev-only-insecure-secret";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  secret,
+  secret: authSecret,
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,

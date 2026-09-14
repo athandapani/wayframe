@@ -1,4 +1,4 @@
-import type { Milestone } from "@/components/timeline/types";
+import type { Milestone, RenderableMilestone } from "@/components/timeline/types";
 import type { PatchOp } from "./schema";
 
 /** The v1 field set from wayframe#17 — every field the manual editor can touch. */
@@ -10,11 +10,12 @@ export interface EditableMilestoneFields {
   owner: string;
   comment: string;
   /**
-   * Edits isCriticalPathOverride, not isCriticalPath — the latter became a
-   * computed/reducer-owned field in wayframe#34/#35. The checkbox shows the
-   * currently *effective* value (override, falling back to the computed
-   * one) so it reflects what's actually rendered; saving it unchanged emits
-   * no op, same as every other field here.
+   * Edits isCriticalPathOverride, not isCriticalPath — the latter is a
+   * render-layer-computed value (RenderableMilestone, t14/wayframe#89), not
+   * a field a patch op can target. The checkbox shows the currently
+   * *effective* value (override, falling back to the computed one) so it
+   * reflects what's actually rendered; saving it unchanged emits no op,
+   * same as every other field here.
    */
   isCriticalPath: boolean;
   shortLabel: string;
@@ -33,7 +34,7 @@ export interface EditableMilestoneFields {
   potentialDate: string;
 }
 
-export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields {
+export function milestoneToEditableFields(m: RenderableMilestone): EditableMilestoneFields {
   return {
     title: m.title,
     date: m.date,
@@ -56,7 +57,7 @@ export function milestoneToEditableFields(m: Milestone): EditableMilestoneFields
  * onto the undo history. `reason` is a fixed, non-AI string since these ops
  * never go near the model (see PatchOpSchema's doc in schema.ts).
  */
-export function buildMilestoneEditOps(original: Milestone, draft: EditableMilestoneFields): PatchOp[] {
+export function buildMilestoneEditOps(original: RenderableMilestone, draft: EditableMilestoneFields): PatchOp[] {
   const before = milestoneToEditableFields(original);
   const ops: PatchOp[] = [];
   const reason = "manual edit";

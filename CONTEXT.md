@@ -38,6 +38,14 @@ _Avoid_: Separator (the existing flat-band concept, kept distinct from Swimlane 
 A structural sub-division of a Swimlane that a milestone or phase can be assigned to, letting items be placed at different vertical positions within one lane. A Swimlane owns a variable-length list of Lane Rows (starting at 2, growing as needed) independent of any single milestone's placement.
 _Avoid_: Row (ambiguous with table/UI rows elsewhere), Track
 
+**Role**:
+One of `owner` / `editor` / `viewer`, held per-identity on a Portfolio and checked server-side at the Partykit room on every connection — never trusted from anything a client sends. A room-access token proves *identity* only; the room looks up the current role itself. See "Server-side enforcement" below.
+_Avoid_: Permission (informal synonym — Role is the canonical term for what's actually stored per identity)
+
+**Guest Session**:
+The identity a public-link visitor gets: a fresh, ephemeral `guest:<id>` granted whichever role (`editor`/`viewer`, never `owner`) the link itself carries. Distinct from Role/membership — a guest is never written to the Portfolio's membership list, since the link itself (not a stored grant) is the credential. An unsigned-in visitor with no link at all gets no hosted access whatsoever, not a guest session with some default role.
+_Avoid_: Anonymous user (implies an unauthenticated identity with default access; a guest session always requires holding an actual link)
+
 ## Doctrine
 
 **Document content vs. viewer preference** (#76):
@@ -49,3 +57,8 @@ Consequences settled alongside the rule:
 - **Live propagation**: document-content changes sync exactly like any other document edit — instant, silent, CRDT-synced, undoable via the normal per-Program undo stack. No bespoke "someone changed the theme" notification; the general collaborator-presence UI (cursors/avatars) already required by realtime collab covers "who did this."
 - **No per-viewer override layer**: document content is single-source-of-truth WYSIWYG for every collaborator. There is no "hide this lane for just me" or "render in my own theme regardless of the document's" shadow-rendering path. Known gap, left open rather than silently dropped: this leaves no accessibility escape hatch (e.g. a colorblind-safe override of Theme's RAG colors) for a future ticket to pick up.
 - **Saved Views narrow to viewer-prefs-only**: since Theme/visibility are no longer viewer preferences at all, Saved Views (`docs/rebuild-spec.md` §10.1) can never capture or re-apply them — applying a personal view must never mutate the document. The built-in presets had their content-field clauses (e.g. "Presentation"'s theme swap) rewritten out for this reason.
+
+**Server-side enforcement** (#90):
+Access control is never a client-owned toggle, because a client that can flip its own write-gate can never be trusted to gate its own writes — the check has to live somewhere the writer doesn't control. In practice that means the Partykit room, not the browser: a Role is resolved fresh from the database on every connection, using only a signed proof of *identity* the client can't forge, never a role the client asserts about itself.
+
+This is why `wayframe:edit-lock` (the pre-multi-user "Edit lock"/"View only" toggle) split into two unrelated things rather than being replaced wholesale: its access-control half (can this write actually reach the document) moved server-side and stopped being a toggle at all — it's just whatever Role resolves to. Its presentation-preference half (collapse my own affordances so I don't fat-finger an edit while presenting) is a real, still-useful, purely personal setting with no bearing on what anyone else can do — that half is an ordinary viewer preference (see "Document content vs. viewer preference" above) and survives unchanged in `use-edit-lock.ts`, untouched by Role.

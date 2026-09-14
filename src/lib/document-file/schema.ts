@@ -26,7 +26,7 @@ const SwimlaneSchema = z
     ragOverride: RagSchema.optional(),
     color: z.string().optional(),
     rollupHistory: z
-      .array(z.object({ date: IsoDate, rag: RagSchema, atRiskCount: z.number(), delayedCount: z.number() }).strict())
+      .record(z.string(), z.object({ rag: RagSchema, atRiskCount: z.number(), delayedCount: z.number() }).strict())
       .optional(),
     density: z.enum(["normal", "lean"]).optional(),
     owner: z.string().optional(),
@@ -108,7 +108,6 @@ const MilestoneSchema = z
     comment: z.string().optional(),
     dependsOn: z.array(z.object({ id: z.string(), showConnector: z.boolean() }).strict()),
     linksToTopLevelMilestone: z.string().nullable(),
-    isCriticalPath: z.boolean(),
     isCriticalPathOverride: z.boolean().optional(),
     shortLabel: z.string().optional(),
     showReferenceLine: z.boolean().optional(),
@@ -195,7 +194,7 @@ const ActionItemSchema = z
  * `schemaVersion: "1.0"` string, which had zero comparison sites and no
  * migration code anywhere.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 const ProgramSchema = z
   .object({
@@ -326,6 +325,47 @@ const migrations: Migration[] = [
       return {
         portfolio,
         programs: [{ ...programFields, id: nanoid(), portfolioId, order: 0 }],
+      };
+    },
+  },
+  // t14: isCriticalPath stops being persisted (it's derived at the render
+  // boundary now — see Milestone.isCriticalPathOverride's doc) and
+  // Swimlane.rollupHistory moves from an array to a date-keyed record (see
+  // RollupSnapshot's doc) — a plain array let two collaborators who both
+  // pass the "no entry for today yet" guard against their own local copy
+  // both append, duplicating an entry for the same day; a date-keyed map
+  // converges those to one via per-key LWW instead.
+  {
+    from: 2,
+    migrate: (doc) => {
+      const programs = Array.isArray(doc.programs) ? doc.programs : [];
+      return {
+        ...doc,
+        portfolio: { ...(doc.portfolio as Record<string, unknown>), schemaVersion: 3 },
+        programs: programs.map((program) => {
+          if (!isPlainObject(program)) return program;
+          const milestones = Array.isArray(program.milestones) ? program.milestones : [];
+          const swimlanes = Array.isArray(program.swimlanes) ? program.swimlanes : [];
+          return {
+            ...program,
+            milestones: milestones.map((m) => {
+              if (!isPlainObject(m)) return m;
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { isCriticalPath: _isCriticalPath, ...rest } = m;
+              return rest;
+            }),
+            swimlanes: swimlanes.map((lane) => {
+              if (!isPlainObject(lane) || !Array.isArray(lane.rollupHistory)) return lane;
+              const rollupHistory: Record<string, unknown> = {};
+              for (const entry of lane.rollupHistory) {
+                if (!isPlainObject(entry) || typeof entry.date !== "string") continue;
+                const { date, ...snapshot } = entry;
+                rollupHistory[date] = snapshot;
+              }
+              return { ...lane, rollupHistory };
+            }),
+          };
+        }),
       };
     },
   },

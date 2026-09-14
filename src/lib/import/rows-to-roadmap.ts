@@ -183,7 +183,6 @@ export function rowsToRoadmap(existing: Program, rows: ParsedRow[], mapping: Col
       percentComplete: Number.isNaN(percentComplete) ? undefined : percentComplete,
       dependsOn: [],
       linksToTopLevelMilestone: null,
-      isCriticalPath: false,
       ...(existingLaneId ? {} : { __newLaneName: laneName }),
     };
     result.adds.push(milestone);

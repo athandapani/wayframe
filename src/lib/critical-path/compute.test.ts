@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Milestone, TopLevelItem } from "@/components/timeline/types";
-import { computeCriticalPathIds, withComputedCriticalPath } from "./compute";
+import type { Milestone, Portfolio, Program, TopLevelItem } from "@/components/timeline/types";
+import { mergeForRender } from "@/components/timeline/types";
+import { computeCriticalPathIds } from "./compute";
 
 function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date">): Milestone {
   return {
@@ -9,7 +10,6 @@ function milestone(overrides: Partial<Milestone> & Pick<Milestone, "id" | "date"
     status: "not-started",
     dependsOn: [],
     linksToTopLevelMilestone: null,
-    isCriticalPath: false,
     ...overrides,
   };
 }
@@ -111,9 +111,10 @@ describe("computeCriticalPathIds", () => {
   });
 });
 
-describe("withComputedCriticalPath", () => {
-  it("overlays isCriticalPathOverride over the computed result", () => {
-    const data = {
+describe("mergeForRender's critical-path resolution", () => {
+  it("overlays isCriticalPathOverride over the computed result (t14: derived at the render boundary, not persisted)", () => {
+    const portfolio: Portfolio = { id: "portfolio-1", schemaVersion: 3 };
+    const program: Program = {
       id: "program-1",
       portfolioId: "portfolio-1",
       order: 0,
@@ -132,7 +133,7 @@ describe("withComputedCriticalPath", () => {
         milestone({ id: "c", date: "2026-12-01", dependsOn: [dep("b")] }),
       ],
     };
-    const result = withComputedCriticalPath(data);
+    const result = mergeForRender(portfolio, program);
     const by = (id: string) => result.milestones.find((m) => m.id === id)!;
     expect(by("a").isCriticalPath).toBe(true);
     expect(by("b").isCriticalPath).toBe(false);
