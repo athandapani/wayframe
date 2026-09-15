@@ -64,6 +64,27 @@ const SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS portfolio_share_links_portfolio_id ON portfolio_share_links (portfolio_id)`,
+  // `portfolio_invites` (wayframe#t37): a pending, not-yet-resolved email
+  // invite — an owner-chosen role (editor/viewer) sitting keyed by email
+  // rather than identity, because at invite time the recipient's real
+  // (Google `sub`-based) identity isn't known yet. It's resolved into a
+  // real `portfolio_members` row the moment a matching-email identity signs
+  // in (see portfolios.ts's acceptPendingInvites), then the invite row is
+  // deleted — a pending invite never itself grants any role anywhere, it's
+  // purely a "who to promote on next matching sign-in" marker, checked by
+  // nothing else. `email` must always be written already `.trim().toLowerCase()`d
+  // by the write path (createInvite) — SQLite has no case-insensitive
+  // collation configured here, so the read path (acceptPendingInvites)
+  // compares against an already-lowercased session email rather than doing
+  // any case-folding itself.
+  `CREATE TABLE IF NOT EXISTS portfolio_invites (
+    portfolio_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('editor','viewer')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (portfolio_id, email)
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_invites_email ON portfolio_invites (email)`,
 ];
 
 // Memoized per-Client instance (not module-global) so tests pointing

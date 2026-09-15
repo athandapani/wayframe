@@ -128,6 +128,31 @@ export async function createProgramFromData(program: Program): Promise<void> {
   });
 }
 
+/**
+ * Decodes a Program snapshot blob back into a plain Program object, per
+ * createProgramFromData's whole-object bulk-seed encoding
+ * (doc.getMap("program").get("data")) — the only decode shape that exists
+ * until the real field-level Program-JSON-to-Y.Map bridge lands. Returns
+ * null if the snapshot has no "program"/"data" value yet (e.g. a snapshot
+ * built by the real future field-level bridge, or corrupt/empty input) —
+ * never throws on a structurally-unexpected snapshot.
+ */
+export function decodeProgramSnapshot(snapshot: Uint8Array): Program | null {
+  try {
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, snapshot);
+    const data = doc.getMap("program").get("data");
+    if (!data || typeof data !== "object") return null;
+    return data as Program;
+  } catch {
+    // A structurally-invalid update (e.g. an empty/garbage byte array)
+    // throws inside yjs's own decoder rather than returning a sentinel —
+    // treat that the same as "no program data here yet" rather than
+    // propagating a decode error to callers.
+    return null;
+  }
+}
+
 /** The cheap All-Programs read path (wayframe#t12) — a single indexed query against `programs` only, never `program_updates`. */
 export async function listProgramSnapshotsForPortfolio(portfolioId: string): Promise<ProgramSnapshotRow[]> {
   const client = getDbClient();

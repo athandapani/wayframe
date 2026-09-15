@@ -128,4 +128,20 @@ describe("program-storage", () => {
     expect(row.id).toBe("prog-migrated");
     expect(row.rev).toBe(1);
   });
+
+  it("decodeProgramSnapshot round-trips createProgramFromData's own encoding", async () => {
+    const { createProgramFromData, getProgramSnapshot, decodeProgramSnapshot } = await import("./program-storage");
+    const program = { ...demoRoadmap, id: "prog-migrated", portfolioId: "portfolio-1" };
+    await createProgramFromData(program);
+
+    const snapshot = await getProgramSnapshot("prog-migrated");
+    expect(decodeProgramSnapshot(snapshot!)).toEqual(program);
+  });
+
+  it("decodeProgramSnapshot returns null for an empty/garbage snapshot", async () => {
+    const { decodeProgramSnapshot } = await import("./program-storage");
+    const emptyDoc = new Y.Doc();
+    expect(decodeProgramSnapshot(Y.encodeStateAsUpdate(emptyDoc))).toBeNull();
+    expect(decodeProgramSnapshot(new Uint8Array())).toBeNull();
+  });
 });

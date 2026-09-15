@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { createClient, type Client } from "@libsql/client";
 import { hasEnv, requireEnv } from "@/lib/server/env-guard";
 
@@ -13,6 +14,11 @@ export function getDbClient(): Client {
 
   if (!hasEnv("TURSO_DATABASE_URL")) {
     if (process.env.NODE_ENV === "production") requireEnv("TURSO_DATABASE_URL");
+    // libSQL's local-file client doesn't create its parent directory itself
+    // (`.data/` is gitignored, so it never exists on a fresh clone) — without
+    // this, the very first real query anywhere fails closed with
+    // ConnectionFailed(...: 14) instead of just creating the file.
+    mkdirSync(".data", { recursive: true });
     client = createClient({ url: "file:.data/wayframe-dev.db" });
     return client;
   }

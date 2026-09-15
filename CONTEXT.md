@@ -46,6 +46,10 @@ _Avoid_: Permission (informal synonym — Role is the canonical term for what's 
 The identity a public-link visitor gets: a fresh, ephemeral `guest:<id>` granted whichever role (`editor`/`viewer`, never `owner`) the link itself carries. Distinct from Role/membership — a guest is never written to the Portfolio's membership list, since the link itself (not a stored grant) is the credential. An unsigned-in visitor with no link at all gets no hosted access whatsoever, not a guest session with some default role.
 _Avoid_: Anonymous user (implies an unauthenticated identity with default access; a guest session always requires holding an actual link)
 
+**Pending Invite**:
+An owner-chosen role (`editor`/`viewer`) sitting keyed by email rather than identity, because at invite time the recipient's real (Google `sub`-based) identity isn't known yet. Resolved into a real Role the moment a matching-email identity signs in, then discarded — a Pending Invite never itself grants access anywhere before that resolution, and is checked by nothing else. Distinct from Guest Session: an invite becomes a real, permanent membership row once accepted, while a Guest Session's access lives and dies with the link token.
+_Avoid_: Invitation (used loosely elsewhere for the email/UI flow as a whole; Pending Invite is specifically the stored, not-yet-resolved row)
+
 ## Doctrine
 
 **Document content vs. viewer preference** (#76):

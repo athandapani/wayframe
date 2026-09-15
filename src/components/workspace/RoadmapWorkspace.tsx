@@ -56,6 +56,7 @@ import { useHiddenCategories } from "@/components/timeline/use-hidden-categories
 import { useSwimlaneOwnerVisibility } from "@/components/timeline/use-swimlane-owner-visibility";
 import { useEditLock } from "./use-edit-lock";
 import { CategoryManager } from "./CategoryManager";
+import { SharePanel } from "./SharePanel";
 import { useSavedViews, type ViewSnapshot } from "@/components/timeline/use-saved-views";
 import { useSelection } from "@/components/timeline/use-selection";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -324,6 +325,7 @@ export function RoadmapWorkspace({
   today,
   persist = true,
   onStartNew,
+  canManageSharing = false,
 }: {
   initialData: Program;
   initialPortfolio: Portfolio;
@@ -331,6 +333,8 @@ export function RoadmapWorkspace({
   persist?: boolean;
   /** Routes back to the entry form (wayframe#63) — omitted by the `/dev/demo-roadmap` QA route, which has no entry form to return to. */
   onStartNew?: () => void;
+  /** wayframe#t37: whether the caller has already established the current visitor owns this Portfolio — gates the Options menu's "Sharing" row and the SharePanel it opens. Defaults false so every existing call site (which never passes it) keeps behaving exactly as before. */
+  canManageSharing?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
@@ -375,6 +379,7 @@ export function RoadmapWorkspace({
   const editLock = useEditLock();
   const isViewMode = editLock.mode === "view";
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [sharingOpen, setSharingOpen] = useState(false);
   const [themeCustomizeOpen, setThemeCustomizeOpen] = useState(false);
   const savedViews = useSavedViews();
   const [savingViewName, setSavingViewName] = useState<string | null>(null);
@@ -743,6 +748,13 @@ export function RoadmapWorkspace({
                 {exporting ? "Exporting…" : "Export to Deck"}
               </button>
             </OptionsMenuRow>
+            {canManageSharing && (
+              <OptionsMenuRow label="Sharing">
+                <button onClick={() => setSharingOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                  Invite / share ›
+                </button>
+              </OptionsMenuRow>
+            )}
             <OptionsMenuSection id="appearance" label="Appearance" open={sections.isOpen("appearance")} onToggle={() => sections.toggle("appearance")}>
               <div>
                 <p className="mb-1.5 opacity-70">Theme</p>
@@ -1485,6 +1497,7 @@ export function RoadmapWorkspace({
           onClose={() => setCategoriesOpen(false)}
         />
       )}
+      {sharingOpen && canManageSharing && <SharePanel portfolioId={box.portfolio.id} onClose={() => setSharingOpen(false)} />}
     </div>
   );
 }

@@ -11,6 +11,18 @@ import type { LegendCategory, Portfolio } from "@/components/timeline/types";
 // fourth role — `portfolio_share_links` just hands editor/viewer to
 // whoever holds the token via a lightweight guest identity minted at
 // connect time, so it never appears in `portfolio_members`.
+//
+// wayframe#t37 adds the other invite mechanism, email: a
+// `portfolio_invites` row is a pending, owner-chosen role sitting keyed by
+// email (not identity, since the recipient's real identity isn't known
+// until they actually sign in) — resolved into a real `portfolio_members`
+// row and deleted the moment a matching-email identity is observed
+// (acceptPendingInvites), never itself checked as a role anywhere before
+// that. t37 also tightens the share-link invariant from "a link exists"
+// to "at most one link ever exists per Portfolio" — createShareLink is now
+// an atomic delete-then-insert, so regenerating a link is a real replace
+// (the old token stops resolving immediately) rather than minting a
+// second live row alongside it.
 export type Role = "owner" | "editor" | "viewer";
 export type ShareRole = "editor" | "viewer";
 
@@ -86,18 +98,62 @@ export async function getRoleForProgram(programId: string, identity: string): Pr
   return getRole(String(portfolioId), identity);
 }
 
-/** Mints a new public share link for a Portfolio, granting `role` to whoever holds the returned token. */
+/** The Portfolio's current public link (token + granted role), or null if none exists yet. */
+export async function getShareLink(portfolioId: string): Promise<{ token: string; role: ShareRole } | null> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const result = await client.execute({
+    sql: "SELECT token, role FROM portfolio_share_links WHERE portfolio_id = ?",
+    args: [portfolioId],
+  });
+  const row = result.rows[0];
+  return row ? { token: String(row.token), role: row.role as ShareRole } : null;
+}
+
+/**
+ * Creates the Portfolio's public link if none exists, or regenerates it (a
+ * fresh token, invalidating the previous one — the old token stops
+ * resolving immediately) if one already does. Implemented as an atomic
+ * delete-then-insert (same `client.batch(..., "write")` pattern
+ * createPortfolioWithOwner uses) so there's never a moment with more than
+ * one live row for this Portfolio, and a regenerate can't race into two
+ * live tokens.
+ */
 export async function createShareLink(portfolioId: string, role: ShareRole): Promise<string> {
   const client = getDbClient();
   await ensureSchema(client);
   const token = crypto.randomUUID();
-  await client.execute({
-    sql: "INSERT INTO portfolio_share_links (token, portfolio_id, role, created_at) VALUES (?, ?, ?, ?)",
-    args: [token, portfolioId, role, new Date().toISOString()],
-  });
+  await client.batch(
+    [
+      { sql: "DELETE FROM portfolio_share_links WHERE portfolio_id = ?", args: [portfolioId] },
+      {
+        sql: "INSERT INTO portfolio_share_links (token, portfolio_id, role, created_at) VALUES (?, ?, ?, ?)",
+        args: [token, portfolioId, role, new Date().toISOString()],
+      },
+    ],
+    "write",
+  );
   return token;
 }
 
+/** Changes the role an existing link grants, without changing its token. No-ops if no link exists yet for this Portfolio (caller should call createShareLink first in that case). */
+export async function setShareLinkRole(portfolioId: string, role: ShareRole): Promise<void> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  await client.execute({
+    sql: "UPDATE portfolio_share_links SET role = ? WHERE portfolio_id = ?",
+    args: [role, portfolioId],
+  });
+}
+
+/** Revokes the Portfolio's public link entirely — no link exists until createShareLink is called again. */
+export async function revokeShareLink(portfolioId: string): Promise<void> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  await client.execute({ sql: "DELETE FROM portfolio_share_links WHERE portfolio_id = ?", args: [portfolioId] });
+}
+
+/** Resolves a token to its Portfolio + granted role, or null. Still used by party/'s own duplicated read-side lookup and by the new `view` route. */
 export async function resolveShareLink(token: string): Promise<{ portfolioId: string; role: ShareRole } | null> {
   const client = getDbClient();
   await ensureSchema(client);
@@ -107,12 +163,6 @@ export async function resolveShareLink(token: string): Promise<{ portfolioId: st
   });
   const row = result.rows[0];
   return row ? { portfolioId: String(row.portfolio_id), role: row.role as ShareRole } : null;
-}
-
-export async function deleteShareLink(token: string): Promise<void> {
-  const client = getDbClient();
-  await ensureSchema(client);
-  await client.execute({ sql: "DELETE FROM portfolio_share_links WHERE token = ?", args: [token] });
 }
 
 /** The Portfolio-level shared fields (wayframe#t17) — everything Portfolio carries except `id`, which is the row's own primary key. */
@@ -187,4 +237,84 @@ export async function getOwnedPortfolioId(identity: string): Promise<string | nu
   });
   const row = result.rows[0];
   return row ? String(row.portfolio_id) : null;
+}
+
+// Email-invite storage (wayframe#t37) — see this file's header comment and
+// schema.ts's portfolio_invites table comment for the "pending until a
+// matching-email sign-in resolves it" design.
+export interface PendingInvite {
+  email: string;
+  role: ShareRole;
+  createdAt: string;
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** Creates or re-roles a pending invite for `email` on `portfolioId` (upsert by (portfolio_id, lowercased email) — invite the same address twice and the second call just changes its role, doesn't duplicate). Normalizes email via `.trim().toLowerCase()` before writing. */
+export async function createInvite(portfolioId: string, email: string, role: ShareRole): Promise<void> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  await client.execute({
+    sql: `INSERT INTO portfolio_invites (portfolio_id, email, role, created_at) VALUES (?, ?, ?, ?)
+          ON CONFLICT(portfolio_id, email) DO UPDATE SET role = excluded.role`,
+    args: [portfolioId, normalizeEmail(email), role, new Date().toISOString()],
+  });
+}
+
+export async function listInvites(portfolioId: string): Promise<PendingInvite[]> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const result = await client.execute({
+    sql: "SELECT email, role, created_at FROM portfolio_invites WHERE portfolio_id = ?",
+    args: [portfolioId],
+  });
+  return result.rows.map((row) => ({
+    email: String(row.email),
+    role: row.role as ShareRole,
+    createdAt: String(row.created_at),
+  }));
+}
+
+/** Cancels one pending invite. `email` should already be normalized by the caller (the route layer) the same way createInvite normalizes it, since this deletes by exact match. */
+export async function deleteInvite(portfolioId: string, email: string): Promise<void> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  await client.execute({
+    sql: "DELETE FROM portfolio_invites WHERE portfolio_id = ? AND email = ?",
+    args: [portfolioId, email],
+  });
+}
+
+/**
+ * Resolves every pending invite across ALL Portfolios matching `email`
+ * (normalized the same way) into a real `portfolio_members` row for
+ * `identity` at that invite's role, then deletes the resolved invite rows.
+ * Called once per authenticated sign-in (see the new accept-invites route)
+ * — safe to call repeatedly; a second call after all invites are already
+ * resolved is just a no-op (empty result). Returns the portfolio ids that
+ * were just granted, so the client can react (e.g. offer to open one).
+ * Uses an upsert (setMember) rather than a plain insert so an identity
+ * that already independently holds a role on that Portfolio (e.g. was
+ * already invited once, already accepted, gets invited again at a
+ * different role) gets the invite's role rather than erroring.
+ */
+export async function acceptPendingInvites(identity: string, email: string): Promise<string[]> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const normalized = normalizeEmail(email);
+  const result = await client.execute({
+    sql: "SELECT portfolio_id, role FROM portfolio_invites WHERE email = ?",
+    args: [normalized],
+  });
+  const portfolioIds: string[] = [];
+  for (const row of result.rows) {
+    const portfolioId = String(row.portfolio_id);
+    const role = row.role as ShareRole;
+    await setMember(portfolioId, identity, role);
+    portfolioIds.push(portfolioId);
+  }
+  await client.execute({ sql: "DELETE FROM portfolio_invites WHERE email = ?", args: [normalized] });
+  return portfolioIds;
 }

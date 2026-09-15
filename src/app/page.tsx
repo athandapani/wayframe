@@ -14,6 +14,7 @@ import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
 import { loadPersistedDocument } from "@/components/correction-box/use-correction-box";
 import { AuthControls } from "@/components/auth/AuthControls";
+import { useOwnedPortfolioId } from "@/lib/auth/use-owned-portfolio-id";
 
 interface StorageCheck {
   checked: boolean;
@@ -23,6 +24,7 @@ interface StorageCheck {
 export default function Home() {
   const [storageCheck, setStorageCheck] = useState<StorageCheck>({ checked: false, roadmap: null });
   const [today] = useState(() => new Date());
+  const ownedPortfolioId = useOwnedPortfolioId();
 
   useEffect(() => {
     let roadmap: PortfolioDocument | null = null;
@@ -47,6 +49,7 @@ export default function Home() {
           initialPortfolio={roadmap.portfolio}
           today={today}
           onStartNew={() => setStorageCheck({ checked: true, roadmap: null })}
+          canManageSharing={ownedPortfolioId !== null && ownedPortfolioId === roadmap.portfolio.id}
         />
       ) : (
         <EntryForm onExtracted={setRoadmap} />

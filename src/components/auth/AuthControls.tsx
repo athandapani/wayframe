@@ -2,6 +2,7 @@
 
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useMigrateLocalPortfolioOnSignIn } from "@/lib/auth/use-migrate-local-portfolio";
+import { useAcceptInvitesOnSignIn } from "@/lib/auth/use-accept-invites";
 
 /**
  * Deliberately minimal plumbing (wayframe#t17's own scope decision, not a
@@ -13,6 +14,7 @@ import { useMigrateLocalPortfolioOnSignIn } from "@/lib/auth/use-migrate-local-p
  */
 export function AuthControls() {
   useMigrateLocalPortfolioOnSignIn();
+  useAcceptInvitesOnSignIn();
   const { data: session, status } = useSession();
 
   if (status === "loading") return null;
