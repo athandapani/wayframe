@@ -247,6 +247,21 @@ export interface Milestone {
   /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc in this file and the resolution ladder in style-resolution.ts. */
   styleOverride?: StyleOverride;
   /**
+   * Explicit Lane Row assignment (wayframe#94/t20) — only meaningful for a
+   * duration-pill milestone (`endDate` set); a point milestone never
+   * stacks at all, per stack-intervals.ts's own doc, so this is inert on
+   * one. `undefined`/`1` is Row 1, a lane's always-present home row where
+   * every pill lands by default; explicit rows start at 2 and only cost
+   * height while at least one pill is assigned to them (see
+   * src/lib/layout/lane-rows.ts's `bucketRows`). Document content, same
+   * placement reasoning as `laneId` — which row a program owner wants a
+   * pill drawn on is an editorial layout call, not a per-viewer
+   * preference. No dedicated editor UI yet, same scope boundary t19's own
+   * styleOverride fields shipped with (settable via document content/
+   * import today, not the manual milestone editor).
+   */
+  laneRow?: number;
+  /**
    * Per-item drift counter (t13, wayframe#87), bumped by
    * use-correction-box.ts's `stampUpdated`/`bumpChangedRevs` whenever this
    * milestone's fields actually change. Powers a Scenario `modify` override's

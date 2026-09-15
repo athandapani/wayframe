@@ -136,6 +136,10 @@ const MilestoneSchema = z
     potentialDate: IsoDate.optional(),
     categoryId: z.string().nullable().optional(),
     styleOverride: StyleOverrideSchema.optional(),
+    // Explicit Lane Row assignment (t20, wayframe#94) — see Milestone.laneRow's
+    // doc in types.ts. Positive integer; Row 1 is the unset default, never
+    // written explicitly, so this schema only ever needs to validate 2+.
+    laneRow: z.number().int().positive().optional(),
     // Drift counter (t13, wayframe#87) — optional, same "documents from
     // before this field existed just don't have one yet" treatment as
     // lastUpdatedAt. See Milestone.rev's doc in types.ts.

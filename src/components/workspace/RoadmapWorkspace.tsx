@@ -50,7 +50,7 @@ import { useConnectorStyle, CONNECTOR_STYLES, type ConnectorStyle } from "@/comp
 import { useConnectorLineStyle, CONNECTOR_DASHES, CONNECTOR_ARROWS, type ConnectorDash, type ConnectorArrow } from "@/components/timeline/use-connector-line-style";
 import { useTodayOverlay } from "@/components/timeline/use-today-overlay";
 import { usePillProgressStyle, PILL_PROGRESS_STYLES, type PillProgressStyle } from "@/components/timeline/use-pill-progress-style";
-import { useAutoLaneHeight } from "@/components/timeline/use-auto-lane-height";
+import { useFitToScreen } from "@/components/timeline/use-fit-to-screen";
 import { useDateLabelPlacement, DATE_LABEL_PLACEMENTS, type DateLabelPlacement } from "@/components/timeline/use-date-label-placement";
 import { useLegendCategoryStyle } from "@/components/timeline/use-legend-category-style";
 import { useSwimlaneOwnerVisibility } from "@/components/timeline/use-swimlane-owner-visibility";
@@ -138,7 +138,7 @@ function RoadmapView({
   connectorArrow,
   todayOverlayEnabled,
   pillProgressStyle,
-  autoLaneHeight,
+  fitToScreen,
   dateLabelPlacement,
   legendCategoryFillEnabled,
   swimlaneOwnerVisible,
@@ -205,7 +205,7 @@ function RoadmapView({
   connectorArrow?: ConnectorArrow;
   todayOverlayEnabled?: boolean;
   pillProgressStyle?: PillProgressStyle;
-  autoLaneHeight?: boolean;
+  fitToScreen?: boolean;
   dateLabelPlacement?: DateLabelPlacement;
   legendCategoryFillEnabled?: boolean;
   swimlaneOwnerVisible?: boolean;
@@ -254,7 +254,7 @@ function RoadmapView({
         connectorArrow={connectorArrow}
         todayOverlayEnabled={todayOverlayEnabled}
         pillProgressStyle={pillProgressStyle}
-        autoLaneHeight={autoLaneHeight}
+        fitToScreen={fitToScreen}
         dateLabelPlacement={dateLabelPlacement}
         legendCategoryFillEnabled={legendCategoryFillEnabled}
         swimlaneOwnerVisible={swimlaneOwnerVisible}
@@ -367,7 +367,7 @@ export function RoadmapWorkspace({
   const connectorLineStyle = useConnectorLineStyle();
   const todayOverlay = useTodayOverlay();
   const pillProgress = usePillProgressStyle();
-  const autoLaneHeight = useAutoLaneHeight();
+  const fitToScreen = useFitToScreen();
   const dateLabelPlacement = useDateLabelPlacement();
   const legendCategoryStyle = useLegendCategoryStyle();
   const swimlaneOwner = useSwimlaneOwnerVisibility();
@@ -408,7 +408,7 @@ export function RoadmapWorkspace({
       connectorArrow: connectorLineStyle.arrow,
       todayOverlayEnabled: todayOverlay.enabled,
       pillProgressStyle: pillProgress.style,
-      autoLaneHeightEnabled: autoLaneHeight.enabled,
+      fitToScreenEnabled: fitToScreen.enabled,
       dateLabelPlacement: dateLabelPlacement.placement,
       legendCategoryFillEnabled: legendCategoryStyle.enabled,
       swimlaneOwnerVisible: swimlaneOwner.visible,
@@ -437,7 +437,7 @@ export function RoadmapWorkspace({
     if (snapshot.connectorArrow !== undefined) connectorLineStyle.setArrow(snapshot.connectorArrow);
     if (snapshot.todayOverlayEnabled !== undefined) todayOverlay.setEnabled(snapshot.todayOverlayEnabled);
     if (snapshot.pillProgressStyle !== undefined) pillProgress.setStyle(snapshot.pillProgressStyle);
-    if (snapshot.autoLaneHeightEnabled !== undefined) autoLaneHeight.setEnabled(snapshot.autoLaneHeightEnabled);
+    if (snapshot.fitToScreenEnabled !== undefined) fitToScreen.setEnabled(snapshot.fitToScreenEnabled);
     if (snapshot.dateLabelPlacement !== undefined) dateLabelPlacement.setPlacement(snapshot.dateLabelPlacement);
     if (snapshot.legendCategoryFillEnabled !== undefined) legendCategoryStyle.setEnabled(snapshot.legendCategoryFillEnabled);
     if (snapshot.swimlaneOwnerVisible !== undefined) swimlaneOwner.setVisible(snapshot.swimlaneOwnerVisible);
@@ -1335,14 +1335,14 @@ export function RoadmapWorkspace({
                   Add / edit categories
                 </button>
               </OptionsMenuRow>
-              <OptionsMenuRow label="Auto lane height">
+              <OptionsMenuRow label="Fit to screen">
                 <button
-                  onClick={() => autoLaneHeight.setEnabled(!autoLaneHeight.enabled)}
-                  aria-pressed={autoLaneHeight.enabled}
-                  aria-label={`Auto lane height: ${autoLaneHeight.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(autoLaneHeight.enabled)}
+                  onClick={() => fitToScreen.setEnabled(!fitToScreen.enabled)}
+                  aria-pressed={fitToScreen.enabled}
+                  aria-label={`Fit to screen: ${fitToScreen.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(fitToScreen.enabled)}
                 >
-                  {autoLaneHeight.enabled ? "On" : "Off"}
+                  {fitToScreen.enabled ? "On" : "Off"}
                 </button>
               </OptionsMenuRow>
               <OptionsMenuRow label="Edit lock">
@@ -1424,7 +1424,7 @@ export function RoadmapWorkspace({
             connectorArrow={connectorLineStyle.arrow}
             todayOverlayEnabled={todayOverlay.enabled}
             pillProgressStyle={pillProgress.style}
-            autoLaneHeight={autoLaneHeight.enabled}
+            fitToScreen={fitToScreen.enabled}
             dateLabelPlacement={dateLabelPlacement.placement}
             legendCategoryFillEnabled={legendCategoryStyle.enabled}
             swimlaneOwnerVisible={swimlaneOwner.visible}
@@ -1476,7 +1476,7 @@ export function RoadmapWorkspace({
               connectorArrow={connectorLineStyle.arrow}
               todayOverlayEnabled={todayOverlay.enabled}
               pillProgressStyle={pillProgress.style}
-              autoLaneHeight={autoLaneHeight.enabled}
+              fitToScreen={fitToScreen.enabled}
               dateLabelPlacement={dateLabelPlacement.placement}
               legendCategoryFillEnabled={legendCategoryStyle.enabled}
               swimlaneOwnerVisible={swimlaneOwner.visible}

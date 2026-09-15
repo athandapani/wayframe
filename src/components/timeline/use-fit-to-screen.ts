@@ -1,13 +1,20 @@
 "use client";
 
-// Auto lane height / fit-to-viewport — a viewer display
-// preference, same on/off boolean pattern as use-critical-path-visibility.ts.
-// Off by default: RoadmapTimeline's fixed LANE_HEIGHT is the predictable,
-// export-stable behavior; this trades that predictability for "see the
-// whole programme without scrolling" on request.
+// Fit to screen (wayframe#94/t20) — a viewer display preference, same
+// on/off boolean pattern as use-critical-path-visibility.ts. Replaces the
+// old use-auto-lane-height.ts entirely: that one only ever shrank lanes
+// below the flat LANE_HEIGHT, using a flat "divide viewport evenly by lane
+// count" formula that made no sense once lanes could have their own
+// different Lane Row heights (see lane-rows.ts). This one only ever
+// expands — content is never forced smaller than its natural height, it
+// just scrolls — the vertical sibling to #84/t10's horizontal zoom/
+// fit-to-screen. Off by default, same reasoning: RoadmapTimeline's natural
+// lane heights are the predictable, export-stable behavior; this trades
+// that predictability for "see the whole programme without scrolling" on
+// request.
 import { useEffect, useReducer, useState } from "react";
 
-const STORAGE_KEY = "wayframe:auto-lane-height";
+const STORAGE_KEY = "wayframe:fit-to-screen";
 
 const DEFAULT_ENABLED = false;
 
@@ -17,12 +24,12 @@ function reduce(_state: boolean, action: Action): boolean {
   return action.enabled;
 }
 
-export interface UseAutoLaneHeightResult {
+export interface UseFitToScreenResult {
   enabled: boolean;
   setEnabled: (enabled: boolean) => void;
 }
 
-export function useAutoLaneHeight(): UseAutoLaneHeightResult {
+export function useFitToScreen(): UseFitToScreenResult {
   const [enabled, dispatch] = useReducer(reduce, DEFAULT_ENABLED);
   const [hydrated, setHydrated] = useState(false);
 

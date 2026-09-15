@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RenderableProgram, RenderableMilestone, Swimlane, Milestone, TopLevelItem, LegendCategory, MarkerShape, Program } from "./types";
+import type { RenderableProgram, RenderableMilestone, Swimlane, Milestone, TopLevelItem, LegendCategory, MarkerShape, Program, PhaseSize } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import {
@@ -44,7 +44,7 @@ import type { ConnectorStyle } from "./use-connector-style";
 import { CONNECTOR_DASH_ARRAY, type ConnectorDash, type ConnectorArrow } from "./use-connector-line-style";
 import type { PillProgressStyle } from "./use-pill-progress-style";
 import type { DateLabelPlacement } from "./use-date-label-placement";
-import { stackIntervals } from "@/lib/layout/stack-intervals";
+import { computeFitToScreenRatio, computeLaneRowModel, ROW_GAP, type LaneRowModel, type RowItem } from "@/lib/layout/lane-rows";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 /**
@@ -52,16 +52,47 @@ const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
  * rather than a single line of initials, and that needs vertical room.
  */
 const LANE_HEIGHT = 132;
-/** Floor a lane can shrink to under auto lane height — below this, labels stop being legible. */
-const MIN_AUTO_LANE_HEIGHT = 64;
 /** Extra vertical room reserved per stacked overlapping duration pill within a lane. */
 const PILL_ROW_HEIGHT = 18;
+/**
+ * In-lane duration-pill size vocabulary (wayframe#94/t20) — resolved via
+ * the same resolvePhaseSize ladder (style-resolution.ts) the PROGRAM-band
+ * "phase" TopLevelItems already use, but a distinct pixel table: this one
+ * governs a pill's own sub-row height inside a Lane Row (lane-rows.ts),
+ * not the top band's PILL_HEIGHT_LG-based sizeMultiplier scaling. `lean`
+ * matches today's existing in-lane pill render height (PILL_HEIGHT_SM);
+ * `normal` matches the existing per-sub-row reservation (PILL_ROW_HEIGHT);
+ * `tall` is new headroom for a pill that should read as heavier regardless
+ * of lane density — composes as a floor on its own sub-row, never
+ * multiplied down by a lean lane's density factor (see lane-rows.ts's
+ * computeRowHeight).
+ */
+const PILL_PHASE_HEIGHT: Record<PhaseSize, number> = { lean: 14, normal: PILL_ROW_HEIGHT, tall: 26 };
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
 /** Gap between the marker and the bottom line of its label block. */
 const LABEL_BASE_DY = -14;
 /** Extra lift for tier-1 labels so they clear a full two-line tier-0 block. */
 const LABEL_TIER_LIFT = 27;
+/**
+ * Row 1's own floor (a lane's always-present home row), content-derived
+ * rather than the old flat, content-blind LANE_HEIGHT=132 a lane made up
+ * entirely of duration pills used to pay regardless of what was actually
+ * in it: the tallest a pill's own sub-row can be (PILL_PHASE_HEIGHT.tall)
+ * plus one line of title-label clearance above (LABEL_LINE_H) and one
+ * line of date-label clearance below (DATE_TIER_DY's tiers sit 12px
+ * apart) = 49px. Extra rows (2+) get no such reservation.
+ *
+ * Only ever the floor for a lane's *pill* content specifically
+ * (lane-rows.ts's computeLaneRowModel) — a lane that also has
+ * point-in-time milestones keeps the flat, density-scaled LANE_HEIGHT as
+ * an additional floor for their own label-wrap clearance (see the
+ * `markerFloor` composition below), since this ticket's own prototype
+ * never modeled point markers at all (its item set was pills-only); a
+ * real-schema correction on top of the prototype's own gist, same
+ * category as t13/t14's corrections.
+ */
+const LANE_ROW1_FLOOR = PILL_PHASE_HEIGHT.tall + LABEL_LINE_H + (DATE_TIER_DY[1] - DATE_TIER_DY[0]);
 const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
 /** Company-logo header slot (wayframe#46/#54) — reserved above the programName block only when data.companyLogo is set. */
@@ -97,15 +128,22 @@ function computeRows(
   swimlanes: Swimlane[],
   laneHeight = LANE_HEIGHT,
   separatorHeight = SEPARATOR_HEIGHT,
-  /** Extra height a lane needs for stacked overlapping duration pills — see stack-intervals.ts. */
-  extraHeightByLaneId?: Map<string, number>,
+  /**
+   * Full height for a "lane" row, keyed by swimlane id (wayframe#94/t20) —
+   * overrides the flat, density-scaled default below. The caller (see
+   * naturalHeightByLaneId/heightByLaneId further down) always supplies one
+   * entry per lane, computed from that lane's own Lane Row model (t20) and
+   * point-marker floor, and stretched by the fit-to-screen ratio; the flat
+   * default here only remains as a defensive fallback.
+   */
+  heightByLaneId?: Map<string, number>,
 ): RowInfo[] {
   let y = 0;
   let laneIndex = 0;
   const out: RowInfo[] = [];
   for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
     const base = sl.type === "separator" ? separatorHeight : sl.density === "lean" ? laneHeight * LEAN_LANE_FACTOR : laneHeight;
-    const height = sl.type === "lane" ? base + (extraHeightByLaneId?.get(sl.id) ?? 0) : base;
+    const height = sl.type === "lane" ? (heightByLaneId?.get(sl.id) ?? base) : base;
     out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
     if (sl.type === "lane") laneIndex += 1;
     y += height;
@@ -1239,8 +1277,17 @@ export interface RoadmapTimelineProps {
   todayOverlayEnabled?: boolean;
   /** Duration-pill %-complete visualization — a viewer preference, see use-pill-progress-style.ts. */
   pillProgressStyle?: PillProgressStyle;
-  /** Shrinks lane height to fit more of the programme in the viewport — a viewer preference. Only ever shrinks below the normal LANE_HEIGHT, never grows past it. */
-  autoLaneHeight?: boolean;
+  /**
+   * Stretches lanes to fill surplus viewport room — a viewer preference,
+   * expand-only (wayframe#94/t20; see lane-rows.ts's
+   * computeFitToScreenRatio). Content is never forced smaller than its
+   * natural height; over-budget content just scrolls. Replaces the old
+   * shrink-based "Auto lane height" toggle entirely — that one only ever
+   * shrank below the flat LANE_HEIGHT, never grew past it; this is its
+   * vertical-fit-to-screen successor, the sibling to #84/t10's horizontal
+   * zoom/fit-to-screen.
+   */
+  fitToScreen?: boolean;
   /** Marker date-label placement — a viewer preference, see use-date-label-placement.ts. */
   dateLabelPlacement?: DateLabelPlacement;
   /** Legend category-fill / status-outline encoding — a viewer preference, see use-legend-category-style.ts and Milestone.categoryId. */
@@ -1314,7 +1361,7 @@ export function RoadmapTimeline({
   connectorArrow = "standard",
   todayOverlayEnabled = false,
   pillProgressStyle = "off",
-  autoLaneHeight = false,
+  fitToScreen = false,
   dateLabelPlacement = "below",
   legendCategoryFillEnabled = false,
   swimlaneOwnerVisible = true,
@@ -1326,62 +1373,111 @@ export function RoadmapTimeline({
   domainOverride,
   remoteSelections,
 }: RoadmapTimelineProps) {
-  // Auto lane height — only ever shrinks the fixed
-  // LANE_HEIGHT, never grows past it, so it reads as "fit more in" rather
-  // than an unbounded resize. Measures window height, not the container's
-  // own (the container's height is driven BY the chart, not the other way
-  // around — there's nothing else to measure it against).
+  // Fit to screen (wayframe#94/t20) — expand-only, replacing the old
+  // shrink-based "Auto lane height" toggle entirely. Measures window
+  // height, not the container's own (the container's height is driven BY
+  // the chart, not the other way around — there's nothing else to measure
+  // it against).
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   useEffect(() => {
-    if (!autoLaneHeight || typeof window === "undefined") return;
+    if (!fitToScreen || typeof window === "undefined") return;
     const measure = () => setViewportHeight(window.innerHeight);
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [autoLaneHeight]);
-  const rawLaneCount = data.swimlanes.filter((l) => l.type === "lane").length;
+  }, [fitToScreen]);
   // Rough chrome budget above the first lane row (margin + a 2-row axis +
   // the PROGRAM band + some slack for reference-line chips) — an estimate,
   // not the real lanesTop, which isn't computable yet this early (it
   // depends on refTopMarginExtra, computed further down from state this
-  // function hasn't built yet). Good enough for "fit more in," which only
-  // needs to be approximately right, not pixel-exact.
+  // function hasn't built yet). Good enough for "fit to screen," which
+  // only needs to be approximately right, not pixel-exact.
   const reservedChromeEstimate = MARGIN.top + AXIS_ROW_HEIGHT * 2 * boxScale + TOP_BAND_HEIGHT * boxScale + MARGIN.bottom + 80;
-  const laneHeightPx =
-    autoLaneHeight && viewportHeight && rawLaneCount > 0
-      ? Math.min(LANE_HEIGHT * boxScale, Math.max(MIN_AUTO_LANE_HEIGHT, (viewportHeight - reservedChromeEstimate) / rawLaneCount))
-      : LANE_HEIGHT * boxScale;
 
-  // Phase & pill vertical stacking — overlapping
-  // duration pills within the same lane get their own sub-row instead of
-  // rendering on top of each other; a lane that needs it grows to fit (see
-  // stack-intervals.ts). Point milestones never participate.
-  const pillSubRowByLaneId = new Map<string, Map<string, number>>();
-  const extraHeightByLaneId = new Map<string, number>();
+  // Lane Rows & vertical allocation (wayframe#94/t20) — two allocators
+  // layered, not one (see lane-rows.ts's own doc). Level 1 buckets a
+  // lane's duration pills by Milestone.laneRow (document content); Level 2
+  // is the existing stack-intervals.ts greedy stacker, run within
+  // whichever row a pill lands in — an item's row assignment overrides
+  // which row it collides inside, never turns off collision safety there.
+  // Point milestones never participate, same restriction stack-
+  // intervals.ts always had.
+  const laneRowModelByLaneId = new Map<string, LaneRowModel>();
+  const naturalHeightByLaneId = new Map<string, number>();
   for (const lane of data.swimlanes) {
     if (lane.type !== "lane") continue;
+    const densityFactor = lane.density === "lean" ? LEAN_LANE_FACTOR : 1;
     const pills = data.milestones.filter((m) => m.laneId === lane.id && m.endDate);
-    if (pills.length < 2) continue;
-    const { subRowById, subRowCount } = stackIntervals(pills.map((m) => ({ id: m.id, start: parseDate(m.date), end: parseDate(m.endDate!) })));
-    if (subRowCount > 1) {
-      pillSubRowByLaneId.set(lane.id, subRowById);
-      extraHeightByLaneId.set(lane.id, (subRowCount - 1) * PILL_ROW_HEIGHT * boxScale);
+    if (pills.length === 0) {
+      // No pills at all — nothing for the Lane Row model to bucket, so
+      // this lane keeps today's flat, density-scaled height unchanged
+      // (with or without point markers; that clearance is what
+      // LANE_HEIGHT always provided).
+      naturalHeightByLaneId.set(lane.id, LANE_HEIGHT * boxScale * densityFactor);
+      continue;
     }
+    // A lane mixing point markers with duration pills still needs the flat
+    // LANE_HEIGHT floor for the markers' own label-wrap clearance
+    // (laneY() centers both point markers and pills on the same lane
+    // midpoint) regardless of what the pills need — see LANE_ROW1_FLOOR's
+    // own doc for why this is a real correction on top of the prototype's
+    // gist, not something its pills-only model ever had to account for.
+    const hasPointMarkers = data.milestones.some((m) => m.laneId === lane.id && !m.endDate);
+    const markerFloor = hasPointMarkers ? LANE_HEIGHT * boxScale * densityFactor : 0;
+    const items: RowItem[] = pills.map((m) => ({
+      id: m.id,
+      start: parseDate(m.date),
+      end: parseDate(m.endDate!),
+      laneRow: m.laneRow,
+      sizeFloor: PILL_PHASE_HEIGHT[resolvePhaseSize(m, data, theme)] * boxScale * densityFactor,
+    }));
+    const model = computeLaneRowModel(items, {
+      baseSlotHeight: PILL_ROW_HEIGHT * boxScale * densityFactor,
+      row1Floor: LANE_ROW1_FLOOR * boxScale * densityFactor,
+    });
+    laneRowModelByLaneId.set(lane.id, model);
+    naturalHeightByLaneId.set(lane.id, Math.max(markerFloor, model.naturalHeight));
   }
 
-  const rows = computeRows(data.swimlanes, laneHeightPx, SEPARATOR_HEIGHT * boxScale, extraHeightByLaneId);
+  const totalNaturalHeight = [...naturalHeightByLaneId.values()].reduce((sum, h) => sum + h, 0);
+  const fitRatio = fitToScreen && viewportHeight ? computeFitToScreenRatio(totalNaturalHeight, viewportHeight - reservedChromeEstimate) : 1;
+  const heightByLaneId = new Map<string, number>();
+  for (const [laneId, natural] of naturalHeightByLaneId) heightByLaneId.set(laneId, natural * fitRatio);
+
+  const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale, heightByLaneId);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
   const categoryById = new Map((data.legendCategories ?? []).map((c) => [c.id, c]));
-  /** Vertical offset for a pill's cy within its (possibly grown) lane — 0 for every lane that isn't stacking. */
+  /**
+   * Vertical offset for a pill's cy within its (possibly grown) lane — 0
+   * for every lane with no pills at all. The whole stack of Lane-Row
+   * bands (wayframe#94/t20; possibly just one, the common case) is
+   * centered on the lane's own middle (laneY), same placement the single
+   * flat stacking band had before Lane Rows existed — a document with no
+   * explicit `laneRow` assignments renders byte-identical to today, since
+   * bucketRows then produces exactly that one row. Row heights here are
+   * deliberately the *natural* (un-fit-to-screen-stretched) ones — a
+   * grown lane gets more breathing room around this band, not a
+   * distorted, stretched one; only the lane's own outer height (laneY's
+   * `row.height`) is ever multiplied by the fit ratio.
+   */
   function pillSubRowOffset(laneId: string, milestoneId: string): number {
-    const subRowById = pillSubRowByLaneId.get(laneId);
-    if (!subRowById) return 0;
-    const subRowCount = (extraHeightByLaneId.get(laneId) ?? 0) / (PILL_ROW_HEIGHT * boxScale) + 1;
-    const subRow = subRowById.get(milestoneId) ?? 0;
-    const bandTop = -((subRowCount * PILL_ROW_HEIGHT * boxScale) / 2);
-    return bandTop + subRow * PILL_ROW_HEIGHT * boxScale + (PILL_ROW_HEIGHT * boxScale) / 2;
+    const model = laneRowModelByLaneId.get(laneId);
+    if (!model) return 0;
+    const rowGapPx = ROW_GAP * boxScale;
+    const totalBandHeight = model.rows.reduce((sum, r) => sum + r.slotHeights.reduce((a, b) => a + b, 0), 0) + Math.max(0, model.rows.length - 1) * rowGapPx;
+    let rowTop = -totalBandHeight / 2;
+    for (const row of model.rows) {
+      const subRow = row.subRowById.get(milestoneId);
+      if (subRow !== undefined) {
+        let slotTop = rowTop;
+        for (let r = 0; r < subRow; r++) slotTop += row.slotHeights[r];
+        return slotTop + row.slotHeights[subRow] / 2;
+      }
+      rowTop += row.slotHeights.reduce((a, b) => a + b, 0) + rowGapPx;
+    }
+    return 0;
   }
   /**
    * Drag-to-reschedule. Pointer capture on the marker's <g>, x translated
@@ -2560,6 +2656,7 @@ export function RoadmapTimeline({
             return (
               <g
                 key={m.id}
+                data-testid={`pill-${m.id}`}
                 className={onMilestoneClick || onMilestoneDateRangeChange ? "cursor-pointer" : undefined}
                 opacity={traceState === "out" ? 0.22 : pillDragging ? 0.85 : 1}
                 transform={pillDx ? `translate(${pillDx} 0)` : undefined}

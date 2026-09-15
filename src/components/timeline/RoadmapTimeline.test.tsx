@@ -401,3 +401,54 @@ describe("BlufCallout", () => {
     expect(screen.getByText(sampleRoadmap.bluf.statement).closest("div[style]")).toHaveStyle({ background: "#11223380" });
   });
 });
+
+describe("Lane Rows & vertical allocation (wayframe#94/t20)", () => {
+  function pillY(container: HTMLElement, id: string): number {
+    const rect = container.querySelector(`[data-testid="pill-${id}"] rect`);
+    expect(rect).not.toBeNull();
+    return Number(rect!.getAttribute("y"));
+  }
+
+  const overlappingPills: RenderableProgram["milestones"] = [
+    ...sampleRoadmap.milestones,
+    { id: "p1", laneId: "lane-a", title: "Design", date: "2026-01-10", endDate: "2026-02-10", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+    { id: "p2", laneId: "lane-a", title: "Build", date: "2026-01-10", endDate: "2026-02-10", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+  ];
+
+  it("stacks overlapping same-lane pills onto separate sub-rows when neither has a laneRow (today's default, Row 1)", () => {
+    const { container } = render(
+      <RoadmapTimeline data={{ ...sampleRoadmap, milestones: overlappingPills }} today={new Date("2026-01-20T00:00:00Z")} />,
+    );
+    const y1 = pillY(container, "p1");
+    const y2 = pillY(container, "p2");
+    expect(y1).not.toBeCloseTo(y2, 0);
+  });
+
+  it("still renders the lane's point milestone when it also has overlapping pills — mixed content doesn't drop anything", () => {
+    render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: overlappingPills }} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(screen.getAllByText("First milestone").length).toBeGreaterThan(0); // m1, a point milestone sharing lane-a with p1/p2
+  });
+
+  it("moving one pill to an explicit Lane Row pulls it out of Row 1's own stacking — override, not seed", () => {
+    const split: RenderableProgram["milestones"] = overlappingPills.map((m) => (m.id === "p2" ? { ...m, laneRow: 2 } : m));
+    const { container } = render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: split }} today={new Date("2026-01-20T00:00:00Z")} />);
+    // p1 (Row 1, alone now) and p2 (Row 2, alone) each land on their own
+    // row's single sub-row — no longer stacked against each other at all.
+    const y1 = pillY(container, "p1");
+    const y2 = pillY(container, "p2");
+    expect(y1).not.toBeCloseTo(y2, 0);
+  });
+
+  it("two pills both explicitly assigned to the same non-default row still stack within it", () => {
+    const bothRow2: RenderableProgram["milestones"] = overlappingPills.map((m) => ((m.id === "p1" || m.id === "p2") ? { ...m, laneRow: 2 } : m));
+    const { container } = render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: bothRow2 }} today={new Date("2026-01-20T00:00:00Z")} />);
+    const y1 = pillY(container, "p1");
+    const y2 = pillY(container, "p2");
+    expect(y1).not.toBeCloseTo(y2, 0); // collision safety still fires inside an explicit row
+  });
+
+  it("renders without throwing when fitToScreen is on", () => {
+    render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: overlappingPills }} today={new Date("2026-01-20T00:00:00Z")} fitToScreen />);
+    expect(screen.getByTestId("roadmap-timeline")).toBeInTheDocument();
+  });
+});

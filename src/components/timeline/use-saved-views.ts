@@ -46,7 +46,7 @@ export interface ViewSnapshot {
   connectorArrow?: ConnectorArrow;
   todayOverlayEnabled?: boolean;
   pillProgressStyle?: PillProgressStyle;
-  autoLaneHeightEnabled?: boolean;
+  fitToScreenEnabled?: boolean;
   dateLabelPlacement?: DateLabelPlacement;
   legendCategoryFillEnabled?: boolean;
   swimlaneOwnerVisible?: boolean;
@@ -79,7 +79,7 @@ export const BUILTIN_VIEWS: SavedView[] = [
     id: "builtin-dense",
     name: "Dense",
     builtin: true,
-    snapshot: { fontScale: 0.85, labelDensity: "key", autoLaneHeightEnabled: true, legendOpen: true },
+    snapshot: { fontScale: 0.85, labelDensity: "key", fitToScreenEnabled: true, legendOpen: true },
   },
   {
     id: "builtin-minimal",
