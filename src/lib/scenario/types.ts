@@ -61,6 +61,8 @@ export interface TopLevelItemPatch {
   potentialDate?: string;
   startDate?: string;
   endDate?: string;
+  originalStartDate?: string;
+  originalEndDate?: string;
   message?: string;
   styleOverride?: StyleOverride;
 }

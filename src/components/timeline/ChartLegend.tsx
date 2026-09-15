@@ -14,7 +14,6 @@ import { useEffect, useReducer, useState } from "react";
 import type { Theme } from "./theme";
 import type { LegendCategory, Status } from "./types";
 import type { CriticalPathStyle } from "./use-critical-path-style";
-import type { GhostMode, AtRiskMode } from "./RoadmapTimeline";
 
 const STORAGE_KEY = "wayframe:legend-open";
 
@@ -97,8 +96,8 @@ export interface ChartLegendProps {
   theme: Theme;
   criticalPathStyle: CriticalPathStyle;
   showCriticalPath: boolean;
-  ghostMode: GhostMode;
-  atRiskMode: AtRiskMode;
+  /** Unified delta-annotation layer (t23) — replaces ghostMode/atRiskMode; one preference now covers both the slip and at-risk legend entries below. */
+  deltaAnnotationsEnabled: boolean;
   /** True while a trace is active, so the trace key only appears when it means something. */
   tracing: boolean;
   /** True when the document has at least one milestone with a duration. */
@@ -116,8 +115,7 @@ export function ChartLegend({
   theme,
   criticalPathStyle,
   showCriticalPath,
-  ghostMode,
-  atRiskMode,
+  deltaAnnotationsEnabled,
   tracing,
   hasDurations,
   categories,
@@ -223,10 +221,10 @@ export function ChartLegend({
               Runs over a period
             </span>
           )}
-          {ghostMode !== "off" && (
+          {deltaAnnotationsEnabled && (
             <span className="flex items-center gap-1.5">
               <svg width={26} height={12} viewBox="0 0 26 12" aria-hidden="true">
-                <rect x={1} y={1} width={24} height={10} rx={5} fill="#f59e0b" />
+                <rect x={1} y={1} width={24} height={10} rx={5} fill="currentColor" />
                 <text x={13} y={9} textAnchor="middle" fontSize={7} fontWeight={700} fill="#ffffff">
                   +21d
                 </text>
@@ -234,7 +232,7 @@ export function ChartLegend({
               Slipped from its original date
             </span>
           )}
-          {atRiskMode !== "off" && (
+          {deltaAnnotationsEnabled && (
             <span className="flex items-center gap-1.5">
               <svg width={26} height={12} viewBox="0 0 26 12" aria-hidden="true">
                 <line x1={1} y1={6} x2={17} y2={6} stroke={theme.statusColor["at-risk"]} strokeWidth={1.5} strokeDasharray="1 3" strokeLinecap="round" />

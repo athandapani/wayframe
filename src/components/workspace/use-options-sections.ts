@@ -2,7 +2,7 @@
 
 // Per-section collapsed/expanded state for the options-menu accordion —
 // same localStorage-preference pattern as every viewer-preference hook
-// (e.g. use-ghost-mode.ts): this is how a viewer likes the menu laid out,
+// (e.g. use-delta-annotations.ts): this is how a viewer likes the menu laid out,
 // not document content. Defaults land with the sections someone reaches for
 // most (Appearance, File) open and the rest tucked away, rather than every
 // section open (which is just the old flat list again) or every section

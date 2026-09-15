@@ -1,7 +1,7 @@
 "use client";
 
 // Independent font-family viewer preference (wayframe#42/#50) — its own
-// localStorage key, same pattern as use-ghost-mode.ts. Deliberately layered
+// localStorage key, same pattern as use-delta-annotations.ts. Deliberately layered
 // OVER whichever theme is active rather than folded into Theme.font: #42's
 // verdict was that family follows the prototype's Variant A/C model (a
 // curated picker independent of theme), not Variant B's (family locked to

@@ -9,8 +9,7 @@ function renderLegend(overrides: Partial<React.ComponentProps<typeof ChartLegend
       theme={defaultTheme}
       criticalPathStyle="thick"
       showCriticalPath
-      ghostMode="badge"
-      atRiskMode="off"
+      deltaAnnotationsEnabled
       tracing={false}
       hasDurations
       {...overrides}
@@ -37,7 +36,7 @@ describe("ChartLegend", () => {
 
   it("only explains what's actually on screen", () => {
     // A legend that documents switched-off features is noise.
-    renderLegend({ showCriticalPath: false, ghostMode: "off", hasDurations: false, tracing: false });
+    renderLegend({ showCriticalPath: false, deltaAnnotationsEnabled: false, hasDurations: false, tracing: false });
     expect(screen.queryByText(/Critical path/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Slipped from/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Runs over a period/)).not.toBeInTheDocument();

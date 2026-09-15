@@ -160,6 +160,10 @@ export type TopLevelItem =
       endDate: string;
       status: Status;
       potentialDate?: string;
+      /** Baseline snapshot for the phase's start edge (t23, wayframe#96) — mirrors Milestone.originalDate's doc, but a phase's start and end can each slip independently since a phase has no single date. Set once a correction first shifts startDate away from it. */
+      originalStartDate?: string;
+      /** Baseline snapshot for the phase's end edge (t23, wayframe#96) — see originalStartDate's doc. */
+      originalEndDate?: string;
       rev?: number;
       /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc. */
       styleOverride?: StyleOverride;

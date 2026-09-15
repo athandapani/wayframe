@@ -1,7 +1,7 @@
 "use client";
 
 // Connector line dash + arrowhead — a viewer display
-// preference, same enabled/style-pair pattern as use-ghost-mode.ts: `dash`
+// preference, same enabled/style-pair pattern use-critical-path-style.ts uses: `dash`
 // and `arrow` persist independently so changing one doesn't reset the
 // other. Applies to the ordinary (non-critical, non-traced) connector
 // stroke only — critical-path and trace connectors keep their own fixed

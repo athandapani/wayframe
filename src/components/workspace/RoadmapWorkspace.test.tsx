@@ -70,7 +70,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
 
   it("keeps settings-like controls out of the chrome until the menu is opened", () => {
     render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
-    expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Delta annotations:/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import a schedule" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sidebar mode" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Export to Deck" })).not.toBeInTheDocument();
@@ -85,14 +85,14 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
     expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument();
 
     openSection("Chart symbols");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Ghosts:/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Delta annotations:/ })).toBeInTheDocument());
 
     openSection("Data");
     await waitFor(() => expect(screen.getByRole("button", { name: "Import a schedule" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Sidebar mode" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Ghosts:/ })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Delta annotations:/ })).not.toBeInTheDocument());
   });
 
   it("toggling So-what visibility from the menu hides/shows the BLUF callout", async () => {
@@ -133,44 +133,29 @@ describe("RoadmapWorkspace font-scale wiring (wayframe#42/#50, revised)", () => 
   });
 });
 
-describe("RoadmapWorkspace ghost-rendering controls (wayframe#29/#30)", () => {
+describe("RoadmapWorkspace delta-annotation controls (t23, wayframe#96)", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
-  it("defaults to ghosts on, style badge, and shows the slip badge for a slipped milestone", async () => {
+  it("defaults to delta annotations on, and shows the slip ghost for a slipped milestone", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     openSection("Chart symbols");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "badge" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument();
-    expect(screen.getByTestId("ghost-badge-m1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delta annotations: On" })).toBeInTheDocument());
+    expect(screen.getByTestId("delta-ghost-slip-date-m1")).toBeInTheDocument();
   });
 
-  it("turning ghosts off hides the style switcher and the slip badge", async () => {
+  it("turning delta annotations off hides the slip ghost", async () => {
     render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
     openOptionsMenu();
     openSection("Chart symbols");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: On" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delta annotations: On" })).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Ghosts: On" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delta annotations: On" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Ghosts: Off" })).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "badge" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("ghost-badge-m1")).not.toBeInTheDocument();
-  });
-
-  it("switching style to outline swaps the badge for a dashed outline at the old date", async () => {
-    render(<RoadmapWorkspace initialData={slippedData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
-    openOptionsMenu();
-    openSection("Chart symbols");
-    await waitFor(() => expect(screen.getByRole("button", { name: "outline" })).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "outline" }));
-
-    await waitFor(() => expect(screen.getByTestId("ghost-outline-m1")).toBeInTheDocument());
-    expect(screen.queryByTestId("ghost-badge-m1")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delta annotations: Off" })).toBeInTheDocument());
+    expect(screen.queryByTestId("delta-ghost-slip-date-m1")).not.toBeInTheDocument();
   });
 });
 

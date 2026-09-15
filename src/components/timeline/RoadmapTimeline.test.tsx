@@ -6,6 +6,7 @@ import { RoadmapTimeline } from "./RoadmapTimeline";
 import { BlufCallout } from "./BlufCallout";
 import { sampleRoadmap } from "./__fixtures__/sample-roadmap";
 import { deriveShortLabel } from "./short-label";
+import { ghostsForTopLevelItemPhase, layoutItemGhosts } from "./delta-ghosts";
 import type { RenderableProgram } from "./types";
 
 describe("RoadmapTimeline", () => {
@@ -51,89 +52,73 @@ describe("RoadmapTimeline", () => {
   });
 });
 
-describe("ghost-rendering a slipped milestone (wayframe#29/#30)", () => {
+describe("unified delta-annotation layer (t23, wayframe#96) — slip", () => {
   const slippedRoadmap: RenderableProgram = {
     ...sampleRoadmap,
     milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, originalDate: "2026-01-25" } : m)),
   };
 
-  it("renders nothing extra when ghostMode is off, even for a slipped milestone", () => {
-    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="off" />);
-    expect(screen.queryByTestId("ghost-badge-m2")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("ghost-outline-m2")).not.toBeInTheDocument();
+  it("renders nothing extra when annotations are off, even for a slipped milestone", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} deltaAnnotationsEnabled={false} />);
+    expect(screen.queryByTestId("delta-ghost-slip-date-m2")).not.toBeInTheDocument();
   });
 
-  it("renders nothing extra for a milestone that hasn't slipped, even with ghosts on", () => {
-    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="badge" />);
-    expect(screen.queryByTestId("ghost-badge-m1")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("ghost-outline-m1")).not.toBeInTheDocument();
+  it("renders nothing extra for a milestone that hasn't slipped, even with annotations on", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(screen.queryByTestId("delta-ghost-slip-date-m1")).not.toBeInTheDocument();
   });
 
-  it("style badge: shows a +/-Nd slip badge next to the current marker, no mark at the old date", () => {
-    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="badge" />);
-    expect(screen.getByTestId("ghost-badge-m2")).toBeInTheDocument();
+  it("shows a +/-Nd slip label next to the current marker plus a dashed outline at the old date", () => {
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const ghost = screen.getByTestId("delta-ghost-slip-date-m2");
+    // The dashed outline marker at the old date (its own <rect>, via
+    // CushionMarker's default diamond) is always rendered too, alongside
+    // the label pill's own <rect> — the unified primitive merges what used
+    // to be two mutually-exclusive "badge"/"outline" viewer styles into one
+    // always-both treatment.
+    expect(ghost.querySelectorAll("rect")).toHaveLength(2);
     expect(screen.getByText("+21d")).toBeInTheDocument();
-    expect(screen.queryByTestId("ghost-outline-m2")).not.toBeInTheDocument();
-  });
-
-  it("style outline: shows a dashed outline at the old date, no badge", () => {
-    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="outline" />);
-    expect(screen.getByTestId("ghost-outline-m2")).toBeInTheDocument();
-    expect(screen.queryByTestId("ghost-badge-m2")).not.toBeInTheDocument();
-    expect(screen.queryByText("+21d")).not.toBeInTheDocument();
   });
 
   it("shows the old→new date detail in the hover tooltip", () => {
-    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} ghostMode="badge" />);
+    render(<RoadmapTimeline data={slippedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
     expect(screen.getByText((_, el) => el?.textContent === "Jan 25 → Feb 15")).toBeInTheDocument();
   });
 });
 
-describe("at-risk slip-risk projection (wayframe#61/#72)", () => {
+describe("unified delta-annotation layer (t23, wayframe#96) — at-risk", () => {
   const atRiskRoadmap: RenderableProgram = {
     ...sampleRoadmap,
     milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, potentialDate: "2026-03-08" } : m)),
   };
 
-  it("renders nothing extra when atRiskMode is off, even for a projected milestone", () => {
-    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="off" />);
-    expect(screen.queryByTestId("at-risk-sibling")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("at-risk-comet")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("at-risk-zone")).not.toBeInTheDocument();
+  it("renders nothing extra when annotations are off, even for a projected milestone", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} deltaAnnotationsEnabled={false} />);
+    expect(screen.queryByTestId("delta-ghost-at-risk-date-m2")).not.toBeInTheDocument();
   });
 
   it("renders exactly one projection, only for the milestone that has a potentialDate", () => {
-    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="sibling" />);
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
     // m2 has potentialDate; m1 doesn't — only one projection should render, not one per milestone.
-    expect(screen.getAllByTestId("at-risk-sibling")).toHaveLength(1);
+    expect(screen.getAllByTestId("delta-ghost-at-risk-date-m2")).toHaveLength(1);
+    expect(screen.queryByTestId("delta-ghost-at-risk-date-m1")).not.toBeInTheDocument();
   });
 
-  it("style sibling: renders the dashed-outline+badge treatment", () => {
-    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="sibling" />);
-    expect(screen.getByTestId("at-risk-sibling")).toBeInTheDocument();
-    expect(screen.queryByTestId("at-risk-comet")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("at-risk-zone")).not.toBeInTheDocument();
-  });
-
-  it("style comet: renders the fading-streak treatment", () => {
-    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="comet" />);
-    expect(screen.getByTestId("at-risk-comet")).toBeInTheDocument();
-    expect(screen.queryByTestId("at-risk-sibling")).not.toBeInTheDocument();
-  });
-
-  it("style zone: renders the hazard-wedge treatment", () => {
-    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="zone" />);
-    expect(screen.getByTestId("at-risk-zone")).toBeInTheDocument();
-    expect(screen.queryByTestId("at-risk-sibling")).not.toBeInTheDocument();
+  it("labels the at-risk projection with the risk delta and projected date", () => {
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const ghost = screen.getByTestId("delta-ghost-at-risk-date-m2");
+    // The outline marker's own <rect> plus the label pill's <rect>.
+    expect(ghost.querySelectorAll("rect")).toHaveLength(2);
+    expect(screen.getByText("+21d risk · Mar 8")).toBeInTheDocument();
   });
 
   it("does not move the committed date or stamp originalDate", () => {
-    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} atRiskMode="sibling" />);
+    render(<RoadmapTimeline data={atRiskRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
     expect(screen.getByText("Feb 15")).toBeInTheDocument();
   });
 });
 
-describe("ghost-badge collision-avoidance (wayframe#47)", () => {
+describe("delta-ghost collision-avoidance (wayframe#47, unified under t23)", () => {
   function withGhostedMilestone(title: string): RenderableProgram {
     return {
       ...sampleRoadmap,
@@ -154,10 +139,10 @@ describe("ghost-badge collision-avoidance (wayframe#47)", () => {
   }
 
   it("keeps the original fixed cx+12/cy-18 offset (tier 0, no connector) when nothing collides", () => {
-    render(<RoadmapTimeline data={withGhostedMilestone("OK")} today={new Date("2026-01-01T00:00:00Z")} ghostMode="badge" />);
-    const badge = screen.getByTestId("ghost-badge-g1");
+    render(<RoadmapTimeline data={withGhostedMilestone("OK")} today={new Date("2026-01-01T00:00:00Z")} />);
+    const ghost = screen.getByTestId("delta-ghost-slip-date-g1");
     // No collision -> no leader line drawn back to the marker.
-    expect(badge.querySelector("line")).toBeNull();
+    expect(ghost.querySelector("line")).toBeNull();
   });
 
   it("folds into the tiered layout, escalating with a leader-line connector when it would land on a title", () => {
@@ -165,9 +150,88 @@ describe("ghost-badge collision-avoidance (wayframe#47)", () => {
     // default cx+12 offset — the same "lands directly on top of a label"
     // case the ticket named, just against the marker's own label rather
     // than a neighbor's.
-    render(<RoadmapTimeline data={withGhostedMilestone("Certification Submission Package Review")} today={new Date("2026-01-01T00:00:00Z")} ghostMode="badge" />);
-    const badge = screen.getByTestId("ghost-badge-g1");
-    expect(badge.querySelector("line")).not.toBeNull();
+    render(<RoadmapTimeline data={withGhostedMilestone("Certification Submission Package Review")} today={new Date("2026-01-01T00:00:00Z")} />);
+    const ghost = screen.getByTestId("delta-ghost-slip-date-g1");
+    expect(ghost.querySelector("line")).not.toBeNull();
+  });
+});
+
+describe("t9 collision fix (t23, wayframe#96): a milestone with both a slip and an at-risk ghost", () => {
+  // The literal bug docs/research/t9-ghost-tier-inventory.md documents: two
+  // independently-blind layoutGhostBadges passes could both land a label at
+  // tier 0 for the same milestone. The unified layer resolves this via
+  // KIND_PRIORITY (delta-ghosts.ts) before collision math ever runs — the
+  // at-risk ghost outranks the slip ghost, so only it gets labeled/tier 0;
+  // the slip ghost renders as an unlabeled outline at a higher tier.
+  const bothRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    milestones: sampleRoadmap.milestones.map((m) => (m.id === "m2" ? { ...m, originalDate: "2026-01-25", potentialDate: "2026-03-08" } : m)),
+  };
+
+  it("labels the at-risk ghost (tier 0) and demotes the slip ghost to an unlabeled outline", () => {
+    render(<RoadmapTimeline data={bothRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const atRisk = screen.getByTestId("delta-ghost-at-risk-date-m2");
+    // Labeled: its own outline <rect> plus the label pill's <rect>.
+    expect(atRisk.querySelectorAll("rect")).toHaveLength(2);
+    expect(screen.getByText("+21d risk · Mar 8")).toBeInTheDocument();
+
+    const slip = screen.getByTestId("delta-ghost-slip-date-m2");
+    // Unlabeled: only its own outline <rect>, no label pill.
+    expect(slip.querySelectorAll("rect")).toHaveLength(1);
+    // Not competing for the same label/tier as the at-risk ghost: no "+Nd"
+    // slip text renders at all, only the at-risk's own label text does.
+    expect(screen.queryByText("+21d")).not.toBeInTheDocument();
+  });
+});
+
+describe("TopLevelItem phase delta ghosts (t23, wayframe#96)", () => {
+  const phase = sampleRoadmap.topLevelItems.find((t) => t.id === "top-1")!;
+  if (phase.type !== "phase") throw new Error("fixture assumption broken: top-1 must be a phase");
+
+  const phaseRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    topLevelItems: sampleRoadmap.topLevelItems.map((t) =>
+      t.id === "top-1" && t.type === "phase"
+        ? { ...t, originalStartDate: "2025-12-15", originalEndDate: "2026-02-15", potentialDate: "2026-03-20" }
+        : t,
+    ),
+  };
+
+  it("shows exactly 3 ghosts (both slip edges + at-risk), correctly priority-ordered, with no 4th tier invented", () => {
+    render(<RoadmapTimeline data={phaseRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    // at-risk outranks slip (KIND_PRIORITY) — it's the labeled one.
+    const atRisk = screen.getByTestId("delta-ghost-at-risk-endDate-top-1");
+    expect(atRisk.querySelectorAll("rect")).toHaveLength(2);
+    // Both slip edges render too, each its own unlabeled outline — real
+    // ghost #2 and #3 sharing the item, exactly filling the 3-tier budget.
+    const slipStart = screen.getByTestId("delta-ghost-slip-startDate-top-1");
+    const slipEnd = screen.getByTestId("delta-ghost-slip-endDate-top-1");
+    expect(slipStart.querySelectorAll("rect")).toHaveLength(1);
+    expect(slipEnd.querySelectorAll("rect")).toHaveLength(1);
+    // No overflow indicator — 3 real ghosts exactly fill MAX_DELTA_TIERS.
+    expect(screen.queryByTestId("delta-ghost-overflow")).not.toBeInTheDocument();
+  });
+
+  it("overflows a 4th co-occurring ghost into a count rather than inventing a new tier", () => {
+    // RoadmapTimeline's real phase render call site has no live scenario-diff
+    // caller yet (t23's own scope — a future Scenario-switcher ticket wires
+    // one), so a true 4-ghost render can't be reached through props alone.
+    // delta-ghosts.ts's layoutItemGhosts is what actually computes
+    // overflowCount, and it's already exercised directly with a scenario
+    // diff here to prove the budget — MAX_DELTA_TIERS, not 4 — holds even
+    // when a 4th real ghost exists, matching what the render path will do
+    // the moment a scenario-diff caller exists.
+    const ghosts = ghostsForTopLevelItemPhase(
+      { ...phase, originalStartDate: "2025-12-15", originalEndDate: "2026-02-15", potentialDate: "2026-03-20" },
+      [{ field: "endDate", from: "2026-03-01", to: "2026-04-10" }],
+    );
+    expect(ghosts).toHaveLength(4);
+    const { placed, overflowCount } = layoutItemGhosts(ghosts);
+    expect(placed).toHaveLength(3);
+    expect(overflowCount).toBe(1);
+    // scenario-diff outranks both at-risk and slip — it's the one that
+    // would win the labeled/tier-0 slot were this wired into a live render.
+    expect(placed[0].kind).toBe("scenario-diff");
   });
 });
 

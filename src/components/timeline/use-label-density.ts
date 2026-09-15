@@ -1,7 +1,7 @@
 "use client";
 
 // Marker-label density (prototype/theme-system) — a viewer display
-// preference on its own localStorage key, same pattern as use-ghost-mode
+// preference on its own localStorage key, same pattern as use-delta-annotations
 // and use-critical-path-style.
 import { useEffect, useReducer, useState } from "react";
 import type { LabelDensity } from "./title-layout";

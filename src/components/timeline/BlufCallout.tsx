@@ -125,7 +125,7 @@ export function BlufCallout({
   // useReducer rather than useState: reading persisted position has to
   // happen after mount (localStorage doesn't exist during SSR), and a bare
   // setState in an effect is the pattern react-hooks warns about. Same
-  // shape as use-ghost-mode and the other viewer-preference hooks.
+  // shape as use-delta-annotations and the other viewer-preference hooks.
   const [pos, setPos] = useReducer((_: Position, next: Position) => next, DEFAULT_POSITION);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; origin: Position } | null>(null);

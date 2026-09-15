@@ -149,7 +149,7 @@ const MilestoneSchema = z
   .strict();
 
 const TopLevelItemSchema = z.discriminatedUnion("type", [
-  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
+  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), originalStartDate: IsoDate.optional(), originalEndDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
   z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
   z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate, message: z.string(), rev: z.number().optional() }).strict(),
 ]);
@@ -173,6 +173,8 @@ const TopLevelItemPatchSchema = z
     potentialDate: IsoDate.optional(),
     startDate: IsoDate.optional(),
     endDate: IsoDate.optional(),
+    originalStartDate: IsoDate.optional(),
+    originalEndDate: IsoDate.optional(),
     message: z.string().optional(),
     styleOverride: StyleOverrideSchema.optional(),
   })

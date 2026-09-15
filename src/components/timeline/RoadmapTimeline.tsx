@@ -35,7 +35,17 @@ import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
-import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker, type TierPlacement } from "./label-layout";
+import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker } from "./label-layout";
+import {
+  ghostsForMilestone,
+  ghostsForTopLevelItemPhase,
+  ghostsForTopLevelItemMilestone,
+  layoutItemGhosts,
+  labelForDeltaGhost,
+  MAX_DELTA_TIERS,
+  type DeltaGhostKind,
+  type PlacedDeltaGhost,
+} from "./delta-ghosts";
 import { layoutReferenceLines, type RefLineItem } from "./reference-line-layout";
 import { layoutTitleLabels, shouldLabel, CHAR_W, type LabelDensity, type TitlePlacement } from "./title-layout";
 import { yearSegments, segmentsForTier, tierRowCount, tier3OptionsFor, labelStride, AXIS_PRESETS, type AxisTierConfig, type Segment } from "./axis-tiers";
@@ -753,205 +763,115 @@ function ReferenceLine({
   );
 }
 
-// Ghost-rendering a slipped milestone (Milestone.date !== originalDate,
-// wayframe#29/#30). Two selectable styles, both won a live prototype
-// stress-test over a third (a connector line from the old date to the new
-// one — tangled with dependency connectors and was dropped): "badge" draws
-// nothing at the old date at all, just a +/-Nd marker beside the current
-// one; "outline" draws a dashed outline at the old date, no connector.
-export type GhostMode = "off" | "badge" | "outline";
-
-function daysBetween(fromDateStr: string, toDateStr: string): number {
-  return Math.round((parseDate(toDateStr) - parseDate(fromDateStr)) / 86400000);
-}
-
-/** Shared between the per-lane collision-layout pass and the badge's own render so the two never disagree on size (wayframe#47). */
-function ghostBadgeLabel(m: Milestone): { label: string; late: boolean } {
-  const slipDays = daysBetween(m.originalDate!, m.date);
-  const late = slipDays > 0;
-  return { label: `${late ? "+" : ""}${slipDays}d`, late };
-}
-function ghostBadgeWidth(label: string, metricsScale: number): number {
+// Unified delta-annotation rendering (t23, wayframe#96) — replaces the two
+// independent slip-ghost (badge/outline) and at-risk-projection
+// (sibling/comet/zone) systems documented as the bug in
+// docs/research/t9-ghost-tier-inventory.md: two blind `layoutGhostBadges`
+// passes that could both land a label at tier 0 for the same milestone.
+// One shape (delta-ghosts.ts's DeltaGhost), one rendering primitive: every
+// item's own priority-sorted ghosts (layoutItemGhosts) share the same
+// GHOST_TIER_DY vertical ladder, and only the top-priority one gets a text
+// label — the rest render as unlabeled dashed outlines, escalated outward
+// so they never stack on the labeled one or each other.
+function widthForDeltaGhostLabel(label: string, metricsScale: number): number {
   return Math.max(22, label.length * 6 * metricsScale + 8);
 }
 
-// Forward-looking slip-risk projection (wayframe#61/#72) — the temporal
-// opposite of Ghost*/CushionMarker's originalDate mechanism above: that one
-// draws where a milestone WAS before a correction moved it, this draws
-// where it MIGHT land if a named risk materializes. The committed date/cx
-// never moves; a second, lighter marker previews the potential one at
-// riskCx. Three visual treatments shipped as a viewer preference (#61's
-// prototype resolution — user kept all three rather than picking one),
-// switched per-viewer via atRiskMode/AtRiskStyle below, same pattern as
-// GhostMode's badge/outline switch.
-export type AtRiskStyle = "sibling" | "comet" | "zone";
-export type AtRiskMode = "off" | AtRiskStyle;
-
-function atRiskLabel(fromDateStr: string, toDateStr: string): string {
-  return `+${daysBetween(fromDateStr, toDateStr)}d risk · ${formatDateShort(toDateStr)}`;
-}
-
-function AtRiskProjection({
-  style,
+function DeltaGhostMarker({
+  ghost,
   cx,
   cy,
-  riskCx,
+  ghostX,
   color,
-  label,
-  tier = 0,
   fontScale = 1,
   metricsScale = 1,
+  dx = 0,
+  dy = 0,
+  onDragStart,
 }: {
-  style: AtRiskStyle;
+  ghost: PlacedDeltaGhost;
+  /** Anchor point of the REAL marker/pill this ghost belongs to. */
   cx: number;
   cy: number;
-  riskCx: number;
+  /**
+   * Position the ghost circle is drawn at — the "from" side of the delta
+   * for a slip (mirrors today's GhostOutline), the "to"/projected side for
+   * at-risk and scenario-diff (mirrors today's AtRiskProjection's riskCx) —
+   * already resolved to a pixel x by the caller.
+   */
+  ghostX: number;
   color: string;
-  label: string;
-  /** From layoutGhostBadges, reused for this independent tiered pass (wayframe#72) — escalates the label above the marker when it would otherwise land on a title/ghost badge. */
-  tier?: 0 | 1 | 2;
   fontScale?: number;
   metricsScale?: number;
+  dx?: number;
+  dy?: number;
+  onDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
 }) {
-  const labelY = cy + GHOST_TIER_DY[tier];
-  const moved = tier > 0;
+  // Field is part of the id too — a phase can carry two same-kind "slip"
+  // ghosts at once (startDate + endDate each slipping independently), which
+  // would otherwise collide on a single kind+item testid.
+  const testId = `delta-ghost-${ghost.kind}-${ghost.field}-${ghost.itemId}`;
+  // The labeled (rank-0) ghost's outline sits at a fixed cy, exactly like
+  // today's GhostOutline/AtRiskProjection-sibling diamond — only its label
+  // pill rides the tiered offset. An unlabeled (lower-priority) ghost has no
+  // historical precedent (today never showed two systems on one item at
+  // once); it gets its own vertical slot too, via the same GHOST_TIER_DY
+  // ladder, purely so it doesn't visually stack on the labeled one.
+  const outlineCy = ghost.labeled ? cy : cy + GHOST_TIER_DY[ghost.tier];
 
-  if (style === "sibling") {
-    // Same grammar as GhostOutline/GhostBadge above, pointed forward instead
-    // of back: a dotted leader to a dashed hollow diamond, with a pill badge
-    // riding the same tiered offset ghost badges use.
-    const badgeW = ghostBadgeWidth(label, metricsScale);
-    const bx = riskCx - badgeW / 2;
-    const by = labelY - 6.5;
+  if (!ghost.labeled) {
     return (
-      <g data-testid="at-risk-sibling">
-        <line x1={cx + 9} y1={cy} x2={riskCx - 9} y2={cy} stroke={color} strokeWidth={1.5} strokeDasharray="1 3" strokeLinecap="round" />
-        <CushionMarker cx={riskCx} cy={cy} r={8} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="2 2" />
-        {moved && <line x1={riskCx} y1={cy - 9} x2={riskCx} y2={by + 13} stroke={color} strokeOpacity={0.4} />}
+      <g data-testid={testId}>
+        <CushionMarker cx={ghostX} cy={outlineCy} r={8} fill="none" stroke={color} strokeWidth={1.25} strokeDasharray="2 2" />
+      </g>
+    );
+  }
+
+  const label = labelForDeltaGhost(ghost);
+  const badgeW = widthForDeltaGhostLabel(label, metricsScale);
+  // Slip's label anchors near the current/committed marker (today's
+  // GhostBadge: cx+12); at-risk/scenario-diff anchor at their own projected
+  // position (today's AtRiskProjection-sibling: riskCx) — two different,
+  // deliberately-preserved horizontal anchor formulas, not one unified one.
+  const labelCenterX = (ghost.kind === "slip" ? cx + 12 : ghostX) + dx;
+  const bx = labelCenterX - badgeW / 2;
+  const by = cy + GHOST_TIER_DY[ghost.tier] + dy;
+  const moved = ghost.tier > 0 || dx !== 0 || dy !== 0;
+  return (
+    <g data-testid={testId}>
+      <CushionMarker cx={ghostX} cy={outlineCy} r={8} fill="none" stroke={color} strokeWidth={1.25} strokeDasharray="2 2" />
+      {moved && <line x1={cx} y1={cy} x2={bx + badgeW / 2} y2={by + 6.5} stroke={color} strokeOpacity={0.3} />}
+      <g pointerEvents={onDragStart ? "auto" : "none"} className={onDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined} onPointerDown={onDragStart}>
         <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={color} />
         <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8 * fontScale} fontWeight={700} fill="#ffffff">
           {label}
         </text>
       </g>
-    );
-  }
+    </g>
+  );
+}
 
-  if (style === "comet") {
-    // A streak that fades as it reaches into the future, ending in a soft
-    // halo instead of a hard outline — the label rides the same tiered
-    // offset as "sibling", just without a pill behind it.
-    return (
-      <g data-testid="at-risk-comet">
-        {[0, 1, 2, 3].map((i) => {
-          const t0 = 0.12 + i * 0.22;
-          const t1 = t0 + 0.16;
-          return (
-            <line
-              key={i}
-              x1={cx + (riskCx - cx) * t0}
-              y1={cy}
-              x2={cx + (riskCx - cx) * t1}
-              y2={cy}
-              stroke={color}
-              strokeWidth={2 - i * 0.35}
-              strokeOpacity={0.85 - i * 0.18}
-              strokeLinecap="round"
-            />
-          );
-        })}
-        <circle cx={riskCx} cy={cy} r={11} fill="none" stroke={color} strokeOpacity={0.3} strokeWidth={4} />
-        <CushionMarker cx={riskCx} cy={cy} r={6.5} fill={color} fillOpacity={0.18} stroke={color} strokeWidth={1.5} />
-        {moved && <line x1={riskCx} y1={cy - 11} x2={riskCx} y2={labelY + 4} stroke={color} strokeOpacity={0.35} />}
-        <text x={riskCx} y={labelY} textAnchor="middle" fontSize={8 * fontScale} fontWeight={600} fill={color}>
-          {label}
-        </text>
-      </g>
-    );
-  }
-
-  // "zone" — the odd one out on purpose: not a second marker at all, a
-  // translucent wedge spanning committed-to-projected date, ending in a
-  // flag pin. Reads as a range of uncertainty rather than a discrete
-  // alternate position. Label still rides the shared tiered offset.
-  const wedgeHalf = 5;
+/** "+N more" — a small unobtrusive indicator for ghosts beyond MAX_DELTA_TIERS (t23), rendered just past the last real tier slot. */
+function DeltaGhostOverflow({ count, cx, cy, fontScale = 1 }: { count: number; cx: number; cy: number; fontScale?: number }) {
+  if (count <= 0) return null;
+  const label = `+${count} more`;
+  const w = Math.max(30, label.length * 5.2 + 8);
+  const y = cy + GHOST_TIER_DY[MAX_DELTA_TIERS - 1] - 14;
   return (
-    <g data-testid="at-risk-zone">
-      <polygon
-        points={`${cx},${cy - wedgeHalf} ${riskCx},${cy - wedgeHalf * 2.4} ${riskCx},${cy + wedgeHalf * 2.4} ${cx},${cy + wedgeHalf}`}
-        fill={color}
-        fillOpacity={0.14}
-        stroke={color}
-        strokeOpacity={0.5}
-        strokeWidth={1}
-        strokeDasharray="1 3"
-      />
-      <line x1={riskCx} y1={cy - wedgeHalf * 2.4} x2={riskCx} y2={cy + wedgeHalf * 2.4} stroke={color} strokeWidth={1.5} />
-      <polygon
-        points={`${riskCx},${cy - wedgeHalf * 2.4} ${riskCx + 14},${cy - wedgeHalf * 2.4 + 4} ${riskCx},${cy - wedgeHalf * 2.4 + 8}`}
-        fill={color}
-      />
-      {moved && <line x1={riskCx} y1={cy - wedgeHalf * 2.4 - 1} x2={riskCx} y2={labelY + 4} stroke={color} strokeOpacity={0.35} />}
-      <text x={riskCx} y={labelY} textAnchor="middle" fontSize={8 * fontScale} fontWeight={600} fill={color}>
+    <g data-testid="delta-ghost-overflow">
+      <rect x={cx - w / 2} y={y} width={w} height={12} rx={6} fill="none" stroke="currentColor" strokeOpacity={0.4} strokeDasharray="1 2" />
+      <text x={cx} y={y + 9} textAnchor="middle" fontSize={7.5 * fontScale} fontWeight={600} fill="currentColor" opacity={0.7}>
         {label}
       </text>
     </g>
   );
 }
 
-function GhostOutline({ m, ghostCx, cy }: { m: Milestone; ghostCx: number; cy: number }) {
-  return (
-    <g data-testid={`ghost-outline-${m.id}`}>
-      <CushionMarker cx={ghostCx} cy={cy} r={8} fill="none" stroke="currentColor" strokeWidth={1.25} strokeDasharray="2 2" />
-    </g>
-  );
-}
-
-// Ghost badge collision-avoidance (wayframe#47): folded into the same
-// tiered-escalation idiom as date labels (layoutGhostBadges, seeded with
-// each lane's tier-0 title blocks as blockers) — resolves most collisions
-// without the viewer doing anything. The manual drag-to-reposition-with-
-// connector affordance, generalized from the reference-line-only mechanism
-// wayframe#51 shipped, layers on top for the residual case tiering alone
-// doesn't reach (e.g. a badge crowded by two neighbors on both sides).
-function GhostBadge({
-  m,
-  cx,
-  cy,
-  tier = 0,
-  dx = 0,
-  dy = 0,
-  onDragStart,
-  fontScale = 1,
-  metricsScale = 1,
-}: {
-  m: Milestone;
-  cx: number;
-  cy: number;
-  /** From layoutGhostBadges — 0 is the original fixed cx+12/cy-18 offset, 1/2 escalate further above the marker. */
-  tier?: 0 | 1 | 2;
-  /** Manual drag override/in-flight drag, layered on top of the tier position. */
-  dx?: number;
-  dy?: number;
-  onDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
-  fontScale?: number;
-  metricsScale?: number;
-}) {
-  const { label, late } = ghostBadgeLabel(m);
-  const badgeW = ghostBadgeWidth(label, metricsScale);
-  const bx = cx + 12 + dx;
-  const by = cy + GHOST_TIER_DY[tier] + dy;
-  const moved = tier > 0 || dx !== 0 || dy !== 0;
-  return (
-    <g data-testid={`ghost-badge-${m.id}`}>
-      {moved && <line x1={cx} y1={cy} x2={bx + badgeW / 2} y2={by + 6.5} stroke="currentColor" strokeOpacity={0.3} />}
-      <g pointerEvents={onDragStart ? "auto" : "none"} className={onDragStart ? "cursor-grab select-none active:cursor-grabbing" : undefined} onPointerDown={onDragStart}>
-        <rect x={bx} y={by} width={badgeW} height={13} rx={6.5} fill={late ? "#f59e0b" : "#0ea5e9"} />
-        <text x={bx + badgeW / 2} y={by + 9.5} textAnchor="middle" fontSize={8 * fontScale} fontWeight={700} fill="#ffffff">
-          {label}
-        </text>
-      </g>
-    </g>
-  );
+/** Per-kind color for DeltaGhostMarker — slip keeps GhostOutline's old `currentColor` (inherits ink, no late/early split anymore), at-risk keeps its unchanged status color, scenario-diff uses the same accent token t18's theme editor already exposes. */
+function colorForDeltaGhostKind(kind: DeltaGhostKind, theme: Theme): string {
+  if (kind === "at-risk") return theme.statusColor["at-risk"];
+  if (kind === "scenario-diff") return theme.accent;
+  return "currentColor";
 }
 
 function MilestoneMarker({
@@ -962,9 +882,8 @@ function MilestoneMarker({
   primary,
   date,
   onClick,
-  ghostMode,
-  ghostCx,
-  ghostTier = 0,
+  deltaGhosts = [],
+  deltaGhostOverflow = 0,
   showCriticalPath,
   traceState,
   onDragStart,
@@ -978,6 +897,7 @@ function MilestoneMarker({
   onDateDragStart,
   ghostOffset = { dx: 0, dy: 0 },
   onGhostDragStart,
+  resolveX,
   category,
   dateLabelPlacement = "below",
   selected = false,
@@ -993,11 +913,10 @@ function MilestoneMarker({
   primary: TitlePlacement | null;
   date: { text: string; tier: 0 | 1 | 2 };
   onClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
-  ghostMode: GhostMode;
-  /** x position of the original (pre-slip) date, or null if not slipped / ghosts off. */
-  ghostCx: number | null;
-  /** From layoutGhostBadges (wayframe#47) — escalates the badge above the marker when it would land on a title. */
-  ghostTier?: 0 | 1 | 2;
+  /** This item's own placed ghosts (t23) — from deltaGhostPlacement, already priority-ranked/tiered by layoutItemGhosts + escalated by cross-item collision. Empty when annotations are off or this milestone has none. */
+  deltaGhosts?: PlacedDeltaGhost[];
+  /** Ghosts beyond MAX_DELTA_TIERS that didn't get a slot at all (t23) — rendered as a small "+N more" indicator, not a 4th tier. */
+  deltaGhostOverflow?: number;
   showCriticalPath: boolean;
   /** "in" = part of the active trace, "out" = dimmed, null = no trace running. */
   traceState: "in" | "out" | null;
@@ -1015,6 +934,8 @@ function MilestoneMarker({
   onDateDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
   ghostOffset?: LabelOffset;
   onGhostDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
+  /** Date -> pixel-x, so a delta ghost's own outline can resolve its position (the "from" side for a slip, the "to"/projected side for at-risk/scenario-diff) without RoadmapTimeline's domain scale living inside this component. */
+  resolveX: (isoDate: string) => number;
   /** Legend category tag — resolved from Milestone.categoryId, only when category-fill encoding is on (see resolveMarkerPaint). */
   category?: LegendCategory;
   /** Marker date-label placement — "inline" skips the tiered below-marker slot entirely for a fixed beside-the-marker position. */
@@ -1047,7 +968,10 @@ function MilestoneMarker({
   // marker or, at tier 1, the tier-0 block they're meant to clear.
   const labelBaseDy = LABEL_BASE_DY * fontScale - (primary ? primary.tier * LABEL_TIER_LIFT * fontScale : 0);
   const tooltipW = Math.max(40, m.title.length * 6 * metricsScale + 16);
-  const hasGhost = ghostCx !== null;
+  // Scoped to slip specifically (not "has any delta ghost at all") — the
+  // hover tooltip's old->new line only makes sense for a milestone that
+  // actually moved from a prior committed date, same condition as today.
+  const hasSlipGhost = !!(m.originalDate && m.originalDate !== m.date);
   const critical = showCriticalPath && m.isCriticalPath;
 
   // The whole marker translates during a drag so the label and date ride
@@ -1068,7 +992,6 @@ function MilestoneMarker({
           custom hover tooltip below, which shows the title, not the
           affordance. */}
       {onClick && <title>Click to edit</title>}
-      {hasGhost && ghostMode === "outline" && <GhostOutline m={m} ghostCx={ghostCx!} cy={cy} />}
       {/* Tier-1 labels sit far enough above the marker to need a leader
           line back to it, or they read as belonging to the lane above. A
           manually-dragged label (wayframe#47) gets the same leader line
@@ -1160,28 +1083,34 @@ function MilestoneMarker({
           </text>
         </g>
       )}
-      {hasGhost && ghostMode === "badge" && (
-        <GhostBadge
-          m={m}
+      {deltaGhosts.map((ghost) => (
+        <DeltaGhostMarker
+          key={`${ghost.kind}-${ghost.field}`}
+          ghost={ghost}
           cx={cx}
           cy={cy}
-          tier={ghostTier}
-          dx={ghostOffset.dx}
-          dy={ghostOffset.dy}
-          onDragStart={onGhostDragStart}
+          ghostX={ghost.kind === "slip" ? resolveX(ghost.from) : resolveX(ghost.to)}
+          color={colorForDeltaGhostKind(ghost.kind, theme)}
           fontScale={effectiveFontScale}
           metricsScale={metricsScale}
+          // Only one ghost per item can ever carry a manual drag offset,
+          // matching today's one-badge-per-milestone drag model — that's
+          // always the labeled (rank-0) one.
+          dx={ghost.labeled ? ghostOffset.dx : 0}
+          dy={ghost.labeled ? ghostOffset.dy : 0}
+          onDragStart={ghost.labeled ? onGhostDragStart : undefined}
         />
-      )}
+      ))}
+      {deltaGhostOverflow > 0 && <DeltaGhostOverflow count={deltaGhostOverflow} cx={cx} cy={cy} fontScale={effectiveFontScale} />}
       {/* hover reveal: full title. CSS-only (no JS state) — a real <title>
           element gets hoisted by React 19 as document metadata even inside
           <svg>, which desyncs SSR/client, so this is the workaround. */}
       <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
-        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasGhost ? 34 : 20} rx={4} fill={theme.tooltipBg} />
+        <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasSlipGhost ? 34 : 20} rx={4} fill={theme.tooltipBg} />
         <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * effectiveFontScale} fill={theme.tooltipInk}>
           {m.title}
         </text>
-        {hasGhost && (
+        {hasSlipGhost && (
           <text x={cx} y={cy - 30} textAnchor="middle" fontSize={9 * effectiveFontScale} fill={theme.tooltipInk} opacity={0.7}>
             <tspan textDecoration="line-through">{formatDateShort(m.originalDate!)}</tspan> → {formatDateShort(m.date)}
           </text>
@@ -1210,8 +1139,8 @@ export interface RoadmapTimelineProps {
   onMilestoneClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
   /** Opens the lighter phase/top-level-milestone/annotation editor (wayframe#19, annotation added in wayframe#59). */
   onTopLevelItemClick?: (t: TopLevelItem, evt: React.MouseEvent<SVGGElement>) => void;
-  /** Ghost-render slipped milestones (wayframe#29/#30) — off by default; callers opt in. */
-  ghostMode?: GhostMode;
+  /** Unified delta-annotation layer (t23, wayframe#96) — slip/at-risk/scenario-diff ghosts, one shared rendering primitive. Replaces the old independent ghostMode/atRiskMode viewer preferences. Defaults on, matching both old defaults. */
+  deltaAnnotationsEnabled?: boolean;
   /** Show computed/override critical-path highlighting (wayframe#34/#35) — a viewer preference, on by default. */
   showCriticalPath?: boolean;
   /**
@@ -1262,8 +1191,6 @@ export interface RoadmapTimelineProps {
   periodGridlineStyle?: PeriodGridlineStyle;
   /** Click-to-edit on programName/owner in the chart header (wayframe#55/#60) — omit to keep them static text (dev preview / off-screen export capture). */
   onEditDocument?: (patch: { programName?: string; owner?: string }) => void;
-  /** Forward-looking slip-risk projection display (wayframe#61/#72) — off by default; callers opt in. */
-  atRiskMode?: AtRiskMode;
   /** Fired once a logo drag or resize gesture ends (wayframe#64) — omit to keep the logo fixed/non-interactive (dev preview / off-screen export capture). */
   onCompanyLogoChange?: (patch: { dx: number; dy: number; scale: number }) => void;
   // --- Later additions ---
@@ -1347,7 +1274,7 @@ export function RoadmapTimeline({
   today = new Date(),
   onMilestoneClick,
   onTopLevelItemClick,
-  ghostMode = "off",
+  deltaAnnotationsEnabled = true,
   showCriticalPath = true,
   criticalPathStyle = "thick",
   onAddMilestone,
@@ -1364,7 +1291,6 @@ export function RoadmapTimeline({
   boxScale = 1,
   periodGridlineStyle = "year-line",
   onEditDocument,
-  atRiskMode = "off",
   onCompanyLogoChange,
   connectorStyle = "elbow",
   connectorDash = "solid",
@@ -1666,8 +1592,8 @@ export function RoadmapTimeline({
   // in a sparse one.
   const primaryPlacement = new Map<string, TitlePlacement>();
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
-  const ghostPlacement = new Map<string, TierPlacement>();
-  const atRiskPlacement = new Map<string, TierPlacement>();
+  /** Per-milestone delta-ghost placement (t23) — replaces ghostPlacement/atRiskPlacement, the two independently-blind tiered passes documented as the bug in docs/research/t9-ghost-tier-inventory.md. */
+  const deltaGhostPlacement = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
   for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
     // Duration-pill milestones (endDate set) show their own inline title and
     // don't participate in the point-marker tiered-label layout.
@@ -1697,29 +1623,43 @@ export function RoadmapTimeline({
     for (const [k, v] of primary) primaryPlacement.set(k, v);
     for (const [k, v] of dates) datePlacement.set(k, v);
 
-    // Ghost-badge collision-avoidance (wayframe#47): fold badges into the
-    // same tiered-escalation idiom as dates, seeded with this lane's
-    // already-placed tier-0 title blocks as blockers, so a badge competes
-    // for the same collision-free slots titles claimed instead of landing
-    // on one. Skipped entirely when ghosts aren't rendering as badges —
-    // no placement to compute.
-    if (ghostMode === "badge") {
-      const ghosted = laneMilestones.filter((m) => m.originalDate && m.originalDate !== m.date);
-      if (ghosted.length > 0) {
-        const badgeItems: GhostBadgeItem[] = ghosted.map((m) => {
-          const { label } = ghostBadgeLabel(m);
-          const w = ghostBadgeWidth(label, metricsScale);
-          return { id: m.id, x: x(m.date) + 12 + w / 2, text: label };
-        });
-        // Both title tiers are blockers, not just tier 0: tier-1 titles sit
-        // higher (title-layout.ts's LABEL_TIER_LIFT) but a lane tight enough
-        // to need ghost-tier escalation in the first place often has a
-        // neighbor's tier-1 title landing right where the badge escalates
-        // to (caught live against this fixture's own Lab Slot Confirmed
-        // case). The check is horizontal-only, so this can escalate a badge
-        // a tier further than strictly necessary when a tier-1 blocker
-        // doesn't truly reach its row — an accepted looseness, same as the
-        // rest of this file's approximate text-width-estimate math.
+    // Unified delta-ghost collision reconciliation (t23, wayframe#96):
+    // replaces the two independent layoutGhostBadges passes that used to
+    // seed ghostPlacement/atRiskPlacement blind to each other — the exact
+    // bug docs/research/t9-ghost-tier-inventory.md documents (both could
+    // independently land at tier 0 for the same milestone). One pass per
+    // lane: each milestone's own ghosts are priority-ranked/tiered locally
+    // (layoutItemGhosts) first, then only the labeled (rank-0) ghost per
+    // item — the one that needs text-collision avoidance — is fed into a
+    // single shared layoutGhostBadges call, same as before. The resulting
+    // cross-item tier overrides the labeled ghost's local tier (always 0
+    // from layoutItemGhosts); the item's other, unlabeled ghosts keep their
+    // local tier unchanged — a deliberate simplification (this ticket never
+    // modeled cross-item collision for secondary same-item ghosts, mirroring
+    // t19's own fixed-offset label positions bypassing collision math).
+    if (deltaAnnotationsEnabled) {
+      const perItem = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
+      const labeledItems: GhostBadgeItem[] = [];
+      for (const m of laneMilestones) {
+        const ghosts = ghostsForMilestone(m);
+        if (ghosts.length === 0) continue;
+        const result = layoutItemGhosts(ghosts);
+        perItem.set(m.id, result);
+        const labeled = result.placed.find((g) => g.labeled);
+        if (!labeled) continue;
+        const label = labelForDeltaGhost(labeled);
+        const w = widthForDeltaGhostLabel(label, metricsScale);
+        // Today's two systems anchored their labels differently (see
+        // docs/research/t9-ghost-tier-inventory.md): slip near the current
+        // committed date (x(m.date)+12+w/2), at-risk/scenario-diff at their
+        // own projected position (x(ghost.to)) — which formula applies now
+        // depends on which kind won this item's priority ranking, not on a
+        // single unified anchor.
+        const anchorX = labeled.kind === "slip" ? x(m.date) + 12 + w / 2 : x(labeled.to);
+        labeledItems.push({ id: m.id, x: anchorX, text: label });
+      }
+      if (labeledItems.length > 0) {
+        // Same title-blockers construction as before, unchanged.
         const blockers: GhostBlocker[] = laneMilestones
           .filter((m) => (primary.get(m.id)?.lines.length ?? 0) > 0)
           .map((m) => {
@@ -1727,31 +1667,13 @@ export function RoadmapTimeline({
             const widestLine = Math.max(...lines.map((l) => l.length));
             return { x: x(m.date), w: widestLine * CHAR_W * metricsScale };
           });
-        const ghosts = layoutGhostBadges(badgeItems, blockers, 6 * metricsScale);
-        for (const [k, v] of ghosts) ghostPlacement.set(k, v);
+        const crossItemTiers = layoutGhostBadges(labeledItems, blockers, 6 * metricsScale);
+        for (const [id, tierPlacement] of crossItemTiers) {
+          const result = perItem.get(id)!;
+          result.placed = result.placed.map((g) => (g.labeled ? { ...g, tier: tierPlacement.tier } : g));
+        }
       }
-    }
-
-    // At-risk-projection label collision-avoidance (wayframe#61/#72) — its
-    // own independent pass through the same tiered idiom, seeded with the
-    // same title blockers ghost badges use. A milestone can carry both an
-    // originalDate ghost and a potentialDate projection at once (already
-    // slipped once, now at risk of slipping again); each escalates on its
-    // own, same as dates/ghosts already do independently of each other.
-    if (atRiskMode !== "off") {
-      const projected = laneMilestones.filter((m) => m.potentialDate);
-      if (projected.length > 0) {
-        const items: GhostBadgeItem[] = projected.map((m) => ({ id: m.id, x: x(m.potentialDate!), text: atRiskLabel(m.date, m.potentialDate!) }));
-        const blockers: GhostBlocker[] = laneMilestones
-          .filter((m) => (primary.get(m.id)?.lines.length ?? 0) > 0)
-          .map((m) => {
-            const lines = primary.get(m.id)!.lines;
-            const widestLine = Math.max(...lines.map((l) => l.length));
-            return { x: x(m.date), w: widestLine * CHAR_W * metricsScale };
-          });
-        const placements = layoutGhostBadges(items, blockers, 6 * metricsScale);
-        for (const [k, v] of placements) atRiskPlacement.set(k, v);
-      }
+      for (const [id, result] of perItem) deltaGhostPlacement.set(id, result);
     }
   }
 
@@ -2296,19 +2218,34 @@ export function RoadmapTimeline({
                     {label}
                   </text>
                 )}
-                {/* Projects endDate forward, mirroring a lane duration pill — fixed offset, PROGRAM-band items have no tiered-label system to plug into. */}
-                {atRiskMode !== "off" && t.potentialDate && (
-                  <AtRiskProjection
-                    style={atRiskMode}
-                    cx={px + w}
-                    cy={y}
-                    riskCx={x(t.potentialDate)}
-                    color={theme.statusColor["at-risk"]}
-                    label={atRiskLabel(t.endDate, t.potentialDate)}
-                    fontScale={fontScale}
-                    metricsScale={metricsScale}
-                  />
-                )}
+                {/* Unified delta ghosts (t23) — up to 3 real kinds can co-occur
+                    here (both slip edges + at-risk), the one render context
+                    that can. Fixed offset, not cross-item-tiered — PROGRAM-band
+                    items have no tiered-label system to plug into, same as
+                    before; each still gets its own GHOST_TIER_DY vertical slot
+                    from layoutItemGhosts so multiple ghosts don't collapse
+                    into one. */}
+                {deltaAnnotationsEnabled &&
+                  (() => {
+                    const { placed, overflowCount } = layoutItemGhosts(ghostsForTopLevelItemPhase(t));
+                    return (
+                      <>
+                        {placed.map((ghost) => (
+                          <DeltaGhostMarker
+                            key={`${ghost.kind}-${ghost.field}`}
+                            ghost={ghost}
+                            cx={px + w}
+                            cy={y}
+                            ghostX={ghost.kind === "slip" ? x(ghost.from) : x(ghost.to)}
+                            color={colorForDeltaGhostKind(ghost.kind, theme)}
+                            fontScale={fontScale}
+                            metricsScale={metricsScale}
+                          />
+                        ))}
+                        {overflowCount > 0 && <DeltaGhostOverflow count={overflowCount} cx={px + w} cy={y} fontScale={fontScale} />}
+                      </>
+                    );
+                  })()}
               </g>
             );
           }
@@ -2332,18 +2269,31 @@ export function RoadmapTimeline({
                 >
                   {t.title}
                 </text>
-                {atRiskMode !== "off" && t.potentialDate && (
-                  <AtRiskProjection
-                    style={atRiskMode}
-                    cx={cx}
-                    cy={y}
-                    riskCx={x(t.potentialDate)}
-                    color={theme.statusColor["at-risk"]}
-                    label={atRiskLabel(t.date, t.potentialDate)}
-                    fontScale={fontScale}
-                    metricsScale={metricsScale}
-                  />
-                )}
+                {/* Unified delta ghosts (t23) — this variant has no slip
+                    support (no originalDate field), so only at-risk/
+                    scenario-diff can ever appear; same fixed-offset,
+                    not-cross-item-tiered treatment as the phase case above. */}
+                {deltaAnnotationsEnabled &&
+                  (() => {
+                    const { placed, overflowCount } = layoutItemGhosts(ghostsForTopLevelItemMilestone(t));
+                    return (
+                      <>
+                        {placed.map((ghost) => (
+                          <DeltaGhostMarker
+                            key={`${ghost.kind}-${ghost.field}`}
+                            ghost={ghost}
+                            cx={cx}
+                            cy={y}
+                            ghostX={ghost.kind === "slip" ? x(ghost.from) : x(ghost.to)}
+                            color={colorForDeltaGhostKind(ghost.kind, theme)}
+                            fontScale={fontScale}
+                            metricsScale={metricsScale}
+                          />
+                        ))}
+                        {overflowCount > 0 && <DeltaGhostOverflow count={overflowCount} cx={cx} cy={y} fontScale={fontScale} />}
+                      </>
+                    );
+                  })()}
               </g>
             );
           }
@@ -2731,19 +2681,25 @@ export function RoadmapTimeline({
                   </text>
                 )}
                 <title>{`${m.title} — ${formatDateShort(m.date)} to ${formatDateShort(m.endDate!)}${onMilestoneClick ? " — Click to edit" : ""}`}</title>
-                {/* At-risk projection on a duration pill projects endDate forward (the end might slip later), not date — the start is already underway. Fixed offset, not tiered: pills already sit outside the point-marker tiered-label system above. */}
-                {atRiskMode !== "off" && m.potentialDate && (
-                  <AtRiskProjection
-                    style={atRiskMode}
-                    cx={px + w}
-                    cy={cy}
-                    riskCx={x(m.potentialDate)}
-                    color={theme.statusColor["at-risk"]}
-                    label={atRiskLabel(m.endDate!, m.potentialDate)}
-                    fontScale={fontScale}
-                    metricsScale={metricsScale}
-                  />
-                )}
+                {/* Unified delta ghosts (t23) on a duration pill — a pill only
+                    ever gets an at-risk ghost today (projects endDate
+                    forward; the start is already underway), so no cross-item
+                    collision is needed here, same as before. Fixed offset:
+                    pills already sit outside the point-marker tiered-label
+                    system above. */}
+                {deltaAnnotationsEnabled &&
+                  layoutItemGhosts(ghostsForMilestone(m)).placed.map((ghost) => (
+                    <DeltaGhostMarker
+                      key={`${ghost.kind}-${ghost.field}`}
+                      ghost={ghost}
+                      cx={px + w}
+                      cy={cy}
+                      ghostX={ghost.kind === "slip" ? x(ghost.from) : x(ghost.to)}
+                      color={colorForDeltaGhostKind(ghost.kind, theme)}
+                      fontScale={fontScale}
+                      metricsScale={metricsScale}
+                    />
+                  ))}
               </g>
             );
           })}
@@ -2764,9 +2720,9 @@ export function RoadmapTimeline({
               onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
               selected={selectedIds?.has(m.id)}
               remoteColor={remoteSelections?.[m.id]}
-              ghostMode={ghostMode}
-              ghostCx={ghostMode !== "off" && m.originalDate && m.originalDate !== m.date ? x(m.originalDate) : null}
-              ghostTier={ghostPlacement.get(m.id)?.tier ?? 0}
+              deltaGhosts={deltaGhostPlacement.get(m.id)?.placed ?? []}
+              deltaGhostOverflow={deltaGhostPlacement.get(m.id)?.overflowCount ?? 0}
+              resolveX={x}
               showCriticalPath={showCriticalPath}
               traceState={tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null}
               onDragStart={onMilestoneDateChange ? beginDrag : undefined}
@@ -2784,25 +2740,6 @@ export function RoadmapTimeline({
               dateLabelPlacement={dateLabelPlacement}
             />
           ))}
-
-        {/* Forward-looking slip-risk projection (wayframe#61/#72) — point milestones only; duration pills render their own projection above. */}
-        {atRiskMode !== "off" &&
-          data.milestones
-            .filter((m) => !m.endDate && m.potentialDate && !resolveHidden(m, data) && laneVisible(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)))
-            .map((m) => (
-              <AtRiskProjection
-                key={`at-risk-${m.id}`}
-                style={atRiskMode}
-                cx={x(m.date)}
-                cy={laneY(m.laneId)}
-                riskCx={x(m.potentialDate!)}
-                color={theme.statusColor["at-risk"]}
-                label={atRiskLabel(m.date, m.potentialDate!)}
-                tier={atRiskPlacement.get(m.id)?.tier ?? 0}
-                fontScale={fontScale}
-                metricsScale={metricsScale}
-              />
-            ))}
 
         {/* Vertical marker layer. Everything full-height is drawn here,
             after the lanes, so a date line always reads across the whole

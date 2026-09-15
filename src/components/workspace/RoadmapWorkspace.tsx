@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { mergeForRender, type Portfolio, type PortfolioDocument, type Program, type RenderableProgram } from "@/components/timeline/types";
-import { RoadmapTimeline, type GhostMode, type AtRiskMode } from "@/components/timeline/RoadmapTimeline";
+import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { defaultPortfolioTheme, resolvePortfolioTheme, type Theme } from "@/components/timeline/theme";
 import { BlufCallout } from "@/components/timeline/BlufCallout";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
@@ -17,8 +17,7 @@ import { WayframeLogo } from "@/components/brand/WayframeLogo";
 import { HelpPanel } from "./HelpPanel";
 import { ExecutiveView } from "@/components/executive-view/ExecutiveView";
 import { useCorrectionBox, type AppliedIds } from "@/components/correction-box/use-correction-box";
-import { useGhostMode } from "@/components/timeline/use-ghost-mode";
-import { useAtRiskStyle } from "@/components/timeline/use-at-risk-style";
+import { useDeltaAnnotations } from "@/components/timeline/use-delta-annotations";
 import { useFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "@/components/timeline/use-font-scale";
 import { useFontFamily, FONT_FAMILY_CHOICES } from "@/components/timeline/use-font-family";
 import { useCriticalPathVisibility } from "@/components/timeline/use-critical-path-visibility";
@@ -103,8 +102,7 @@ function RoadmapView({
   mode,
   data,
   today,
-  ghostMode,
-  atRiskMode,
+  deltaAnnotationsEnabled,
   showCriticalPath,
   criticalPathStyle,
   theme,
@@ -154,8 +152,7 @@ function RoadmapView({
   mode: Mode;
   data: RenderableProgram;
   today: Date;
-  ghostMode: GhostMode;
-  atRiskMode: AtRiskMode;
+  deltaAnnotationsEnabled: boolean;
   showCriticalPath: boolean;
   criticalPathStyle: CriticalPathStyle;
   theme: Theme;
@@ -229,8 +226,7 @@ function RoadmapView({
         data={zoomedData}
         today={today}
         width={chartWidth}
-        ghostMode={ghostMode}
-        atRiskMode={atRiskMode}
+        deltaAnnotationsEnabled={deltaAnnotationsEnabled}
         showCriticalPath={showCriticalPath}
         criticalPathStyle={criticalPathStyle}
         theme={theme}
@@ -348,8 +344,7 @@ export function RoadmapWorkspace({
   // What Save/Open round-trip through .wayframe.json (wayframe t11) — the
   // whole PortfolioDocument, not just this one Program (see document-file.ts).
   const portfolioDocument: PortfolioDocument = { portfolio: box.portfolio, programs: [box.data] };
-  const ghost = useGhostMode();
-  const atRisk = useAtRiskStyle();
+  const deltaAnnotations = useDeltaAnnotations();
   const criticalPath = useCriticalPathVisibility();
   const lastUpdated = useLastUpdatedVisibility();
   // Theme is Portfolio document content (wayframe#88/t18, CONTEXT.md's
@@ -396,10 +391,7 @@ export function RoadmapWorkspace({
   // already has its own tests.
   function currentSnapshot(): ViewSnapshot {
     return {
-      ghostEnabled: ghost.enabled,
-      ghostStyle: ghost.style,
-      atRiskEnabled: atRisk.enabled,
-      atRiskStyle: atRisk.style,
+      deltaAnnotationsEnabled: deltaAnnotations.enabled,
       criticalPathVisible: criticalPath.visible,
       criticalPathStyle: criticalPathLine.style,
       topBandStyle: topBand.style,
@@ -425,10 +417,7 @@ export function RoadmapWorkspace({
     // Theme is document content now (wayframe#88/t18) — a Saved View is a
     // bundle of viewer preferences and must never mutate the document, so
     // there's no themeId field here to apply anymore (CONTEXT.md's doctrine).
-    if (snapshot.ghostEnabled !== undefined) ghost.setEnabled(snapshot.ghostEnabled);
-    if (snapshot.ghostStyle !== undefined) ghost.setStyle(snapshot.ghostStyle);
-    if (snapshot.atRiskEnabled !== undefined) atRisk.setEnabled(snapshot.atRiskEnabled);
-    if (snapshot.atRiskStyle !== undefined) atRisk.setStyle(snapshot.atRiskStyle);
+    if (snapshot.deltaAnnotationsEnabled !== undefined) deltaAnnotations.setEnabled(snapshot.deltaAnnotationsEnabled);
     if (snapshot.criticalPathVisible !== undefined) criticalPath.setVisible(snapshot.criticalPathVisible);
     if (snapshot.criticalPathStyle !== undefined) criticalPathLine.setStyle(snapshot.criticalPathStyle);
     if (snapshot.topBandStyle !== undefined) topBand.setStyle(snapshot.topBandStyle);
@@ -1098,34 +1087,16 @@ export function RoadmapWorkspace({
                   ))}
                 </select>
               </OptionsMenuRow>
-              <OptionsMenuRow label="Ghosts">
+              <OptionsMenuRow label="Delta annotations">
                 <button
-                  onClick={() => ghost.setEnabled(!ghost.enabled)}
-                  aria-pressed={ghost.enabled}
-                  aria-label={`Ghosts: ${ghost.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(ghost.enabled)}
+                  onClick={() => deltaAnnotations.setEnabled(!deltaAnnotations.enabled)}
+                  aria-pressed={deltaAnnotations.enabled}
+                  aria-label={`Delta annotations: ${deltaAnnotations.enabled ? "On" : "Off"}`}
+                  style={PILL_STYLE} className={pillToggle(deltaAnnotations.enabled)}
                 >
-                  {ghost.enabled ? "On" : "Off"}
+                  {deltaAnnotations.enabled ? "On" : "Off"}
                 </button>
               </OptionsMenuRow>
-              {ghost.enabled && (
-                <OptionsMenuRow label="Ghost style">
-                  <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
-                    {(["badge", "outline"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => ghost.setStyle(s)}
-                        style={ghost.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
-                        className={
-                          "px-2.5 py-1 capitalize " + (ghost.style === s ? "font-semibold" : "opacity-60")
-                        }
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </OptionsMenuRow>
-              )}
               {(() => {
                 const ghostedCount = box.data.milestones.filter((m) => m.originalDate).length;
                 if (ghostedCount === 0) return null;
@@ -1159,34 +1130,6 @@ export function RoadmapWorkspace({
                   </OptionsMenuRow>
                 );
               })()}
-              <OptionsMenuRow label="At-risk projection">
-                <button
-                  onClick={() => atRisk.setEnabled(!atRisk.enabled)}
-                  aria-pressed={atRisk.enabled}
-                  aria-label={`At-risk projection: ${atRisk.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(atRisk.enabled)}
-                >
-                  {atRisk.enabled ? "On" : "Off"}
-                </button>
-              </OptionsMenuRow>
-              {atRisk.enabled && (
-                <OptionsMenuRow label="At-risk style">
-                  <div className="flex overflow-hidden rounded-full border text-xs" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
-                    {(["sibling", "comet", "zone"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => atRisk.setStyle(s)}
-                        style={atRisk.style === s ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
-                        className={
-                          "px-2.5 py-1 capitalize " + (atRisk.style === s ? "font-semibold" : "opacity-60")
-                        }
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </OptionsMenuRow>
-              )}
               <OptionsMenuRow label="Critical path">
                 <button
                   onClick={() => criticalPath.setVisible(!criticalPath.visible)}
@@ -1397,8 +1340,7 @@ export function RoadmapWorkspace({
             mode={mode}
             data={renderable}
             today={today}
-            ghostMode={ghost.mode}
-            atRiskMode={atRisk.mode}
+            deltaAnnotationsEnabled={deltaAnnotations.enabled}
             showCriticalPath={criticalPath.visible}
             criticalPathStyle={criticalPathLine.style}
             theme={theme}
@@ -1446,8 +1388,7 @@ export function RoadmapWorkspace({
                 theme={theme}
                 criticalPathStyle={criticalPathLine.style}
                 showCriticalPath={criticalPath.visible}
-                ghostMode={ghost.mode}
-                atRiskMode={atRisk.mode}
+                deltaAnnotationsEnabled={deltaAnnotations.enabled}
                 tracing={trace !== null}
                 hasDurations={box.data.milestones.some((m) => m.endDate)}
                 categories={renderable.legendCategories}
@@ -1467,8 +1408,7 @@ export function RoadmapWorkspace({
               labelDensity={labels.density}
               data={renderable}
               today={today}
-              ghostMode={ghost.mode}
-              atRiskMode={atRisk.mode}
+              deltaAnnotationsEnabled={deltaAnnotations.enabled}
               showCriticalPath={criticalPath.visible}
               criticalPathStyle={criticalPathLine.style}
               topBandStyle={topBand.style}

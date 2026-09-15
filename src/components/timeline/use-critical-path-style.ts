@@ -1,7 +1,7 @@
 "use client";
 
 // Critical-path line style (prototype/theme-system) — a viewer display
-// preference on its own localStorage key, same pattern as use-ghost-mode
+// preference on its own localStorage key, same pattern as use-delta-annotations
 // and use-critical-path-visibility.
 //
 // "double" is drawn as a wide stroke with a narrower ground-coloured

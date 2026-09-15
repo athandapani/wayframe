@@ -2,7 +2,7 @@
 
 // Per-category show/hide (t22, per CONTEXT.md #76) — a viewer preference,
 // not document content, same "how a viewer wants to *see* the timeline"
-// posture as use-legend-category-style.ts/use-ghost-mode.ts: two
+// posture as use-legend-category-style.ts/use-delta-annotations.ts: two
 // collaborators plausibly want different category filters live at once, so
 // this stays unsynced localStorage state rather than living on the
 // Portfolio/Program document (unlike Swimlane.hidden, which IS document

@@ -3,11 +3,12 @@
 // Dev-only collision QA route. Renders the engineered
 // collision-stress-roadmap fixture (see
 // src/components/timeline/__fixtures__/collision-stress-roadmap.ts) with
-// ghost mode forced on, so every text-collision category is visible on one
-// screen without hunting for it in the real demo data:
+// delta annotations forced on, so every text-collision category is visible
+// on one screen without hunting for it in the real demo data:
 //   - dense tiered milestone-label collisions (label-layout.ts, resolved)
-//   - ghost badge landing on a title (resolved in wayframe#47 — tiered
-//     fold-in + generalized drag-to-reposition-with-connector)
+//   - a delta-ghost badge landing on a title (resolved in wayframe#47 —
+//     tiered fold-in + generalized drag-to-reposition-with-connector —
+//     unified under t23's single DeltaGhostMarker primitive)
 //   - reference-line chips overlapping each other (reference-line-layout.ts,
 //     resolved in wayframe#51 — tiered layout + drag-to-reposition)
 //
@@ -17,11 +18,10 @@ import { useState } from "react";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { THEME_LIST } from "@/components/timeline/theme";
 import { collisionStressRoadmap, collisionStressToday } from "@/components/timeline/__fixtures__/collision-stress-roadmap";
-import type { GhostMode } from "@/components/timeline/RoadmapTimeline";
 
 export function CollisionStressView() {
   const [themeIndex, setThemeIndex] = useState(0);
-  const [ghostMode, setGhostMode] = useState<GhostMode>("badge");
+  const [deltaAnnotationsEnabled, setDeltaAnnotationsEnabled] = useState(true);
   const theme = THEME_LIST[themeIndex];
 
   return (
@@ -32,14 +32,11 @@ export function CollisionStressView() {
           <button className="rounded border px-2 py-1" onClick={() => setThemeIndex((i) => (i + 1) % THEME_LIST.length)}>
             Theme: {theme.name}
           </button>
-          <button
-            className="rounded border px-2 py-1"
-            onClick={() => setGhostMode((m) => (m === "badge" ? "outline" : m === "outline" ? "off" : "badge"))}
-          >
-            Ghost mode: {ghostMode}
+          <button className="rounded border px-2 py-1" onClick={() => setDeltaAnnotationsEnabled((v) => !v)}>
+            Delta annotations: {deltaAnnotationsEnabled ? "on" : "off"}
           </button>
         </div>
-        <RoadmapTimeline data={collisionStressRoadmap} today={collisionStressToday} theme={theme} ghostMode={ghostMode} />
+        <RoadmapTimeline data={collisionStressRoadmap} today={collisionStressToday} theme={theme} deltaAnnotationsEnabled={deltaAnnotationsEnabled} />
       </div>
     </div>
   );

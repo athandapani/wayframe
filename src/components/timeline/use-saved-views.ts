@@ -14,8 +14,6 @@
 // individual preference hook) and applies one by calling each hook's own
 // setter, the same setters the options-menu rows already call directly.
 import { useEffect, useReducer, useState } from "react";
-import type { GhostStyle } from "./use-ghost-mode";
-import type { AtRiskStyle } from "./RoadmapTimeline";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
@@ -27,10 +25,8 @@ import type { PillProgressStyle } from "./use-pill-progress-style";
 import type { DateLabelPlacement } from "./use-date-label-placement";
 
 export interface ViewSnapshot {
-  ghostEnabled?: boolean;
-  ghostStyle?: GhostStyle;
-  atRiskEnabled?: boolean;
-  atRiskStyle?: AtRiskStyle;
+  /** Unified delta-annotation layer (t23) — replaces the old ghostEnabled/ghostStyle/atRiskEnabled/atRiskStyle quartet, which collapsed into one on/off preference now that there's a single shared rendering primitive. */
+  deltaAnnotationsEnabled?: boolean;
   criticalPathVisible?: boolean;
   criticalPathStyle?: CriticalPathStyle;
   topBandStyle?: TopBandStyle;
