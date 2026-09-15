@@ -53,6 +53,7 @@ import { usePillProgressStyle, PILL_PROGRESS_STYLES, type PillProgressStyle } fr
 import { useFitToScreen } from "@/components/timeline/use-fit-to-screen";
 import { useDateLabelPlacement, DATE_LABEL_PLACEMENTS, type DateLabelPlacement } from "@/components/timeline/use-date-label-placement";
 import { useLegendCategoryStyle } from "@/components/timeline/use-legend-category-style";
+import { useHiddenCategories } from "@/components/timeline/use-hidden-categories";
 import { useSwimlaneOwnerVisibility } from "@/components/timeline/use-swimlane-owner-visibility";
 import { useEditLock } from "./use-edit-lock";
 import { CategoryManager } from "./CategoryManager";
@@ -141,6 +142,7 @@ function RoadmapView({
   fitToScreen,
   dateLabelPlacement,
   legendCategoryFillEnabled,
+  isCategoryHidden,
   swimlaneOwnerVisible,
   onMilestoneDateRangeChange,
   selectionModeEnabled,
@@ -208,6 +210,8 @@ function RoadmapView({
   fitToScreen?: boolean;
   dateLabelPlacement?: DateLabelPlacement;
   legendCategoryFillEnabled?: boolean;
+  /** Per-category show/hide (t22) — a viewer preference, see use-hidden-categories.ts. Omit for the off-screen export capture, which should render every category. */
+  isCategoryHidden?: (categoryId: string) => boolean;
   swimlaneOwnerVisible?: boolean;
   /** Omit for the off-screen export capture, same convention as onMilestoneDateChange. */
   onMilestoneDateRangeChange?: (id: string, date: string, endDate: string) => void;
@@ -257,6 +261,7 @@ function RoadmapView({
         fitToScreen={fitToScreen}
         dateLabelPlacement={dateLabelPlacement}
         legendCategoryFillEnabled={legendCategoryFillEnabled}
+        isCategoryHidden={isCategoryHidden}
         swimlaneOwnerVisible={swimlaneOwnerVisible}
         onMilestoneDateRangeChange={onMilestoneDateRangeChange}
         selectionModeEnabled={selectionModeEnabled}
@@ -370,6 +375,7 @@ export function RoadmapWorkspace({
   const fitToScreen = useFitToScreen();
   const dateLabelPlacement = useDateLabelPlacement();
   const legendCategoryStyle = useLegendCategoryStyle();
+  const hiddenCategories = useHiddenCategories();
   const swimlaneOwner = useSwimlaneOwnerVisibility();
   const editLock = useEditLock();
   const isViewMode = editLock.mode === "view";
@@ -1427,6 +1433,7 @@ export function RoadmapWorkspace({
             fitToScreen={fitToScreen.enabled}
             dateLabelPlacement={dateLabelPlacement.placement}
             legendCategoryFillEnabled={legendCategoryStyle.enabled}
+            isCategoryHidden={hiddenCategories.isHidden}
             swimlaneOwnerVisible={swimlaneOwner.visible}
             onMilestoneDateRangeChange={isViewMode ? undefined : box.setMilestoneDateRange}
             selectionModeEnabled={selectMode && !isViewMode}
@@ -1443,6 +1450,10 @@ export function RoadmapWorkspace({
                 atRiskMode={atRisk.mode}
                 tracing={trace !== null}
                 hasDurations={box.data.milestones.some((m) => m.endDate)}
+                categories={renderable.legendCategories}
+                hiddenCategoryIds={hiddenCategories.hiddenIds}
+                onToggleCategory={hiddenCategories.toggle}
+                onAddCategory={box.addCategory}
               />
             }
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
@@ -1520,6 +1531,7 @@ export function RoadmapWorkspace({
           onColor={box.setLaneColor}
           onRagOverride={box.setRagOverride}
           onDensity={box.setLaneDensity}
+          onHidden={box.setLaneHidden}
           onClose={() => setLanesOpen(false)}
         />
       )}

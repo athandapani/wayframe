@@ -452,3 +452,53 @@ describe("Lane Rows & vertical allocation (wayframe#94/t20)", () => {
     expect(screen.getByTestId("roadmap-timeline")).toBeInTheDocument();
   });
 });
+
+describe("lane-hide (wayframe t22)", () => {
+  const hiddenLaneBRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlanes: sampleRoadmap.swimlanes.map((l) => (l.id === "lane-b" ? { ...l, hidden: true } : l)),
+  };
+
+  it("renders no marker, pill, or connector for a hidden lane's milestones, and shrinks the chart's total height", () => {
+    const base = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const baseHeight = Number(base.container.querySelector("svg")!.getAttribute("height"));
+    // sanity: the m1 -> m2 critical connector is present in the baseline.
+    expect(base.container.querySelector('[data-testid="critical-connector-m1-m2"]')).not.toBeNull();
+    base.unmount();
+
+    const hidden = render(<RoadmapTimeline data={hiddenLaneBRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    // m2 lives in lane-b, which is now hidden — its marker text disappears.
+    expect(hidden.queryByText("Second milestone")).not.toBeInTheDocument();
+    // m1 (lane-a, still visible) is untouched.
+    expect(hidden.getAllByText("First milestone").length).toBeGreaterThan(0);
+    // The m1 -> m2 dependency connector is dropped too, since its target's lane is hidden.
+    expect(hidden.queryByTestId("critical-connector-m1-m2")).not.toBeInTheDocument();
+
+    const hiddenHeight = Number(hidden.container.querySelector("svg")!.getAttribute("height"));
+    // A hidden lane reserves no row slot, so the chart is shorter, not just unpainted.
+    expect(hiddenHeight).toBeLessThan(baseHeight);
+  });
+
+  it("drops a dependency connector whose source milestone's lane is hidden, even when the target lane stays visible", () => {
+    const hiddenLaneARoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      swimlanes: sampleRoadmap.swimlanes.map((l) => (l.id === "lane-a" ? { ...l, hidden: true } : l)),
+    };
+    const rendered = render(<RoadmapTimeline data={hiddenLaneARoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    // m1 (lane-a) is hidden; m2 (lane-b, still visible) survives, but the
+    // connector between them (sourced from the now-hidden lane) does not.
+    expect(rendered.queryByText("First milestone")).not.toBeInTheDocument();
+    expect(rendered.getAllByText("Second milestone").length).toBeGreaterThan(0);
+    expect(rendered.queryByTestId("critical-connector-m1-m2")).not.toBeInTheDocument();
+  });
+
+  it("renders identically to before when no lane is hidden (backward compat)", () => {
+    const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const explicitlyUnhiddenRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      swimlanes: sampleRoadmap.swimlanes.map((l) => (l.type === "lane" ? { ...l, hidden: undefined } : l)),
+    };
+    const { container: unhidden } = render(<RoadmapTimeline data={explicitlyUnhiddenRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(unhidden.querySelector("svg")!.outerHTML).toBe(base.querySelector("svg")!.outerHTML);
+  });
+});

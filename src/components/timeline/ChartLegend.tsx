@@ -12,7 +12,7 @@
 // A legend that documents features you've switched off is noise.
 import { useEffect, useReducer, useState } from "react";
 import type { Theme } from "./theme";
-import type { Status } from "./types";
+import type { LegendCategory, Status } from "./types";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { GhostMode, AtRiskMode } from "./RoadmapTimeline";
 
@@ -46,6 +46,43 @@ function Diamond({ fill, stroke, size = 11 }: { fill: string; stroke: string; si
   );
 }
 
+// One-click category creation reuses CategoryManager.tsx's exact literal
+// default name/color, so a category created from either surface looks
+// identical until renamed.
+const NEW_CATEGORY_DEFAULT_COLOR = "#2563eb";
+
+/**
+ * A category has no chart-drawn silhouette of its own (unlike a status,
+ * which reuses the Diamond marker shape) — a plain colored dot is enough.
+ * Clickable/keyboard-activatable like AxisTriangleButton's own pattern, to
+ * toggle this category's hidden state (t22, a viewer preference — see
+ * use-hidden-categories.ts).
+ */
+function CategorySwatch({ category, hidden, onToggle }: { category: LegendCategory; hidden: boolean; onToggle: () => void }) {
+  function onKeyDown(e: React.KeyboardEvent<HTMLSpanElement>) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onToggle();
+    }
+  }
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-pressed={!hidden}
+      aria-label={`${category.name}${hidden ? " (hidden)" : ""}`}
+      onClick={onToggle}
+      onKeyDown={onKeyDown}
+      className="flex cursor-pointer items-center gap-1.5"
+      style={{ opacity: hidden ? 0.4 : 1 }}
+    >
+      <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: category.color }} />
+      <span style={{ textDecoration: hidden ? "line-through" : "none" }}>{category.name}</span>
+    </span>
+  );
+}
+
 function LineSwatch({ color, style }: { color: string; style: CriticalPathStyle }) {
   const width = style === "thick" ? 4 : style === "double" ? 5 : style === "dashed" ? 2.5 : 2;
   return (
@@ -66,9 +103,28 @@ export interface ChartLegendProps {
   tracing: boolean;
   /** True when the document has at least one milestone with a duration. */
   hasDurations: boolean;
+  /** Portfolio.legendCategories — only rendered when non-empty, per this component's "reflects what's on screen" doctrine. */
+  categories?: LegendCategory[];
+  /** Category ids currently unpainted for this viewer (t22 viewer preference) — a category swatch shows this state and toggles it. */
+  hiddenCategoryIds?: Set<string>;
+  onToggleCategory?: (id: string) => void;
+  /** One-click category creation — calls straight into RoadmapWorkspace's box.addCategory, same handler CategoryManager.tsx's "Add a category" button uses. Omit to hide the add affordance (e.g. no document loaded yet). */
+  onAddCategory?: (name: string, color: string) => void;
 }
 
-export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostMode, atRiskMode, tracing, hasDurations }: ChartLegendProps) {
+export function ChartLegend({
+  theme,
+  criticalPathStyle,
+  showCriticalPath,
+  ghostMode,
+  atRiskMode,
+  tracing,
+  hasDurations,
+  categories,
+  hiddenCategoryIds,
+  onToggleCategory,
+  onAddCategory,
+}: ChartLegendProps) {
   const [open, setOpen] = useReducer((_: boolean, next: boolean) => next, true);
   const [hydrated, setHydrated] = useState(false);
 
@@ -93,6 +149,11 @@ export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostM
   }, [hydrated, open]);
 
   const surface = { background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" };
+  // "Reflects what's actually on screen" doctrine: only show the category
+  // section when the document has categories to show, or when the add
+  // affordance itself is still reachable (an empty document with no
+  // categories yet, but a live onAddCategory handler to create the first one).
+  const showCategories = (categories && categories.length > 0) || onAddCategory !== undefined;
 
   return (
     <div style={{ ...surface, borderWidth: 1 }} className="mt-3 rounded-lg border px-3 py-2 text-xs">
@@ -121,6 +182,26 @@ export function ChartLegend({ theme, criticalPathStyle, showCriticalPath, ghostM
           ))}
 
           <span className="h-4 w-px" style={{ background: "var(--wf-border)" }} aria-hidden="true" />
+
+          {showCategories && (
+            <>
+              {(categories ?? []).map((c) => (
+                <CategorySwatch key={c.id} category={c} hidden={hiddenCategoryIds?.has(c.id) ?? false} onToggle={() => onToggleCategory?.(c.id)} />
+              ))}
+              {onAddCategory && (
+                <button
+                  type="button"
+                  onClick={() => onAddCategory("New category", NEW_CATEGORY_DEFAULT_COLOR)}
+                  aria-label="Add a category"
+                  className="flex h-5 w-5 items-center justify-center rounded-full border text-[11px] leading-none opacity-70 hover:opacity-100"
+                  style={{ borderColor: "var(--wf-border)" }}
+                >
+                  +
+                </button>
+              )}
+              <span className="h-4 w-px" style={{ background: "var(--wf-border)" }} aria-hidden="true" />
+            </>
+          )}
 
           {showCriticalPath && (
             <span className="flex items-center gap-1.5">

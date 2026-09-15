@@ -138,6 +138,20 @@ describe("correction box reducer", () => {
   });
 });
 
+describe("setLaneHidden reducer action (wayframe t22)", () => {
+  it("sets a lane's hidden flag, undo-tracked", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setLaneHidden", id: "lane-1", hidden: true });
+    expect(next.data.swimlanes.find((l) => l.id === "lane-1")!.hidden).toBe(true);
+    expect(next.history).toHaveLength(1);
+    expect(next.history[0].data).toBe(state.data);
+
+    const undone = reduce(next, { type: "undo" });
+    expect(undone.data.swimlanes.find((l) => l.id === "lane-1")!.hidden).toBeUndefined();
+    expect(undone.history).toHaveLength(0);
+  });
+});
+
 describe("editDocument reducer action (wayframe#55/#60)", () => {
   it("merges the patch into the document root and pushes history", () => {
     const state = initialState();

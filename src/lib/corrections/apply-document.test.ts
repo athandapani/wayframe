@@ -12,6 +12,7 @@ import {
   resolveNamedLaneColor,
   setLaneColorOp,
   setLaneDensityOp,
+  setLaneHiddenOp,
   setRagOverrideOp,
 } from "./apply-document";
 import type { DeleteOp, SwimlaneOp } from "./schema";
@@ -139,6 +140,18 @@ describe("setLaneColorOp / setRagOverrideOp", () => {
     const lean = setLaneDensityOp(baseData(), "lane-a", "lean");
     const next = setLaneDensityOp(lean, "lane-a", "normal");
     expect(next.swimlanes.find((l) => l.id === "lane-a")!.density).toBe("normal");
+  });
+
+  it("sets a lane's hidden flag", () => {
+    const next = setLaneHiddenOp(baseData(), "lane-a", true);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.hidden).toBe(true);
+    expect(next.swimlanes.find((l) => l.id === "lane-b")!.hidden).toBeUndefined();
+  });
+
+  it("un-hides a lane", () => {
+    const hidden = setLaneHiddenOp(baseData(), "lane-a", true);
+    const next = setLaneHiddenOp(hidden, "lane-a", false);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.hidden).toBe(false);
   });
 });
 

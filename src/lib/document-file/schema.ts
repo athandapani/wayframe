@@ -30,6 +30,7 @@ const SwimlaneSchema = z
       .optional(),
     density: z.enum(["normal", "lean"]).optional(),
     owner: z.string().optional(),
+    hidden: z.boolean().optional(),
   })
   .strict();
 

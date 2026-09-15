@@ -91,6 +91,11 @@ export function setLaneDensityOp(data: Program, id: string, density: "normal" | 
   return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, density } : l)) };
 }
 
+/** Mirrors setLaneColorOp's placement/pattern — lane-hide (t22), excluded from layout entirely when true. */
+export function setLaneHiddenOp(data: Program, id: string, hidden: boolean): Program {
+  return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, hidden } : l)) };
+}
+
 export function applyDeletes(data: Program, deletes: readonly DeleteOp[]): Program {
   return deletes.reduce((acc, d) => {
     if (d.entityType === "milestone") return removeMilestoneOp(acc, d.targetId);

@@ -38,10 +38,12 @@ export interface SwimlaneManagerProps {
   onRagOverride: (id: string, rag: Rag | "auto") => void;
   /** "Normal vs lean" row-height toggle — lanes only, mirrors onColor/onRagOverride's placement. */
   onDensity: (id: string, density: "normal" | "lean") => void;
+  /** Lane-hide (t22) — excluded from layout entirely when true. Lanes only, mirrors onColor/onDensity's placement. */
+  onHidden: (id: string, hidden: boolean) => void;
   onClose: () => void;
 }
 
-export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove, onColor, onRagOverride, onDensity, onClose }: SwimlaneManagerProps) {
+export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove, onColor, onRagOverride, onDensity, onHidden, onClose }: SwimlaneManagerProps) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const ordered = [...data.swimlanes].sort((a, b) => a.order - b.order);
@@ -80,7 +82,11 @@ export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove
             const count = isLane ? milestoneCount(lane.id) : 0;
             const confirming = confirmingId === lane.id;
             return (
-              <li key={lane.id} className="flex flex-wrap items-center gap-2 px-2 py-2" style={{ borderColor: "var(--wf-border)" }}>
+              <li
+                key={lane.id}
+                className="flex flex-wrap items-center gap-2 px-2 py-2"
+                style={{ borderColor: "var(--wf-border)", opacity: lane.hidden ? 0.5 : 1 }}
+              >
                 <div className="flex shrink-0 flex-col">
                   <button
                     onClick={() => onMove(lane.id, -1)}
@@ -152,6 +158,18 @@ export function SwimlaneManager({ data, theme, onAdd, onRename, onRemove, onMove
                       </option>
                     ))}
                   </select>
+                )}
+
+                {isLane && (
+                  <button
+                    onClick={() => onHidden(lane.id, !lane.hidden)}
+                    aria-label={lane.hidden ? `Show ${lane.name}` : `Hide ${lane.name}`}
+                    title={lane.hidden ? "Hidden from the chart — click to show" : "Click to hide from the chart"}
+                    style={{ borderColor: "var(--wf-border)" }}
+                    className="shrink-0 rounded border px-2 py-1 text-[11px] opacity-70 hover:opacity-100"
+                  >
+                    {lane.hidden ? "Hidden" : "Visible"}
+                  </button>
                 )}
 
                 <span className="w-20 shrink-0 text-right text-[11px] opacity-55">

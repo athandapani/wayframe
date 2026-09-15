@@ -1292,6 +1292,16 @@ export interface RoadmapTimelineProps {
   dateLabelPlacement?: DateLabelPlacement;
   /** Legend category-fill / status-outline encoding — a viewer preference, see use-legend-category-style.ts and Milestone.categoryId. */
   legendCategoryFillEnabled?: boolean;
+  /**
+   * Per-category show/hide (t22) — a viewer preference (see
+   * use-hidden-categories.ts), unlike Swimlane.hidden's lane-hide, which is
+   * document content. A milestone whose categoryId is hidden stays in
+   * layout/collision for everyone; it's only unpainted here, mirroring t19's
+   * `resolveHidden` — suppresses just this milestone's own marker + its own
+   * at-risk projection, not connectors, not layout. Omit (or return nothing
+   * hidden) to render everything, e.g. the off-screen export capture.
+   */
+  isCategoryHidden?: (categoryId: string) => boolean;
   /** Shows each lane's Swimlane.owner below its name — a viewer preference, see use-swimlane-owner-visibility.ts. */
   swimlaneOwnerVisible?: boolean;
   /** Fired once a duration pill is dragged to a new date range, both ends shifted by the same delta — omit to keep pills reschedule-only via the editor. */
@@ -1364,6 +1374,7 @@ export function RoadmapTimeline({
   fitToScreen = false,
   dateLabelPlacement = "below",
   legendCategoryFillEnabled = false,
+  isCategoryHidden,
   swimlaneOwnerVisible = true,
   onMilestoneDateRangeChange,
   selectionModeEnabled = false,
@@ -1402,9 +1413,13 @@ export function RoadmapTimeline({
   // which row it collides inside, never turns off collision safety there.
   // Point milestones never participate, same restriction stack-
   // intervals.ts always had.
+  // Lane-hide (t22) — excluded from layout entirely, not just unpainted: a hidden
+  // lane reserves no row slot, so it's filtered out before any row computation.
+  const visibleSwimlanes = data.swimlanes.filter((sl) => sl.type !== "lane" || !sl.hidden);
+
   const laneRowModelByLaneId = new Map<string, LaneRowModel>();
   const naturalHeightByLaneId = new Map<string, number>();
-  for (const lane of data.swimlanes) {
+  for (const lane of visibleSwimlanes) {
     if (lane.type !== "lane") continue;
     const densityFactor = lane.density === "lean" ? LEAN_LANE_FACTOR : 1;
     const pills = data.milestones.filter((m) => m.laneId === lane.id && m.endDate);
@@ -1444,9 +1459,14 @@ export function RoadmapTimeline({
   const heightByLaneId = new Map<string, number>();
   for (const [laneId, natural] of naturalHeightByLaneId) heightByLaneId.set(laneId, natural * fitRatio);
 
-  const rows = computeRows(data.swimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale, heightByLaneId);
+  const rows = computeRows(visibleSwimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale, heightByLaneId);
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
+  // Lane-hide (t22) — rowById only contains visible lanes as a side effect
+  // of filtering above; use this to guard direct data.milestones iteration
+  // (not scoped to `rows`) so a hidden lane's milestone doesn't get drawn
+  // floating at lanesTop.
+  const laneVisible = (laneId: string) => rowById.has(laneId);
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
   const categoryById = new Map((data.legendCategories ?? []).map((c) => [c.id, c]));
   /**
@@ -1592,7 +1612,7 @@ export function RoadmapTimeline({
   const todayVisible = todayTs >= domainMin && todayTs <= domainMax;
   const todayLabel = `Today · ${today.getUTCMonth() + 1}/${today.getUTCDate()}`;
   const refAnnotations = data.topLevelItems.filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation");
-  const refLaneRefs = data.milestones.filter((m) => m.showReferenceLine);
+  const refLaneRefs = data.milestones.filter((m) => m.showReferenceLine && laneVisible(m.laneId));
   const refTopRefs = data.topLevelItems.filter(
     (t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true,
   );
@@ -2527,11 +2547,16 @@ export function RoadmapTimeline({
               // A traced edge always draws, same reasoning as a critical one:
               // a path is only legible if every hop in it is visible.
               const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(d.id);
-              return d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath);
+              // Lane-hide (t22) — a hidden-lane milestone's edges are filtered
+              // out same as any other "don't draw this edge" case.
+              return laneVisible(m.laneId) && (d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath));
             })
             .map((d) => {
               const from = milestoneById.get(d.id);
               if (!from) return null;
+              // Lane-hide (t22) — the edge's source (dependency target) being
+              // in a hidden lane also drops the edge, not just the target `m`.
+              if (!laneVisible(from.laneId)) return null;
               const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
               const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(from.id);
               const x1 = x(from.date);
@@ -2626,7 +2651,7 @@ export function RoadmapTimeline({
 
         {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
         {data.milestones
-          .filter((m) => m.endDate)
+          .filter((m) => m.endDate && laneVisible(m.laneId))
           .map((m) => {
             const pillHeightSm = PILL_HEIGHT_SM * boxScale;
             const pillDragging = drag?.id === m.id;
@@ -2725,7 +2750,7 @@ export function RoadmapTimeline({
 
         {/* milestones on top of connectors — point-in-time only; endDate milestones render as duration pills above instead */}
         {data.milestones
-          .filter((m) => !m.endDate && !resolveHidden(m, data))
+          .filter((m) => !m.endDate && !resolveHidden(m, data) && laneVisible(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)))
           .map((m) => (
             <MilestoneMarker
               key={m.id}
@@ -2763,7 +2788,7 @@ export function RoadmapTimeline({
         {/* Forward-looking slip-risk projection (wayframe#61/#72) — point milestones only; duration pills render their own projection above. */}
         {atRiskMode !== "off" &&
           data.milestones
-            .filter((m) => !m.endDate && m.potentialDate && !resolveHidden(m, data))
+            .filter((m) => !m.endDate && m.potentialDate && !resolveHidden(m, data) && laneVisible(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)))
             .map((m) => (
               <AtRiskProjection
                 key={`at-risk-${m.id}`}

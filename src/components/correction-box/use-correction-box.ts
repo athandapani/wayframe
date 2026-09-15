@@ -34,6 +34,7 @@ import {
   renameSwimlaneOp,
   setLaneColorOp,
   setLaneDensityOp,
+  setLaneHiddenOp,
   setRagOverrideOp,
 } from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
@@ -153,6 +154,7 @@ export type CorrectionBoxAction =
   | { type: "moveSwimlane"; id: string; delta: -1 | 1 }
   | { type: "setRagOverride"; id: string; rag: Rag | "auto" }
   | { type: "setLaneDensity"; id: string; density: "normal" | "lean" }
+  | { type: "setLaneHidden"; id: string; hidden: boolean }
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
@@ -459,6 +461,15 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       return {
         ...state,
         data: stampUpdated(state.data, setLaneDensityOp(state.data, action.id, action.density)),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "setLaneHidden": {
+      // Lane-hide (wayframe t22) — document content, undo-tracked like setLaneDensity/setRagOverride.
+      return {
+        ...state,
+        data: stampUpdated(state.data, setLaneHiddenOp(state.data, action.id, action.hidden)),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -876,6 +887,8 @@ export interface UseCorrectionBoxResult {
   setRagOverride: (id: string, rag: Rag | "auto") => void;
   /** "Normal vs lean" row-height toggle, per the SwimlaneManager dropdown. */
   setLaneDensity: (id: string, density: "normal" | "lean") => void;
+  /** Lane-hide (t22) — excluded from layout entirely when true, per the SwimlaneManager toggle. */
+  setLaneHidden: (id: string, hidden: boolean) => void;
   loadDocument: (data: Program) => void;
   /** File-Open — replaces the whole PortfolioDocument (Program + its Portfolio), unlike loadDocument's Program-only replace. */
   loadPortfolioDocument: (document: PortfolioDocument) => void;
@@ -1162,6 +1175,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const moveSwimlane = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlane", id, delta }), []);
   const setRagOverride = useCallback((id: string, rag: Rag | "auto") => dispatch({ type: "setRagOverride", id, rag }), []);
   const setLaneDensity = useCallback((id: string, density: "normal" | "lean") => dispatch({ type: "setLaneDensity", id, density }), []);
+  const setLaneHidden = useCallback((id: string, hidden: boolean) => dispatch({ type: "setLaneHidden", id, hidden }), []);
   const loadDocument = useCallback((data: Program) => dispatch({ type: "loadDocument", data }), []);
   /** File-Open (wayframe t11) — replaces the whole PortfolioDocument, unlike loadDocument's Program-only replace (ImportPanel's structured-data import), since a .wayframe.json round-trips Portfolio content (logo/legend) too. */
   const loadPortfolioDocument = useCallback(
@@ -1222,6 +1236,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     moveSwimlane,
     setRagOverride,
     setLaneDensity,
+    setLaneHidden,
     loadDocument,
     loadPortfolioDocument,
     setCompanyLogo,

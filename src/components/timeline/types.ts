@@ -115,6 +115,11 @@ export interface Swimlane {
    * Document content, same placement reasoning as `color`/`density`.
    */
   owner?: string;
+  /**
+   * Lane-hide (t22) — excluded from layout entirely when true, not just
+   * unpainted. Document content, not a viewer preference (CONTEXT.md #76).
+   */
+  hidden?: boolean;
 }
 
 /**
