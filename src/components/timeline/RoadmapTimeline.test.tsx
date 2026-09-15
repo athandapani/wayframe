@@ -235,6 +235,44 @@ describe("TopLevelItem phase delta ghosts (t23, wayframe#96)", () => {
   });
 });
 
+describe("PROGRAM-band cross-item delta-ghost collision (t24)", () => {
+  // The gap this piece of t24 fills: layoutItemGhosts alone only ranks/tiers
+  // ghosts WITHIN one item — two different phases' labeled at-risk ghosts
+  // could silently land on top of each other before this ticket. Two phases
+  // with identical startDate/endDate/potentialDate produce identical anchor
+  // x's and identical label text/width, guaranteeing a collision rather than
+  // depending on approximate pixel math.
+  const collidingRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    topLevelItems: [
+      ...sampleRoadmap.topLevelItems,
+      { id: "prog-a", type: "phase", title: "Program A", startDate: "2026-01-10", endDate: "2026-02-10", status: "on-track", potentialDate: "2026-03-01" },
+      { id: "prog-b", type: "phase", title: "Program B", startDate: "2026-01-10", endDate: "2026-02-10", status: "on-track", potentialDate: "2026-03-01" },
+    ],
+  };
+
+  it("escalates one of the two colliding phases' labeled at-risk ghosts to a different tier instead of both claiming tier 0", () => {
+    render(<RoadmapTimeline data={collidingRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const ghostA = screen.getByTestId("delta-ghost-at-risk-endDate-prog-a");
+    const ghostB = screen.getByTestId("delta-ghost-at-risk-endDate-prog-b");
+    // Same technique as the "delta-ghost collision-avoidance" describe
+    // block above: a leader <line> back to the anchor only renders once a
+    // labeled ghost escalates past tier 0. Exactly one of the two should
+    // have escalated — proving the program-band zone now sees both items
+    // instead of independently placing both at tier 0.
+    const lines = [ghostA.querySelector("line"), ghostB.querySelector("line")];
+    expect(lines.filter((l) => l !== null)).toHaveLength(1);
+  });
+
+  it("leaves each item's own local ranking untouched — both still show a single labeled ghost with its outline+label pair", () => {
+    render(<RoadmapTimeline data={collidingRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const ghostA = screen.getByTestId("delta-ghost-at-risk-endDate-prog-a");
+    const ghostB = screen.getByTestId("delta-ghost-at-risk-endDate-prog-b");
+    expect(ghostA.querySelectorAll("rect")).toHaveLength(2);
+    expect(ghostB.querySelectorAll("rect")).toHaveLength(2);
+  });
+});
+
 describe("font-scale system (wayframe#42/#50)", () => {
   it("defaults every scale to a no-op (1×)", () => {
     render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);

@@ -22,6 +22,19 @@
 // drag-to-reposition affordance RoadmapTimeline wires on top of this
 // module's placements (see beginRefDrag/refOverrides there), a deliberate
 // call made when resolving #51 rather than special-casing it here.
+//
+// The "others" packing loop is migrated onto the shared tier-allocator
+// primitive (t24). It uses a left-anchored placement convention (chips draw
+// to the right of their anchor x), unlike the primitive's centered math —
+// see the `naturalLeft + chipW / 2` shift below, which makes the centered
+// math land on the same real left edge. NOTE: `RefLineItem.priority` is a
+// real, populated field at the real call site (RoadmapTimeline.tsx) but is
+// deliberately NOT wired into `Demand.priority` here — only a constant 0 is
+// used — to keep this migration byte-identical to the pre-migration
+// behavior, which never read `it.priority` either. Wiring it in would be a
+// real behavior change, out of scope for this consolidation.
+
+import { allocate, type Demand } from "@/lib/layout/tier-allocator";
 
 export interface RefLineItem {
   id: string;
@@ -52,30 +65,24 @@ export function layoutReferenceLines(items: RefLineItem[], charWidth: number, ga
   const today = items.find((it) => !it.movable);
   const others = items.filter((it) => it.movable);
 
-  const sorted = [...others].sort((a, b) => a.x - b.x);
-  const lastRight = [-Infinity, -Infinity]; // two rows available between Today and the axis
-  let maxTier = -1;
-  for (const it of sorted) {
+  // Two rows available between Today and the axis. "nudge" reproduces the
+  // old fallback of dropping a 3rd colliding chip into whichever row has
+  // more room and shoving it right past the already-placed chip.
+  const demands: Demand[] = others.map((it) => {
     const chipW = chipWidth(it.label, charWidth);
     const naturalLeft = it.x + 8;
-    let tier = -1;
-    for (let t = 0; t < 2; t++) {
-      if (naturalLeft > lastRight[t] + gap) {
-        tier = t;
-        break;
-      }
-    }
-    // Both rows already occupied at this x (a 3rd line colliding within the
-    // same tight cluster) — drop into whichever row has more room and nudge
-    // right past it, rather than fully overlapping an already-placed chip.
-    let extraDx = 0;
-    if (tier === -1) {
-      tier = lastRight[0] <= lastRight[1] ? 0 : 1;
-      extraDx = Math.max(0, lastRight[tier] + gap - naturalLeft);
-    }
-    lastRight[tier] = Math.max(lastRight[tier], naturalLeft + extraDx + chipW);
-    maxTier = Math.max(maxTier, tier);
-    result.set(it.id, { dx: extraDx, dy: -tier * REF_LINE_TIER_ROW_H, chipW, hidden: false });
+    return { id: it.id, x: naturalLeft + chipW / 2, priority: 0, variants: [{ key: "chip", width: chipW }] };
+  });
+  const { results } = allocate(demands, { tierCount: 2, gap, onExhausted: "nudge" });
+
+  let maxTier = -1;
+  for (const it of others) {
+    const chipW = chipWidth(it.label, charWidth);
+    const naturalLeft = it.x + 8;
+    const placement = results.get(it.id)!;
+    const dx = placement.left! - naturalLeft;
+    maxTier = Math.max(maxTier, placement.tier);
+    result.set(it.id, { dx, dy: -placement.tier * REF_LINE_TIER_ROW_H, chipW, hidden: false });
   }
 
   const otherRowsUsed = maxTier + 1; // 0, 1, or 2

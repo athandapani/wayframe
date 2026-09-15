@@ -62,7 +62,12 @@ export interface TitleLayoutItem {
  * gaps for the unscaled glyph width while the rendered label grows, and
  * budgets come out too generous (wayframe#42/#50).
  */
-export function layoutTitleLabels(items: TitleLayoutItem[], maxLines = 2, charWidth = CHAR_W): Map<string, TitlePlacement> {
+export function layoutTitleLabels(
+  items: TitleLayoutItem[],
+  maxLines = 2,
+  charWidth = CHAR_W,
+  onBlock?: (x: number, w: number) => void,
+): Map<string, TitlePlacement> {
   const sorted = [...items].sort((a, b) => a.x - b.x);
   const result = new Map<string, TitlePlacement>();
 
@@ -93,9 +98,13 @@ export function layoutTitleLabels(items: TitleLayoutItem[], maxLines = 2, charWi
 
     if (item.shortLabel) {
       result.set(item.id, { lines: [item.shortLabel], tier });
+      onBlock?.(item.x, item.shortLabel.length * charWidth);
       return;
     }
-    result.set(item.id, { lines: wrapText(item.title, budget, maxLines, { breakWords: false }), tier });
+    const lines = wrapText(item.title, budget, maxLines, { breakWords: false });
+    result.set(item.id, { lines, tier });
+    const widestLine = Math.max(...lines.map((l) => l.length));
+    onBlock?.(item.x, widestLine * charWidth);
   });
 
   return result;

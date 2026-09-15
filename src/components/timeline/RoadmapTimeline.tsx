@@ -35,7 +35,8 @@ import { wrapText } from "./wrap-text";
 import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
-import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker } from "./label-layout";
+import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, MIN_GAP, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker } from "./label-layout";
+import { allocate, type Demand } from "@/lib/layout/tier-allocator";
 import {
   ghostsForMilestone,
   ghostsForTopLevelItemPhase,
@@ -1677,6 +1678,63 @@ export function RoadmapTimeline({
     }
   }
 
+  /**
+   * cx for a "phase" TopLevelItem's delta ghosts — the pill's right edge.
+   * Factored out so the pre-pass below and the render loop's own JSX use
+   * the exact same formula rather than risking two copies silently
+   * drifting apart (both need it: the pre-pass to seed the cross-item
+   * zone, the render loop to actually draw the marker).
+   */
+  function phaseGhostAnchorX(t: Extract<TopLevelItem, { type: "phase" }>): number {
+    const px = x(t.startDate);
+    const phaseSize = resolvePhaseSize(t, data, theme);
+    const sizeMultiplier = phaseSize === "lean" ? 0.75 : phaseSize === "tall" ? 1.35 : 1;
+    const h = PILL_HEIGHT_LG * boxScale * sizeMultiplier;
+    const w = Math.max(h, x(t.endDate) - px);
+    return px + w;
+  }
+
+  /**
+   * PROGRAM-band cross-item delta-ghost collision (t24) — a genuine
+   * gap-fill, not a migration: today's phase/milestone TopLevelItem render
+   * loop calls layoutItemGhosts per item with zero awareness of
+   * neighboring items, so two adjacent phases' at-risk projections could
+   * silently overlap. Mirrors the lane-milestone block above exactly: each
+   * item's own ghosts stay ranked/tiered locally (layoutItemGhosts,
+   * unchanged), but only the labeled (rank-0) ghost per item is fed into
+   * one shared cross-item zone spanning the whole program band (phase and
+   * milestone variants share one row, so they're real neighbors) — the
+   * same conservative "only the labeled ghost gets real collision math"
+   * treatment lane milestones already have, not a "full fusion" of every
+   * ghost.
+   */
+  const programBandGhostPlacement = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
+  if (deltaAnnotationsEnabled) {
+    const perItem = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
+    const labeledDemands: Demand[] = [];
+    for (const t of data.topLevelItems) {
+      if (t.type !== "phase" && t.type !== "milestone") continue;
+      if (resolveHidden(t, data)) continue;
+      const ghosts = t.type === "phase" ? ghostsForTopLevelItemPhase(t) : ghostsForTopLevelItemMilestone(t);
+      if (ghosts.length === 0) continue;
+      const result = layoutItemGhosts(ghosts);
+      perItem.set(t.id, result);
+      const labeled = result.placed.find((g) => g.labeled);
+      if (!labeled) continue;
+      const cx = t.type === "phase" ? phaseGhostAnchorX(t) : x(t.date);
+      const label = labelForDeltaGhost(labeled);
+      labeledDemands.push({ id: t.id, x: cx, priority: 0, variants: [{ key: "only", width: widthForDeltaGhostLabel(label, metricsScale) }] });
+    }
+    if (labeledDemands.length > 0) {
+      const { results } = allocate(labeledDemands, { tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
+      for (const [id, placement] of results) {
+        const result = perItem.get(id)!;
+        result.placed = result.placed.map((g) => (g.labeled ? { ...g, tier: placement.tier as 0 | 1 | 2 } : g));
+      }
+    }
+    for (const [id, result] of perItem) programBandGhostPlacement.set(id, result);
+  }
+
   /** Inverse of x(): a pixel position back to an ISO date, snapped to a day. */
   function dateAtX(px: number): string {
     const ts = domainMin + ((px - MARGIN.left) / innerWidth) * (domainMax - domainMin);
@@ -2220,21 +2278,23 @@ export function RoadmapTimeline({
                 )}
                 {/* Unified delta ghosts (t23) — up to 3 real kinds can co-occur
                     here (both slip edges + at-risk), the one render context
-                    that can. Fixed offset, not cross-item-tiered — PROGRAM-band
-                    items have no tiered-label system to plug into, same as
-                    before; each still gets its own GHOST_TIER_DY vertical slot
-                    from layoutItemGhosts so multiple ghosts don't collapse
-                    into one. */}
+                    that can. Each still gets its own GHOST_TIER_DY vertical
+                    slot from layoutItemGhosts so multiple ghosts don't
+                    collapse into one. The labeled (rank-0) ghost's tier now
+                    comes from programBandGhostPlacement's cross-item pass
+                    (t24) — real collision-aware, spanning the whole program
+                    band; every other (unlabeled) ghost on this item keeps
+                    its fixed local offset, same as before. */}
                 {deltaAnnotationsEnabled &&
                   (() => {
-                    const { placed, overflowCount } = layoutItemGhosts(ghostsForTopLevelItemPhase(t));
+                    const { placed, overflowCount } = programBandGhostPlacement.get(t.id) ?? { placed: [], overflowCount: 0 };
                     return (
                       <>
                         {placed.map((ghost) => (
                           <DeltaGhostMarker
                             key={`${ghost.kind}-${ghost.field}`}
                             ghost={ghost}
-                            cx={px + w}
+                            cx={phaseGhostAnchorX(t)}
                             cy={y}
                             ghostX={ghost.kind === "slip" ? x(ghost.from) : x(ghost.to)}
                             color={colorForDeltaGhostKind(ghost.kind, theme)}
@@ -2242,7 +2302,7 @@ export function RoadmapTimeline({
                             metricsScale={metricsScale}
                           />
                         ))}
-                        {overflowCount > 0 && <DeltaGhostOverflow count={overflowCount} cx={px + w} cy={y} fontScale={fontScale} />}
+                        {overflowCount > 0 && <DeltaGhostOverflow count={overflowCount} cx={phaseGhostAnchorX(t)} cy={y} fontScale={fontScale} />}
                       </>
                     );
                   })()}
@@ -2271,11 +2331,12 @@ export function RoadmapTimeline({
                 </text>
                 {/* Unified delta ghosts (t23) — this variant has no slip
                     support (no originalDate field), so only at-risk/
-                    scenario-diff can ever appear; same fixed-offset,
-                    not-cross-item-tiered treatment as the phase case above. */}
+                    scenario-diff can ever appear. Same cross-item-tiered
+                    treatment as the phase case above (t24): the labeled
+                    ghost's tier comes from programBandGhostPlacement. */}
                 {deltaAnnotationsEnabled &&
                   (() => {
-                    const { placed, overflowCount } = layoutItemGhosts(ghostsForTopLevelItemMilestone(t));
+                    const { placed, overflowCount } = programBandGhostPlacement.get(t.id) ?? { placed: [], overflowCount: 0 };
                     return (
                       <>
                         {placed.map((ghost) => (

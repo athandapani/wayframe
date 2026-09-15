@@ -6,6 +6,11 @@
 // further still, connected back to its marker with a thin leader line,
 // drawn by the caller). Dates additionally shrink to a compact "8/4" format
 // before resorting to tier 2.
+//
+// layoutDateLabels is migrated onto the shared tier-allocator primitive
+// (t24) — layoutGhostBadges is not yet (a later fork handles that fusion).
+
+import { allocate, createZone, type Demand } from "@/lib/layout/tier-allocator";
 
 export const DATE_TIER_DY = [20, 32, 44] as const; // below marker center
 /**
@@ -21,7 +26,8 @@ export const GHOST_TIER_DY = [-18, -30, -70] as const;
 
 const GHOST_CHAR_W = 6;
 export const DATE_CHAR_W = 5;
-const MIN_GAP = 4;
+/** Shared minimum gap between tiered items in this file's zones — also reused by RoadmapTimeline.tsx's program-band delta-ghost cross-item pass (t24) so both stay in lockstep instead of carrying independent magic numbers. */
+export const MIN_GAP = 4;
 
 export interface TierPlacement {
   text: string;
@@ -50,24 +56,17 @@ export interface GhostBlocker {
  * collides with one skips straight to tier 2, clear of either.
  */
 export function layoutGhostBadges(items: GhostBadgeItem[], blockers: GhostBlocker[], charWidth = GHOST_CHAR_W): Map<string, TierPlacement> {
+  // Blockers must be registered before any placement happens — the
+  // convenience `allocate()` wrapper runs its whole placement loop
+  // internally with no hook for that, so this uses `createZone()` directly
+  // (the documented reason it's exported as its own lower-level API).
+  const zone = createZone({ tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
+  for (const b of blockers) zone.registerBlocker(b.x, b.w);
   const sorted = [...items].sort((a, b) => a.x - b.x);
-  const lastRight = [-Infinity, -Infinity];
   const result = new Map<string, TierPlacement>();
-  const collidesBlocker = (left: number, right: number) => blockers.some((b) => left < b.x + b.w / 2 + MIN_GAP && right > b.x - b.w / 2 - MIN_GAP);
   for (const it of sorted) {
-    const w = it.text.length * charWidth + 8;
-    let placed = false;
-    for (const t of [0, 1] as const) {
-      const left = it.x - w / 2;
-      const right = it.x + w / 2;
-      if (left > lastRight[t] + MIN_GAP && !collidesBlocker(left, right)) {
-        lastRight[t] = right;
-        result.set(it.id, { text: it.text, tier: t });
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) result.set(it.id, { text: it.text, tier: 2 });
+    const placement = zone.place({ id: it.id, x: it.x, priority: 0, variants: [{ key: "only", width: it.text.length * charWidth + 8 }] });
+    result.set(it.id, { text: it.text, tier: placement.tier as 0 | 1 | 2 });
   }
   return result;
 }
@@ -77,26 +76,21 @@ export function layoutDateLabels(
   items: { id: string; x: number; full: string; compact: string }[],
   charWidth = DATE_CHAR_W,
 ): Map<string, TierPlacement> {
-  const sorted = [...items].sort((a, b) => a.x - b.x);
-  const lastRight = [-Infinity, -Infinity];
+  const demands: Demand[] = items.map((it) => ({
+    id: it.id,
+    x: it.x,
+    priority: 0,
+    variants: [
+      { key: "full", width: it.full.length * charWidth + 6 },
+      { key: "compact", width: it.compact.length * charWidth + 6 },
+    ],
+  }));
+  const { results } = allocate(demands, { tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
   const result = new Map<string, TierPlacement>();
-  for (const it of sorted) {
-    let placed = false;
-    for (const mode of ["full", "compact"] as const) {
-      const text = mode === "full" ? it.full : it.compact;
-      const w = text.length * charWidth + 6;
-      for (const t of [0, 1] as const) {
-        const left = it.x - w / 2;
-        if (left > lastRight[t] + MIN_GAP) {
-          lastRight[t] = it.x + w / 2;
-          result.set(it.id, { text, tier: t });
-          placed = true;
-          break;
-        }
-      }
-      if (placed) break;
-    }
-    if (!placed) result.set(it.id, { text: it.compact, tier: 2 });
+  for (const it of items) {
+    const placement = results.get(it.id)!;
+    const text = placement.variantKey === "full" ? it.full : it.compact;
+    result.set(it.id, { text, tier: placement.tier as 0 | 1 | 2 });
   }
   return result;
 }
