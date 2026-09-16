@@ -16,6 +16,8 @@ import type { Portfolio, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { GuestNamePrompt } from "./GuestNamePrompt";
+import type { RoomAccess } from "@/lib/realtime/provider";
+import type { ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
 
 interface ViewSuccess {
   role: "owner" | "editor" | "viewer";
@@ -49,7 +51,7 @@ type FetchState = { status: "idle" | "loading" } | { status: "success"; data: Vi
 export default function PortfolioLandingPage() {
   const params = useParams<{ portfolioId: string }>();
   const portfolioId = params.portfolioId;
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const [today] = useState(() => new Date());
 
   // Mirrors page.tsx's own "check something client-only post-mount, render
@@ -165,18 +167,39 @@ export default function PortfolioLandingPage() {
   }
 
   if (result.status === "success") {
+    // Live collaborative editing (wayframe t38) — real now, so the
+    // "snapshot preview" banner this route used to show unconditionally is
+    // gone. `realtime` is only built once every piece it needs is actually
+    // in scope: a signed-in session (token-based access) or a guest
+    // identity (share-token access). The gating above this branch already
+    // guarantees one of the two, but this stays defensive — RoadmapWorkspace
+    // treats `realtime` as fully optional, so omitting it here is safe.
+    const programId = result.data.program.id;
+    const realtime: { programId: string; access: RoomAccess; identity: ProgramRoomIdentity } | undefined =
+      status === "authenticated" && session?.user
+        ? {
+            programId,
+            access: { token: () => fetch(`/api/rooms/${programId}/token`).then((r) => r.json()).then((b) => b.token) },
+            identity: { name: session.user.name ?? session.user.email ?? "Signed-in user", identityKey: session.user.email ?? session.user.id ?? "" },
+          }
+        : shareCheck.token && guestIdentity.identity
+          ? {
+              programId,
+              access: { shareToken: shareCheck.token },
+              identity: { name: guestIdentity.identity.name, identityKey: guestIdentity.identity.guestId },
+            }
+          : undefined;
+
     return (
       <>
         <AuthControls />
-        <div className="fixed top-2 left-1/2 z-40 -translate-x-1/2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs text-amber-800 shadow">
-          You&apos;re viewing a snapshot of this Portfolio — live collaborative editing isn&apos;t available in this preview yet.
-        </div>
         <RoadmapWorkspace
           initialData={result.data.program}
           initialPortfolio={result.data.portfolio}
           today={today}
           persist={false}
           canManageSharing={result.data.role === "owner"}
+          realtime={realtime}
         />
       </>
     );

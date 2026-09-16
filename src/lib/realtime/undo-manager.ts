@@ -64,7 +64,7 @@ export function undoTargetKey(target: UndoTarget): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches Y.UndoManager's own `typeScope` parameter type, which is invariant in its generic and rejects narrower element types like `AbstractType<unknown>[]`.
 function resolveUndoScope(doc: Y.Doc, target: UndoTarget): Y.AbstractType<any> | Y.AbstractType<any>[] {
   if (target.kind === "baseline") {
-    return [doc.getArray("lanes"), doc.getMap("milestones"), doc.getMap("topLevelItems")];
+    return [doc.getArray("swimlanes"), doc.getMap("milestones"), doc.getMap("topLevelItems")];
   }
   const scenarios = doc.getMap<Y.Map<unknown>>("scenarios");
   let scenario = scenarios.get(target.scenarioId);

@@ -62,6 +62,11 @@ import { useSelection } from "@/components/timeline/use-selection";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { useZoomWindow, filterToWindow, type UseZoomWindowResult } from "@/components/timeline/use-zoom-window";
 import { ZoomControls, ZoomPreviewFrame } from "@/components/timeline/ZoomControls";
+import { useProgramRoom, type ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
+import type { RoomAccess } from "@/lib/realtime/provider";
+import { PresenceAvatars, remoteSelectionsFromPeers } from "./PresenceAvatars";
+import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
+import { ConflictBanner } from "./ConflictBanner";
 
 type Mode = "executive" | "program";
 
@@ -149,6 +154,7 @@ function RoadmapView({
   onToggleSelect,
   onMarqueeSelect,
   zoom,
+  remoteSelections,
 }: {
   mode: Mode;
   data: RenderableProgram;
@@ -219,6 +225,8 @@ function RoadmapView({
   onMarqueeSelect?: (ids: string[]) => void;
   /** Zoom & fit-to-screen (wayframe t10) — omit for the off-screen export capture, same convention as onEditDocument; export always renders the full document. */
   zoom?: UseZoomWindowResult;
+  /** Live-room remote-selection rings (wayframe t38) — milestone id -> peer color, from remoteSelectionsFromPeers(peers). Omit for the off-screen export capture, same convention as every other on-screen-only prop here. */
+  remoteSelections?: Record<string, string>;
 }) {
   if (mode === "program") {
     const zoomedData = zoom?.active ? filterToWindow(data, zoom.committedWindow) : data;
@@ -266,6 +274,7 @@ function RoadmapView({
         onToggleSelect={onToggleSelect}
         onMarqueeSelect={onMarqueeSelect}
         domainOverride={zoom?.active ? zoom.committedWindow : undefined}
+        remoteSelections={remoteSelections}
       />
     );
     return (
@@ -326,6 +335,7 @@ export function RoadmapWorkspace({
   persist = true,
   onStartNew,
   canManageSharing = false,
+  realtime,
 }: {
   initialData: Program;
   initialPortfolio: Portfolio;
@@ -335,6 +345,14 @@ export function RoadmapWorkspace({
   onStartNew?: () => void;
   /** wayframe#t37: whether the caller has already established the current visitor owns this Portfolio — gates the Options menu's "Sharing" row and the SharePanel it opens. Defaults false so every existing call site (which never passes it) keeps behaving exactly as before. */
   canManageSharing?: boolean;
+  /**
+   * Live collaborative editing (wayframe t38) — optional so every existing
+   * caller (root `/`, the `/dev/demo-roadmap` QA route) that never passes
+   * this is completely unaffected: `useProgramRoom` below is still called
+   * unconditionally (React hook-order rules), just internally gated off via
+   * `enabled: realtime != null`.
+   */
+  realtime?: { programId: string; access: RoomAccess; identity: ProgramRoomIdentity };
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
@@ -445,6 +463,21 @@ export function RoadmapWorkspace({
   const [correctionMode, setCorrectionMode] = useState<CorrectionBoxMode>("bar");
   const [blufOpen, setBlufOpen] = useState(true);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
+  // The real live room-connection hook (wayframe t38, fork 2) — see its own
+  // file for the bootstrap/echo-avoidance/reconnect/presence details. Always
+  // called (never behind an `if`), gated internally by `enabled` so a caller
+  // without a realtime prop yet (or ever) never opens a connection.
+  // `room.showOfflineBadge`/`box.conflicts` are rendered below via
+  // ConnectionStatusBadge/ConflictBanner (fork 3).
+  const room = useProgramRoom({
+    programId: realtime?.programId ?? "",
+    box,
+    access: realtime?.access ?? { shareToken: "" },
+    identity: realtime?.identity ?? { name: "", identityKey: "" },
+    selectedId: selectedMilestoneId,
+    enabled: realtime != null,
+  });
+  const remoteSelections = remoteSelectionsFromPeers(room.peers);
   const [selectedTopLevelItemId, setSelectedTopLevelItemId] = useState<string | null>(null);
   // Shape-first manual creation (wayframe#45): a lane's "+" picker sets this
   // once a shape is chosen, arming RoadmapTimeline's placement gesture
@@ -644,6 +677,26 @@ export function RoadmapWorkspace({
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
         </div>
+        {/* Live-room presence (wayframe t38) — a natural neighbor of the
+            header logo/help chrome above; PresenceAvatars itself renders
+            nothing when there are no remote peers (no realtime prop, or a
+            connected room with nobody else in it), so no extra conditional
+            is needed here. */}
+        <div className="fixed top-4 right-28 z-50">
+          <PresenceAvatars peers={room.peers} />
+        </div>
+        {/* Debounced offline badge (wayframe t38) — bottom-right, clear of
+            the correction bar's bottom-center real estate and every other
+            fixed notice this component renders (see ConnectionStatusBadge's
+            own doc comment). Renders nothing until room.showOfflineBadge
+            flips true. */}
+        <ConnectionStatusBadge show={room.showOfflineBadge} />
+        {/* Persistent orphaned-edit conflicts (wayframe t38) — top-left,
+            deliberately on the opposite side of the screen from the offline
+            badge and in a distinct error tone (see ConflictBanner's own doc
+            comment) so the two never visually collide. Renders nothing
+            until box.conflicts is non-empty. */}
+        <ConflictBanner conflicts={box.conflicts} onDismiss={box.dismissConflict} />
         {/* An active trace needs a visible way out — dimmed markers with no
             explanation read as a rendering bug rather than a filter. */}
         {trace && traceRoot && (
@@ -1410,6 +1463,7 @@ export function RoadmapWorkspace({
               />
             }
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
+            remoteSelections={remoteSelections}
           />
         </div>
         {exporting && (

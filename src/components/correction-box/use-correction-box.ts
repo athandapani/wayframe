@@ -21,6 +21,7 @@ import {
   type TopLevelItemOp,
 } from "@/lib/corrections/schema";
 import { applyCascade } from "@/lib/corrections/cascade";
+import type { ProgramConflict } from "@/lib/realtime/program-conflict";
 import { resolveBulkShiftOps } from "@/lib/corrections/bulk-shift";
 import { applyAcceptBaselineOps, applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
 import {
@@ -112,6 +113,15 @@ export interface CorrectionBoxState {
   pending: PendingPatch | null;
   error: string | null;
   loading: boolean;
+  /**
+   * Offline-edit conflicts (wayframe t38) — persistent, dismiss-only: never
+   * silently dropped once detected (see "addConflicts"), never silently
+   * resurrected (a dismissed conflict is gone from state entirely, not just
+   * hidden — see "dismissConflict"). Populated by the room-connection hook
+   * (fork 2) calling `detectOrphanedEdits` (program-conflict.ts) once
+   * reconnected/resynced, not by this reducer itself.
+   */
+  conflicts: ProgramConflict[];
 }
 
 export type CorrectionBoxAction =
@@ -175,7 +185,12 @@ export type CorrectionBoxAction =
   | { type: "removeCategory"; id: string }
   | { type: "setMilestoneCategory"; id: string; categoryId: string | null }
   | { type: "importMerge"; newLanes: { id: string; name: string }[]; adds: Milestone[]; updateOps: PatchOp[] }
-  | { type: "bulkEdit"; patchOps: PatchOp[]; laneReassignments: { id: string; laneId: string }[]; acceptBaselineOps: AcceptBaselineOp[] };
+  | { type: "bulkEdit"; patchOps: PatchOp[]; laneReassignments: { id: string; laneId: string }[]; acceptBaselineOps: AcceptBaselineOp[] }
+  // Realtime plumbing (wayframe t38) — see CorrectionBoxState.conflicts's doc
+  // and each case's own comment in `reduce` below.
+  | { type: "setFromRemote"; data: Program }
+  | { type: "addConflicts"; conflicts: ProgramConflict[] }
+  | { type: "dismissConflict"; targetId: string };
 
 /**
  * Stamps `lastUpdatedAt` (wayframe#40/#49) and bumps `Milestone`/`TopLevelItem.rev`
@@ -836,6 +851,34 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setFromRemote": {
+      // A merged Yjs update from a remote peer is not a local user edit —
+      // same "hydrated"/"snapshotRollups" treatment (wayframe t38): no
+      // history push (or Undo would revert a collaborator's edit instead of
+      // the local user's own), no stampUpdated (that would re-stamp
+      // lastUpdatedAt/bump revs for a change that already happened
+      // elsewhere), and `portfolio` is left untouched — t38 only wires
+      // Program content through Yjs, not Portfolio. `conflicts` is also left
+      // untouched here on purpose: this fires on every merged remote update,
+      // while conflicts are only added at the specific "just
+      // reconnected, check pending offline edits" moment (see
+      // "addConflicts").
+      return { ...state, data: action.data, pending: null, error: null };
+    }
+    case "addConflicts": {
+      // Persistent, dismiss-only (wayframe t38's gist): re-detecting the same
+      // orphaned edit across multiple resyncs shouldn't produce repeat
+      // entries, so a conflict whose targetId is already in state is skipped
+      // rather than appended again.
+      const existingIds = new Set(state.conflicts.map((c) => c.targetId));
+      const deduped = action.conflicts.filter((c) => !existingIds.has(c.targetId));
+      return deduped.length === 0 ? state : { ...state, conflicts: [...state.conflicts, ...deduped] };
+    }
+    case "dismissConflict": {
+      // Dismiss-only mechanism (wayframe t38): filters the conflict out of
+      // state, nothing more — no undo, no re-surfacing.
+      return { ...state, conflicts: state.conflicts.filter((c) => c.targetId !== action.targetId) };
+    }
   }
 }
 
@@ -913,6 +956,14 @@ export interface UseCorrectionBoxResult {
   importMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
   /** Mass-edit — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/apply.ts. */
   bulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void;
+  /** Offline-edit conflicts (wayframe t38) — see CorrectionBoxState.conflicts's doc. */
+  conflicts: ProgramConflict[];
+  /** Replaces `data` wholesale with a merged Yjs update — not a user edit, see the "setFromRemote" reducer case's doc. */
+  setFromRemote: (data: Program) => void;
+  /** Appends orphaned-edit conflicts (from `detectOrphanedEdits`, program-conflict.ts), deduped by targetId. */
+  addConflicts: (conflicts: ProgramConflict[]) => void;
+  /** Dismiss-only removal of a conflict by targetId — never re-surfaces on its own. */
+  dismissConflict: (targetId: string) => void;
 }
 
 /**
@@ -946,6 +997,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
       pending: null,
       error: null,
       loading: false,
+      conflicts: [],
     }),
   );
 
@@ -1202,6 +1254,9 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
       dispatch({ type: "bulkEdit", patchOps, laneReassignments, acceptBaselineOps }),
     [],
   );
+  const setFromRemote = useCallback((data: Program) => dispatch({ type: "setFromRemote", data }), []);
+  const addConflicts = useCallback((conflicts: ProgramConflict[]) => dispatch({ type: "addConflicts", conflicts }), []);
+  const dismissConflict = useCallback((targetId: string) => dispatch({ type: "dismissConflict", targetId }), []);
 
   return {
     data: state.data,
@@ -1252,5 +1307,9 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     setMilestoneCategory,
     importMerge,
     bulkEdit,
+    conflicts: state.conflicts,
+    setFromRemote,
+    addConflicts,
+    dismissConflict,
   };
 }

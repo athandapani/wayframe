@@ -39,7 +39,7 @@ function baseData(): Program {
   };
 }
 
-const state = (): CorrectionBoxState => ({ data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false });
+const state = (): CorrectionBoxState => ({ data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] });
 
 describe("swimlane actions", () => {
   it("appends a new lane after the last row", () => {

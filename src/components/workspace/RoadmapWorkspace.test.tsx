@@ -1,9 +1,12 @@
+import { useEffect } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "./RoadmapWorkspace";
 import { exportToDeck } from "@/lib/export/export-to-deck";
 import { saveDocumentFile } from "@/lib/document-file/document-file";
+import { useProgramRoom, type UseProgramRoomResult } from "@/lib/realtime/use-program-room";
+import type { UseCorrectionBoxResult } from "@/components/correction-box/use-correction-box";
 
 vi.mock("@/lib/export/export-to-deck", () => ({
   exportToDeck: vi.fn(() => Promise.resolve()),
@@ -12,6 +15,22 @@ vi.mock("@/lib/export/export-to-deck", () => ({
 vi.mock("@/lib/document-file/document-file", async () => {
   const actual = await vi.importActual<typeof import("@/lib/document-file/document-file")>("@/lib/document-file/document-file");
   return { ...actual, saveDocumentFile: vi.fn() };
+});
+
+// wayframe t38, fork 3: the offline badge / conflict banner regression tests
+// below need `useProgramRoom` to report a specific `showOfflineBadge`/drive
+// `box.addConflicts` without standing up a real y-partyserver connection
+// (that's already covered end-to-end by use-program-room.test.ts). Mocking
+// the whole hook module — rather than `connectProgramRoom`/a fake provider
+// like that file does — keeps these tests scoped to "does RoadmapWorkspace
+// render what the hook reports," not "does the hook correctly detect
+// conflicts" (already covered elsewhere). The mock still receives the real
+// `box` RoadmapWorkspace built via its own `useCorrectionBox`, so calling
+// `box.addConflicts` from inside it exercises the real reducer, same as
+// production.
+vi.mock("@/lib/realtime/use-program-room", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/realtime/use-program-room")>("@/lib/realtime/use-program-room");
+  return { ...actual, useProgramRoom: vi.fn(actual.useProgramRoom) };
 });
 
 function basePortfolio(): Portfolio {
@@ -298,5 +317,88 @@ describe("RoadmapWorkspace 'start a new roadmap' (wayframe#63)", () => {
 
     expect(saveDocumentFile).toHaveBeenCalledTimes(1);
     expect(onStartNew).toHaveBeenCalledTimes(1);
+  });
+});
+
+// wayframe t38, fork 2: useProgramRoom is now called unconditionally inside
+// RoadmapWorkspace (React hook-order rules), gated internally by
+// `enabled: realtime != null`. The one thing every *existing* caller (root
+// `/`, `/dev/demo-roadmap`) depends on is that omitting `realtime` leaves
+// behavior completely unaffected — no connection attempt, no new required
+// props, no console noise. This is the most important regression check for
+// this fork's change to RoadmapWorkspace's props.
+describe("RoadmapWorkspace without a realtime prop (wayframe t38 regression)", () => {
+  it("renders exactly as before, with no connection attempt and no console errors", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+      expect(screen.getByRole("button", { name: "program" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Options" })).toBeInTheDocument();
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("shows no presence UI when no realtime prop is given", () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    // PresenceAvatars renders nothing for an empty peers list (see its own
+    // component) — with no realtime prop, useProgramRoom's peers stay empty
+    // forever, so the "Online:" presence chrome never appears.
+    expect(screen.queryByText("Online:")).not.toBeInTheDocument();
+  });
+});
+
+function baseRealtime() {
+  return { programId: "program-1", access: { shareToken: "share-token" }, identity: { name: "Ada", identityKey: "ada@example.com" } };
+}
+
+// wayframe t38, fork 3: the offline badge and conflict banner are new UI
+// this fork adds, consuming `room.showOfflineBadge`/`box.conflicts` (both
+// already real, per fork 1/2). These assert the two actually render inside
+// the full RoadmapWorkspace tree — see the `vi.mock("@/lib/realtime/use-program-room"...)`
+// above for why the whole hook is mocked rather than driven through a fake
+// provider (already covered end-to-end in use-program-room.test.ts).
+describe("RoadmapWorkspace live-room offline badge / conflict banner (wayframe t38, fork 3)", () => {
+  // The last describe block in this file, and each test below sets its own
+  // mockReturnValue/mockImplementation before rendering — no shared reset
+  // needed between them, and nothing after this block depends on the
+  // module's default (actual) passthrough behavior.
+  const mockedUseProgramRoom = useProgramRoom as unknown as Mock;
+
+  it("renders the offline badge once room.showOfflineBadge is true", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "disconnected", showOfflineBadge: true, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    expect(screen.getByText(/Offline — changes will sync/)).toBeInTheDocument();
+  });
+
+  it("renders no offline badge when room.showOfflineBadge is false", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    expect(screen.queryByText(/Offline — changes will sync/)).not.toBeInTheDocument();
+  });
+
+  it("renders a persistent conflict banner once box.conflicts is populated, driven through the real useCorrectionBox reducer", async () => {
+    // The mock still receives RoadmapWorkspace's real `box` (from its own
+    // `useCorrectionBox` call) — calling `box.addConflicts` from inside this
+    // fake hook implementation exercises the real dismiss/conflicts reducer
+    // path, not a hand-rolled double.
+    mockedUseProgramRoom.mockImplementation((options: { box: UseCorrectionBoxResult }) => {
+      useEffect(() => {
+        options.box.addConflicts([
+          { type: "orphaned", itemKind: "milestone", targetId: "m1", message: "This milestone was deleted by another collaborator while you were offline." },
+        ]);
+      }, [options.box]);
+      return { status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult;
+    });
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("This milestone was deleted by another collaborator while you were offline.")).toBeInTheDocument();
   });
 });

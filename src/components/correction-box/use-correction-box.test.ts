@@ -36,7 +36,7 @@ function baseData(): Program {
 }
 
 function initialState(): CorrectionBoxState {
-  return { data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false };
+  return { data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] };
 }
 
 describe("correction box reducer", () => {
@@ -56,7 +56,7 @@ describe("correction box reducer", () => {
   it("undo restores the previous snapshot and pops history — this is the bug a browser test caught", () => {
     const original = baseData();
     const corrected: Program = { ...original, milestones: [{ ...original.milestones[0], status: "complete" }] };
-    const state: CorrectionBoxState = { data: corrected, portfolio: basePortfolio(), history: [{ data: original, portfolio: basePortfolio() }], pending: null, error: null, loading: false };
+    const state: CorrectionBoxState = { data: corrected, portfolio: basePortfolio(), history: [{ data: original, portfolio: basePortfolio() }], pending: null, error: null, loading: false, conflicts: [] };
 
     const next = reduce(state, { type: "undo" });
     expect(next.data).toBe(original);
@@ -717,5 +717,60 @@ describe("useCorrectionBox localStorage persistence (wayframe#22)", () => {
       const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as PortfolioDocument;
       expect(saved.programs[0].programName).toBe("Persisted Program");
     });
+  });
+});
+
+describe("realtime reducer plumbing (wayframe t38)", () => {
+  it("setFromRemote replaces data without pushing history or stamping lastUpdatedAt — a remote merge isn't a local edit", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      pending: { inputText: "x", ops: [], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null },
+      error: "stale error",
+    };
+    const remote = { ...baseData(), programName: "From remote peer" };
+
+    const next = reduce(state, { type: "setFromRemote", data: remote });
+    expect(next.data).toBe(remote);
+    expect(next.data.lastUpdatedAt).toBeUndefined();
+    expect(next.history).toHaveLength(0);
+    expect(next.pending).toBeNull();
+    expect(next.error).toBeNull();
+    expect(next.portfolio).toBe(state.portfolio);
+  });
+
+  it("setFromRemote does not touch existing conflicts — conflicts are only added by addConflicts", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      conflicts: [{ type: "orphaned", itemKind: "milestone", targetId: "m-gone", message: "gone" }],
+    };
+    const next = reduce(state, { type: "setFromRemote", data: baseData() });
+    expect(next.conflicts).toBe(state.conflicts);
+  });
+
+  it("addConflicts appends new conflicts and dedupes by targetId", () => {
+    const existing = { type: "orphaned" as const, itemKind: "milestone" as const, targetId: "m1", message: "first" };
+    const state: CorrectionBoxState = { ...initialState(), conflicts: [existing] };
+
+    const duplicate = { type: "orphaned" as const, itemKind: "milestone" as const, targetId: "m1", message: "duplicate, should be ignored" };
+    const fresh = { type: "orphaned" as const, itemKind: "topLevelItem" as const, targetId: "t1", message: "new" };
+
+    const next = reduce(state, { type: "addConflicts", conflicts: [duplicate, fresh] });
+    expect(next.conflicts).toEqual([existing, fresh]);
+  });
+
+  it("addConflicts is a no-op (same state reference) when every conflict is already present", () => {
+    const existing = { type: "orphaned" as const, itemKind: "milestone" as const, targetId: "m1", message: "first" };
+    const state: CorrectionBoxState = { ...initialState(), conflicts: [existing] };
+    const next = reduce(state, { type: "addConflicts", conflicts: [{ ...existing, message: "different wording, same target" }] });
+    expect(next).toBe(state);
+  });
+
+  it("dismissConflict removes only the matching targetId, leaving others intact", () => {
+    const a = { type: "orphaned" as const, itemKind: "milestone" as const, targetId: "m1", message: "a" };
+    const b = { type: "orphaned" as const, itemKind: "topLevelItem" as const, targetId: "t1", message: "b" };
+    const state: CorrectionBoxState = { ...initialState(), conflicts: [a, b] };
+
+    const next = reduce(state, { type: "dismissConflict", targetId: "m1" });
+    expect(next.conflicts).toEqual([b]);
   });
 });
