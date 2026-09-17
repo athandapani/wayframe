@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { currentRev, type Portfolio, type PortfolioDocument, type Rag, type Milestone, type Program, type RollupSnapshot, type StyleOverride, type TopLevelItem } from "@/components/timeline/types";
+import { createScenario } from "@/lib/scenario/types";
 import { defaultPortfolioTheme, type Theme, type ThemeId } from "@/components/timeline/theme";
 import {
   coercePatchOp,
@@ -199,6 +200,13 @@ export type CorrectionBoxAction =
   | { type: "renameCategory"; id: string; name: string }
   | { type: "recolorCategory"; id: string; color: string }
   | { type: "removeCategory"; id: string }
+  // Minimal Scenario CRUD (t29) — create+list+remove only, mirroring
+  // legendCategories' Portfolio-scoped array treatment above. A Scenario's
+  // own delta-list editing (milestone/topLevelItem overrides) is a separate
+  // future ticket's UI; these two actions only manage the named-Scenario
+  // vocabulary itself.
+  | { type: "addScenario"; name: string; newId: string }
+  | { type: "removeScenario"; id: string }
   | { type: "setMilestoneCategory"; id: string; categoryId: string | null }
   | { type: "setMilestoneStyleOverride"; id: string; patch: Partial<StyleOverride> }
   | { type: "clearMilestoneStyleOverride"; id: string; field: keyof StyleOverride }
@@ -994,6 +1002,27 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "addScenario": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, state.data),
+        portfolio: { ...state.portfolio, scenarios: [...(state.portfolio.scenarios ?? []), createScenario(action.newId, action.name)] },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "removeScenario": {
+      // Unlike removeCategory, nothing else in the document points at a
+      // Scenario id today, so this is a plain filter — no dangling-reference
+      // cleanup needed.
+      return {
+        ...state,
+        data: stampUpdated(state.data, state.data),
+        portfolio: { ...state.portfolio, scenarios: (state.portfolio.scenarios ?? []).filter((s) => s.id !== action.id) },
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
     case "setFromRemote": {
       // A merged Yjs update from a remote peer is not a local user edit —
       // same "hydrated"/"snapshotRollups" treatment (wayframe t38): no
@@ -1105,6 +1134,9 @@ export interface UseCorrectionBoxResult {
   renameCategory: (id: string, name: string) => void;
   recolorCategory: (id: string, color: string) => void;
   removeCategory: (id: string) => void;
+  /** Minimal Scenario CRUD (t29) — create+list+remove only, see the reducer's "addScenario" case doc. */
+  addScenario: (name: string) => void;
+  removeScenario: (id: string) => void;
   /** Milestone editor's "Category" select — null clears the tag. */
   setMilestoneCategory: (id: string, categoryId: string | null) => void;
   /** Milestone editor's Appearance section (t19/t34) — merges into the item's styleOverride; unset fields are left alone. */
@@ -1416,6 +1448,8 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const renameCategory = useCallback((id: string, name: string) => dispatch({ type: "renameCategory", id, name }), []);
   const recolorCategory = useCallback((id: string, color: string) => dispatch({ type: "recolorCategory", id, color }), []);
   const removeCategory = useCallback((id: string) => dispatch({ type: "removeCategory", id }), []);
+  const addScenario = useCallback((name: string) => dispatch({ type: "addScenario", name, newId: nanoid() }), []);
+  const removeScenario = useCallback((id: string) => dispatch({ type: "removeScenario", id }), []);
   const setMilestoneCategory = useCallback((id: string, categoryId: string | null) => dispatch({ type: "setMilestoneCategory", id, categoryId }), []);
   const setMilestoneStyleOverride = useCallback((id: string, patch: Partial<StyleOverride>) => dispatch({ type: "setMilestoneStyleOverride", id, patch }), []);
   const clearMilestoneStyleOverride = useCallback((id: string, field: keyof StyleOverride) => dispatch({ type: "clearMilestoneStyleOverride", id, field }), []);
@@ -1487,6 +1521,8 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     renameCategory,
     recolorCategory,
     removeCategory,
+    addScenario,
+    removeScenario,
     setMilestoneCategory,
     setMilestoneStyleOverride,
     clearMilestoneStyleOverride,

@@ -422,6 +422,41 @@ describe("theme reducer actions (wayframe#88/t18)", () => {
   });
 });
 
+describe("Scenario reducer actions (t29)", () => {
+  it("addScenario appends a named Scenario with every delta map empty", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "addScenario", name: "Q3 replan", newId: "s1" });
+    expect(next.portfolio.scenarios).toEqual([
+      { id: "s1", name: "Q3 replan", milestoneOverrides: {}, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} },
+    ]);
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("addScenario appends to existing Scenarios without touching them", () => {
+    const state = initialState();
+    state.portfolio.scenarios = [{ id: "s1", name: "Existing", milestoneOverrides: {}, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} }];
+    const next = reduce(state, { type: "addScenario", name: "New one", newId: "s2" });
+    expect(next.portfolio.scenarios?.map((s) => s.name)).toEqual(["Existing", "New one"]);
+  });
+
+  it("removeScenario filters the Scenario out by id", () => {
+    const state = initialState();
+    state.portfolio.scenarios = [
+      { id: "s1", name: "Keep", milestoneOverrides: {}, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} },
+      { id: "s2", name: "Remove me", milestoneOverrides: {}, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} },
+    ];
+    const next = reduce(state, { type: "removeScenario", id: "s2" });
+    expect(next.portfolio.scenarios?.map((s) => s.id)).toEqual(["s1"]);
+  });
+
+  it("Scenario actions are undoable", () => {
+    const state = initialState();
+    const added = reduce(state, { type: "addScenario", name: "Q3 replan", newId: "s1" });
+    const undone = reduce(added, { type: "undo" });
+    expect(undone.portfolio.scenarios).toBeUndefined();
+  });
+});
+
 describe("apply with blufOp/documentOp/attachmentOps (wayframe#55/#60)", () => {
   it("merges a blufOp touching only the statement, leaving bullets/label untouched", () => {
     const withPending: CorrectionBoxState = {

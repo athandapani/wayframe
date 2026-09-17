@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "./RoadmapWorkspace";
 import { exportToDeck } from "@/lib/export/export-to-deck";
@@ -178,10 +178,18 @@ describe("RoadmapWorkspace delta-annotation controls (t23, wayframe#96)", () => 
   });
 });
 
-describe("RoadmapWorkspace export to deck", () => {
+describe("RoadmapWorkspace export to deck (t29)", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.mocked(exportToDeck).mockClear();
+    // Local/unauthenticated mode has no real hosted Portfolio row for the
+    // Export dialog's sibling-Programs fetch to read — it should degrade
+    // gracefully to just the current Program rather than error.
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: false }) as unknown as Promise<Response>));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("does not duplicate view content in the DOM while idle", () => {
@@ -189,18 +197,49 @@ describe("RoadmapWorkspace export to deck", () => {
     expect(screen.getAllByText("Everything is on track.")).toHaveLength(1);
   });
 
-  it("captures both views and writes a deck named after the program on export", async () => {
+  it("opens a dialog with Export disabled until a section is checked, exports the checked sections in the fixed order, and names the deck after the program for a single-Program-scoped export", async () => {
     render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
 
     openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Export to Deck" }));
 
+    const dialog = await screen.findByRole("dialog", { name: "Export to Deck" });
+    const exportButton = within(dialog).getByRole("button", { name: "Export" });
+    expect(exportButton).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Individual Programs (Baseline)" }));
+    expect(exportButton).not.toBeDisabled();
+
+    fireEvent.click(exportButton);
+
     await waitFor(() => expect(exportToDeck).toHaveBeenCalledTimes(1));
     const [sources, fileName] = vi.mocked(exportToDeck).mock.calls[0];
-    expect(sources.map((s) => s.label)).toEqual(["Program", "Executive"]);
+    // Fixed order: Executive, then Individual Programs (Baseline) — here just
+    // the one Program the local-mode fallback knows about.
+    expect(sources.map((s) => s.label)).toEqual(["Executive", "Atlas Program"]);
     expect(sources[0].element).not.toBe(sources[1].element);
+    // Exactly one Program-scoped section (Individual) resolving to exactly
+    // one Program slide keeps the old single-Program-name convention.
     expect(fileName).toBe("atlas-program-deck.pptx");
+  });
+
+  it("falls back to a generic filename once the export spans more than one Program-scoped section", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Export to Deck" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Export to Deck" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Export to Deck" });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Combined Programs (Baseline)" }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Individual Programs (Baseline)" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(exportToDeck).toHaveBeenCalledTimes(1));
+    const [, fileName] = vi.mocked(exportToDeck).mock.calls[0];
+    expect(fileName).toBe("portfolio-roadmap-deck.pptx");
   });
 });
 

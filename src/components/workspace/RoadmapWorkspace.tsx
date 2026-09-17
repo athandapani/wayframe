@@ -41,7 +41,7 @@ import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
 import { useOptionsSections } from "./use-options-sections";
 import { NewDocumentBanner } from "./NewDocumentBanner";
-import { exportToDeck } from "@/lib/export/export-to-deck";
+import { ExportDialog } from "./ExportDialog";
 import { saveDocumentFile, parseDocumentFile } from "@/lib/document-file/document-file";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 import { useTimelineSummary } from "@/components/executive-view/use-timeline-summary";
@@ -61,7 +61,7 @@ import { SharePanel } from "./SharePanel";
 import { useSavedViews, type ViewSnapshot } from "@/components/timeline/use-saved-views";
 import { useSelection } from "@/components/timeline/use-selection";
 import { SelectionToolbar } from "./SelectionToolbar";
-import { useZoomWindow, filterToWindow, type UseZoomWindowResult } from "@/components/timeline/use-zoom-window";
+import { useZoomWindow, filterToWindow, type UseZoomWindowResult, type ZoomWindow } from "@/components/timeline/use-zoom-window";
 import { ZoomControls, ZoomPreviewFrame } from "@/components/timeline/ZoomControls";
 import { useProgramRoom, type ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
 import type { RoomAccess } from "@/lib/realtime/provider";
@@ -75,7 +75,7 @@ type Mode = "executive" | "program";
 // inactive one is only mounted, off-screen and aria-hidden, for the duration of
 // an export — ExecutiveView repeats the BLUF statement as subtext (per #8), so
 // keeping both permanently mounted would duplicate accessible page content.
-const OFFSCREEN_CLASS = "pointer-events-none absolute top-0 -left-[99999px]";
+export const OFFSCREEN_CLASS = "pointer-events-none absolute top-0 -left-[99999px]";
 
 // t40 (Binary asset storage boundary) — companyLogo.dataUrl stays an inline
 // string in the document rather than moving to a blob store, so this is the
@@ -83,7 +83,7 @@ const OFFSCREEN_CLASS = "pointer-events-none absolute top-0 -left-[99999px]";
 // write, not unbounded row growth.
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
-function deckFileName(programName: string): string {
+export function deckFileName(programName: string): string {
   const slug = programName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${slug || "roadmap"}-deck.pptx`;
 }
@@ -105,7 +105,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
   );
 }
 
-function RoadmapView({
+export function RoadmapView({
   mode,
   data,
   today,
@@ -155,6 +155,7 @@ function RoadmapView({
   onToggleSelect,
   onMarqueeSelect,
   zoom,
+  domainOverride,
   remoteSelections,
   onToggleGroupCollapsed,
 }: {
@@ -225,15 +226,27 @@ function RoadmapView({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onMarqueeSelect?: (ids: string[]) => void;
-  /** Zoom & fit-to-screen (wayframe t10) — omit for the off-screen export capture, same convention as onEditDocument; export always renders the full document. */
+  /** Interactive zoom (wayframe t10) — omit for the off-screen export capture; when present, drives the on-screen slider/preview AND the render domain (its `committedWindow`, once active, wins over `domainOverride` below). */
   zoom?: UseZoomWindowResult;
+  /**
+   * Plain render-domain override with no interactive UI (wayframe t29) — the
+   * off-screen export capture's mechanism for inheriting whatever committed
+   * zoom window the on-screen view currently shows, without mounting
+   * `ZoomControls`/`ZoomPreviewFrame` into the captured slide. Ignored in
+   * "executive" mode (ExecutiveView has no zoomable chart). Ignored if `zoom`
+   * is also passed and active — that combination doesn't happen in practice
+   * (the interactive on-screen view never also gets a standalone override),
+   * but `zoom` winning keeps a single source of truth if it ever did.
+   */
+  domainOverride?: ZoomWindow;
   /** Live-room remote-selection rings (wayframe t38) — milestone id -> peer color, from remoteSelectionsFromPeers(peers). Omit for the off-screen export capture, same convention as every other on-screen-only prop here. */
   remoteSelections?: Record<string, string>;
   /** Swimlane Groups (t21) — fired when a group's header band is clicked. Omit for the off-screen export capture, which always renders every group expanded, same convention as onAxisTiersChange. */
   onToggleGroupCollapsed?: (groupId: string) => void;
 }) {
   if (mode === "program") {
-    const zoomedData = zoom?.active ? filterToWindow(data, zoom.committedWindow) : data;
+    const effectiveDomain = zoom?.active ? zoom.committedWindow : domainOverride;
+    const zoomedData = effectiveDomain ? filterToWindow(data, effectiveDomain) : data;
     const chart = (
       <RoadmapTimeline
         data={zoomedData}
@@ -277,7 +290,7 @@ function RoadmapView({
         selectedIds={selectedIds}
         onToggleSelect={onToggleSelect}
         onMarqueeSelect={onMarqueeSelect}
-        domainOverride={zoom?.active ? zoom.committedWindow : undefined}
+        domainOverride={effectiveDomain}
         remoteSelections={remoteSelections}
         onToggleGroupCollapsed={onToggleGroupCollapsed}
       />
@@ -491,7 +504,7 @@ export function RoadmapWorkspace({
   // render outside the chart — the same split trace/tracedIds already uses.
   const [placement, setPlacement] = useState<{ laneId: string; shape: "milestone" | "phase" } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -515,17 +528,12 @@ export function RoadmapWorkspace({
   const openFileRef = useRef<HTMLInputElement>(null);
   const logoFileRef = useRef<HTMLInputElement>(null);
 
-  const visibleCaptureRef = useRef<HTMLDivElement>(null);
-  const offscreenCaptureRef = useRef<HTMLDivElement>(null);
-
   // From `renderable`, not `box.data` (t14): MilestoneEditorModal needs the
   // render-layer's computed isCriticalPath, which only RenderableProgram's
   // milestones carry.
   const selectedMilestone = renderable.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const selectedTopLevelItemRaw = box.data.topLevelItems.find((t) => t.id === selectedTopLevelItemId) ?? null;
   const selectedTopLevelItem = selectedTopLevelItemRaw && isEditableTopLevelItem(selectedTopLevelItemRaw) ? selectedTopLevelItemRaw : null;
-
-  const otherMode: Mode = mode === "program" ? "executive" : "program";
 
   // A trace is view state, not document content — nothing is written to the
   // roadmap, so it never competes with the computed critical path and two
@@ -619,29 +627,6 @@ export function RoadmapWorkspace({
   function handleDeleteTopLevelItem(id: string) {
     box.removeTopLevelItem(id);
     setSelectedTopLevelItemId(null);
-  }
-
-  async function handleExport() {
-    if (exporting) return;
-    setExporting(true);
-    try {
-      // Mount the inactive view off-screen, wait for it to paint, then capture both.
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      const visibleEl = visibleCaptureRef.current;
-      const offscreenEl = offscreenCaptureRef.current;
-      if (!visibleEl || !offscreenEl) return;
-      const programEl = mode === "program" ? visibleEl : offscreenEl;
-      const executiveEl = mode === "executive" ? visibleEl : offscreenEl;
-      await exportToDeck(
-        [
-          { label: "Program", element: programEl },
-          { label: "Executive", element: executiveEl },
-        ],
-        deckFileName(box.data.programName),
-      );
-    } finally {
-      setExporting(false);
-    }
   }
 
   return (
@@ -803,8 +788,8 @@ export function RoadmapWorkspace({
               )}
             </OptionsMenuRow>
             <OptionsMenuRow label="Export">
-              <button onClick={handleExport} disabled={exporting} style={PILL_STYLE} className={pillToggle(true) + " disabled:opacity-50"}>
-                {exporting ? "Exporting…" : "Export to Deck"}
+              <button onClick={() => setExportDialogOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                Export to Deck
               </button>
             </OptionsMenuRow>
             {canManageSharing && (
@@ -1411,7 +1396,7 @@ export function RoadmapWorkspace({
             </OptionsMenuSection>
           </OptionsMenu>
         </div>
-        <div ref={visibleCaptureRef}>
+        <div>
           <RoadmapView
             mode={mode}
             data={renderable}
@@ -1485,40 +1470,6 @@ export function RoadmapWorkspace({
             remoteSelections={remoteSelections}
           />
         </div>
-        {exporting && (
-          <div ref={offscreenCaptureRef} className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-            <RoadmapView
-              mode={otherMode}
-              chartWidth={1600}
-              labelDensity={labels.density}
-              data={renderable}
-              today={today}
-              deltaAnnotationsEnabled={deltaAnnotations.enabled}
-              showCriticalPath={criticalPath.visible}
-              criticalPathStyle={criticalPathLine.style}
-              topBandStyle={topBand.style}
-              periodGridlineStyle={gridlines.style}
-              axisTiers={axisTiers.config}
-              axisYearColor={axisTiers.yearColor}
-              theme={theme}
-              blufOpen={blufOpen}
-              onBlufOpenChange={setBlufOpen}
-              soWhatFillColor={soWhat.color}
-              soWhatFillTransparency={soWhat.transparency}
-              fontScale={fontScale.scale}
-              fontFamily={fontFamily.fontFamily}
-              connectorStyle={connectorStyle.style}
-              connectorDash={connectorLineStyle.dash}
-              connectorArrow={connectorLineStyle.arrow}
-              todayOverlayEnabled={todayOverlay.enabled}
-              pillProgressStyle={pillProgress.style}
-              fitToScreen={fitToScreen.enabled}
-              dateLabelPlacement={dateLabelPlacement.placement}
-              legendCategoryFillEnabled={legendCategoryStyle.enabled}
-              swimlaneOwnerVisible={swimlaneOwner.visible}
-            />
-          </div>
-        )}
       </div>
       <CorrectionBoxSwitcher box={box} mode={correctionMode} onNeedsEditor={handleNeedsEditor} />
       {selectMode && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
@@ -1598,6 +1549,43 @@ export function RoadmapWorkspace({
         />
       )}
       {sharingOpen && canManageSharing && <SharePanel portfolioId={box.portfolio.id} onClose={() => setSharingOpen(false)} />}
+      {exportDialogOpen && (
+        <ExportDialog
+          portfolio={box.portfolio}
+          currentProgram={box.data}
+          currentRenderable={renderable}
+          theme={theme}
+          today={today}
+          timelineSummary={timelineSummary.summary}
+          zoom={zoom}
+          renderPrefs={{
+            blufOpen,
+            deltaAnnotationsEnabled: deltaAnnotations.enabled,
+            showCriticalPath: criticalPath.visible,
+            criticalPathStyle: criticalPathLine.style,
+            topBandStyle: topBand.style,
+            periodGridlineStyle: gridlines.style,
+            axisTiers: axisTiers.config,
+            axisYearColor: axisTiers.yearColor,
+            labelDensity: labels.density,
+            soWhatFillColor: soWhat.color,
+            soWhatFillTransparency: soWhat.transparency,
+            fontScale: fontScale.scale,
+            fontFamily: fontFamily.fontFamily,
+            connectorStyle: connectorStyle.style,
+            connectorDash: connectorLineStyle.dash,
+            connectorArrow: connectorLineStyle.arrow,
+            todayOverlayEnabled: todayOverlay.enabled,
+            pillProgressStyle: pillProgress.style,
+            fitToScreen: fitToScreen.enabled,
+            dateLabelPlacement: dateLabelPlacement.placement,
+            legendCategoryFillEnabled: legendCategoryStyle.enabled,
+            swimlaneOwnerVisible: swimlaneOwner.visible,
+          }}
+          onAddScenario={box.addScenario}
+          onClose={() => setExportDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }

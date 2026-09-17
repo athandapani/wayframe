@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Milestone, Program, TopLevelItem } from "@/components/timeline/types";
-import { resolveScenario } from "./resolve";
+import type { Milestone, Portfolio, Program, TopLevelItem } from "@/components/timeline/types";
+import { resolveScenario, resolveScenarioForRender } from "./resolve";
 import { addMilestoneAddition, setMilestoneOverride } from "./apply";
 import { createScenario, type Scenario } from "./types";
 
@@ -128,5 +128,24 @@ describe("resolveScenario", () => {
     const resolved = resolveScenario(p, scenario);
     expect(resolved.topLevelItems).toEqual([{ ...ph, status: "delayed" }]);
     expect(resolved.conflicts).toEqual([]);
+  });
+});
+
+describe("resolveScenarioForRender", () => {
+  it("applies the scenario override and merges in the Portfolio's legendCategories, ready for RoadmapTimeline", () => {
+    const m = milestone({ id: "m1", date: "2026-01-01", rev: 1, title: "Original title" });
+    const p = program({ milestones: [m] });
+    let scenario = createScenario("s1", "Plan B");
+    scenario = setMilestoneOverride(scenario, "m1", { op: "modify", patch: { title: "Overridden title" }, baseRevAtCreation: 1 });
+    const portfolio: Portfolio = {
+      id: "portfolio-1",
+      schemaVersion: 2,
+      legendCategories: [{ id: "cat-1", name: "Risk", color: "#f00" }],
+    };
+
+    const renderable = resolveScenarioForRender(portfolio, p, scenario);
+
+    expect(renderable.milestones[0].title).toBe("Overridden title");
+    expect(renderable.legendCategories).toEqual([{ id: "cat-1", name: "Risk", color: "#f00" }]);
   });
 });

@@ -1,4 +1,4 @@
-import { currentRev, type Milestone, type Program, type TopLevelItem } from "@/components/timeline/types";
+import { currentRev, mergeForRender, type Milestone, type Portfolio, type Program, type RenderableProgram, type TopLevelItem } from "@/components/timeline/types";
 import type { Scenario } from "./types";
 
 /**
@@ -129,4 +129,15 @@ export function resolveScenario(program: Program, scenario: Scenario): ResolvedS
   }
 
   return { milestones, topLevelItems, conflicts };
+}
+
+/**
+ * Composes resolveScenario with mergeForRender for a caller (t29's export
+ * dialog) that just wants a ready-to-render Scenario view of one Program —
+ * conflicts are discarded here since there's no conflict-surfacing UI yet
+ * (t29's own gist scopes that to a future extension of the Scenario picker).
+ */
+export function resolveScenarioForRender(portfolio: Portfolio, program: Program, scenario: Scenario): RenderableProgram {
+  const resolved = resolveScenario(program, scenario);
+  return mergeForRender(portfolio, { ...program, milestones: resolved.milestones, topLevelItems: resolved.topLevelItems });
 }
