@@ -36,7 +36,8 @@ import type { CriticalPathStyle } from "./use-critical-path-style";
 import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
 import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, MIN_GAP, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker } from "./label-layout";
-import { allocate, type Demand } from "@/lib/layout/tier-allocator";
+import { allocate, type Demand, type Zone } from "@/lib/layout/tier-allocator";
+import { sweepMidX } from "./connector-router";
 import {
   ghostsForMilestone,
   ghostsForTopLevelItemPhase,
@@ -935,17 +936,30 @@ function colorForDeltaGhostKind(kind: DeltaGhostKind, theme: Theme): string {
   return "currentColor";
 }
 
-function MilestoneMarker({
+/**
+ * t25 (wayframe#103) split the old single `MilestoneMarker` into two paint
+ * layers — `MilestoneChips` (title/date/ghosts) and `MilestoneGlyph`
+ * (rings, the marker shape, the hover tooltip) — so dependency connectors
+ * can paint between them: above the chips they might cross, below the
+ * marker glyph itself. The two used to be one `<g>`, which is also what
+ * powered the hover-reveal tooltip via CSS `group`/`group-hover`; that
+ * doesn't work across two sibling `<g>`s, so hover state is now lifted into
+ * `RoadmapTimeline` (`hoveredMarkerId`) and threaded down as an explicit
+ * `onHoverChange`/`isHovered` pair instead. Both components duplicate a
+ * couple of small pure derivations (`r`, `effectiveFontScale`) rather than
+ * sharing a helper — cheap, and keeps each one a self-contained leaf.
+ */
+function MilestoneChips({
   m,
   cx,
   cy,
   theme,
+  program,
   primary,
   date,
   onClick,
   deltaGhosts = [],
   deltaGhostOverflow = 0,
-  showCriticalPath,
   traceState,
   onDragStart,
   dragDx,
@@ -959,11 +973,8 @@ function MilestoneMarker({
   ghostOffset = { dx: 0, dy: 0 },
   onGhostDragStart,
   resolveX,
-  category,
   dateLabelPlacement = "below",
-  selected = false,
-  remoteColor,
-  program,
+  onHoverChange,
 }: {
   m: RenderableMilestone;
   cx: number;
@@ -978,7 +989,6 @@ function MilestoneMarker({
   deltaGhosts?: PlacedDeltaGhost[];
   /** Ghosts beyond MAX_DELTA_TIERS that didn't get a slot at all (t23) — rendered as a small "+N more" indicator, not a 4th tier. */
   deltaGhostOverflow?: number;
-  showCriticalPath: boolean;
   /** "in" = part of the active trace, "out" = dimmed, null = no trace running. */
   traceState: "in" | "out" | null;
   /** Non-null when the chart is draggable; called on pointer-down to begin a drag. */
@@ -997,30 +1007,16 @@ function MilestoneMarker({
   onGhostDragStart?: (evt: React.PointerEvent<SVGGElement>) => void;
   /** Date -> pixel-x, so a delta ghost's own outline can resolve its position (the "from" side for a slip, the "to"/projected side for at-risk/scenario-diff) without RoadmapTimeline's domain scale living inside this component. */
   resolveX: (isoDate: string) => number;
-  /** Legend category tag — resolved from Milestone.categoryId, only when category-fill encoding is on (see resolveMarkerPaint). */
-  category?: LegendCategory;
   /** Marker date-label placement — "inline" skips the tiered below-marker slot entirely for a fixed beside-the-marker position. */
   dateLabelPlacement?: DateLabelPlacement;
-  /** Rubber-band/click multi-select — renders a dashed accent ring, same layering idea as the critical/trace rings below but its own visual so the three never get confused for one another. */
-  selected?: boolean;
-  /**
-   * A remote collaborator's selection color (wayframe t36), rendered as an
-   * extra ring outside the local selection ring — reuses this exact
-   * mechanism rather than a separate visual so "someone else has this
-   * selected" reads as a variant of "I have this selected," not an
-   * unrelated concept. Caller resolves peer id -> color from live awareness
-   * state; RoadmapTimeline has no notion of peers itself.
-   */
-  remoteColor?: string;
+  /** Set on pointer enter/leave — drives MilestoneGlyph's tooltip for this same milestone id (see the doc comment above). */
+  onHoverChange?: (hovered: boolean) => void;
 }) {
-  const shape = resolveMarkerShape(m, program, theme);
-  const markerScale = resolveMarkerScale(m, program, theme);
-  const r = 8 * markerScale;
+  const r = 8 * resolveMarkerScale(m, program, theme);
   const effectiveFontScale = fontScale * resolveFontScale(m, program);
   const titlePos = resolveTitleLabelPosition(m);
   const datePos = resolveDateLabelPosition(m);
   const dateDy = DATE_TIER_DY[date.tier];
-  const paint = resolveMarkerColor(m, theme, program, category);
   const strikeDate = m.status === "delayed";
   // Label block grows upward from its baseline, so the last line sits
   // closest to the marker and the first line ends up on top. The gap and
@@ -1028,30 +1024,28 @@ function MilestoneMarker({
   // close in on the fixed-size gap below them and start overlapping the
   // marker or, at tier 1, the tier-0 block they're meant to clear.
   const labelBaseDy = LABEL_BASE_DY * fontScale - (primary ? primary.tier * LABEL_TIER_LIFT * fontScale : 0);
-  const tooltipW = Math.max(40, m.title.length * 6 * metricsScale + 16);
-  // Scoped to slip specifically (not "has any delta ghost at all") — the
-  // hover tooltip's old->new line only makes sense for a milestone that
-  // actually moved from a prior committed date, same condition as today.
-  const hasSlipGhost = !!(m.originalDate && m.originalDate !== m.date);
-  const critical = showCriticalPath && m.isCriticalPath;
 
-  // The whole marker translates during a drag so the label and date ride
-  // along with it, rather than the diamond detaching from its own caption.
+  // The whole chip set translates during a drag so the label and date ride
+  // along with the marker, rather than the diamond detaching from its own
+  // caption.
   return (
     <g
-      className={onDragStart ? "group cursor-grab active:cursor-grabbing" : onClick ? "group cursor-pointer" : "group cursor-default"}
+      data-testid={`marker-chips-${m.id}`}
+      className={onDragStart ? "cursor-grab active:cursor-grabbing" : onClick ? "cursor-pointer" : "cursor-default"}
       transform={dragDx ? `translate(${dragDx} 0)` : undefined}
       // Dimming everything outside the trace is what makes the traced path
       // legible on a dense chart — highlighting alone doesn't separate it.
       opacity={dragging ? 0.85 : traceState === "out" ? 0.22 : 1}
       onClick={onClick ? (e) => onClick(m, e) : undefined}
       onPointerDown={onDragStart ? (e) => onDragStart(m, e) : undefined}
+      onMouseEnter={onHoverChange ? () => onHoverChange(true) : undefined}
+      onMouseLeave={onHoverChange ? () => onHoverChange(false) : undefined}
     >
       {/* Native browser tooltip hinting the marker opens an editor —
           double-clicking a milestone to rename it worked but wasn't
           discoverable at all (wayframe#38 item 2 / #39). Separate from the
-          custom hover tooltip below, which shows the title, not the
-          affordance. */}
+          custom hover tooltip on MilestoneGlyph, which shows the title, not
+          the affordance. */}
       {onClick && <title>Click to edit</title>}
       {/* Tier-1 labels sit far enough above the marker to need a leader
           line back to it, or they read as belonging to the lane above. A
@@ -1064,14 +1058,6 @@ function MilestoneMarker({
       {(date.tier === 2 || dateOffset.dx !== 0 || dateOffset.dy !== 0) && (
         <line x1={cx} y1={cy + r + 1} x2={cx + dateOffset.dx} y2={cy + dateDy - 4 + dateOffset.dy} stroke="currentColor" strokeOpacity={0.3} />
       )}
-      {/* Critical path is an ink collar, never a red ring — red already
-          means "delayed", and the two measured 1.28:1 apart, so the
-          highest-severity state used to be the least legible. */}
-      {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} shape={shape} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
-      {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} shape={shape} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
-      {selected && <CushionMarker cx={cx} cy={cy} r={r + 11} shape={shape} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
-      {remoteColor && <CushionMarker cx={cx} cy={cy} r={r + 15} shape={shape} fill="none" stroke={remoteColor} strokeWidth={2} strokeDasharray="4 2" />}
-      <CushionMarker cx={cx} cy={cy} r={r} shape={shape} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
       {titlePos ? (
         // Fixed-position title override (wayframe#t19 titleLabelPosition) —
         // bypasses the tiered collision-avoidance layout entirely; no leader
@@ -1163,10 +1149,107 @@ function MilestoneMarker({
         />
       ))}
       {deltaGhostOverflow > 0 && <DeltaGhostOverflow count={deltaGhostOverflow} cx={cx} cy={cy} fontScale={effectiveFontScale} />}
-      {/* hover reveal: full title. CSS-only (no JS state) — a real <title>
-          element gets hoisted by React 19 as document metadata even inside
-          <svg>, which desyncs SSR/client, so this is the workaround. */}
-      <g className="pointer-events-none opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+    </g>
+  );
+}
+
+/** See the doc comment above `MilestoneChips` — this is the other half of the t25 split. */
+function MilestoneGlyph({
+  m,
+  cx,
+  cy,
+  theme,
+  program,
+  onClick,
+  showCriticalPath,
+  traceState,
+  onDragStart,
+  dragDx,
+  dragging,
+  fontScale = 1,
+  metricsScale = 1,
+  category,
+  selected = false,
+  remoteColor,
+  isHovered = false,
+  onHoverChange,
+}: {
+  m: RenderableMilestone;
+  cx: number;
+  cy: number;
+  theme: Theme;
+  /** Needed for t19's style-resolution ladder's Program-default rung. */
+  program: Program;
+  onClick?: (m: Milestone, evt: React.MouseEvent<SVGGElement>) => void;
+  showCriticalPath: boolean;
+  /** "in" = part of the active trace, "out" = dimmed, null = no trace running. */
+  traceState: "in" | "out" | null;
+  /** Non-null when the chart is draggable; called on pointer-down to begin a drag. */
+  onDragStart?: (m: Milestone, evt: React.PointerEvent<SVGGElement>) => void;
+  /** Live x offset while this marker is being dragged. */
+  dragDx?: number;
+  dragging?: boolean;
+  fontScale?: number;
+  metricsScale?: number;
+  /** Legend category tag — resolved from Milestone.categoryId, only when category-fill encoding is on (see resolveMarkerPaint). */
+  category?: LegendCategory;
+  /** Rubber-band/click multi-select — renders a dashed accent ring, same layering idea as the critical/trace rings below but its own visual so the three never get confused for one another. */
+  selected?: boolean;
+  /**
+   * A remote collaborator's selection color (wayframe t36), rendered as an
+   * extra ring outside the local selection ring — reuses this exact
+   * mechanism rather than a separate visual so "someone else has this
+   * selected" reads as a variant of "I have this selected," not an
+   * unrelated concept. Caller resolves peer id -> color from live awareness
+   * state; RoadmapTimeline has no notion of peers itself.
+   */
+  remoteColor?: string;
+  /** Drives the hover-reveal tooltip below — replaces CSS group-hover, which can't span this glyph's separate `<g>` and MilestoneChips' (t25). */
+  isHovered?: boolean;
+  onHoverChange?: (hovered: boolean) => void;
+}) {
+  const shape = resolveMarkerShape(m, program, theme);
+  const r = 8 * resolveMarkerScale(m, program, theme);
+  const effectiveFontScale = fontScale * resolveFontScale(m, program);
+  const paint = resolveMarkerColor(m, theme, program, category);
+  const tooltipW = Math.max(40, m.title.length * 6 * metricsScale + 16);
+  // Scoped to slip specifically (not "has any delta ghost at all") — the
+  // hover tooltip's old->new line only makes sense for a milestone that
+  // actually moved from a prior committed date, same condition as today.
+  const hasSlipGhost = !!(m.originalDate && m.originalDate !== m.date);
+  const critical = showCriticalPath && m.isCriticalPath;
+
+  // The glyph translates during a drag too, so it stays under its own
+  // (identically-translated) chips rather than the diamond detaching from
+  // its caption.
+  return (
+    <g
+      data-testid={`marker-glyph-${m.id}`}
+      className={onDragStart ? "cursor-grab active:cursor-grabbing" : onClick ? "cursor-pointer" : "cursor-default"}
+      transform={dragDx ? `translate(${dragDx} 0)` : undefined}
+      opacity={dragging ? 0.85 : traceState === "out" ? 0.22 : 1}
+      onClick={onClick ? (e) => onClick(m, e) : undefined}
+      onPointerDown={onDragStart ? (e) => onDragStart(m, e) : undefined}
+      onMouseEnter={onHoverChange ? () => onHoverChange(true) : undefined}
+      onMouseLeave={onHoverChange ? () => onHoverChange(false) : undefined}
+    >
+      {onClick && <title>Click to edit</title>}
+      {/* Critical path is an ink collar, never a red ring — red already
+          means "delayed", and the two measured 1.28:1 apart, so the
+          highest-severity state used to be the least legible. */}
+      {critical && <CushionMarker cx={cx} cy={cy} r={r + 4} shape={shape} fill="none" stroke={theme.criticalPathColor} strokeWidth={2} />}
+      {traceState === "in" && <CushionMarker cx={cx} cy={cy} r={r + (critical ? 7.5 : 4)} shape={shape} fill="none" stroke={theme.traceColor} strokeWidth={2} />}
+      {selected && <CushionMarker cx={cx} cy={cy} r={r + 11} shape={shape} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
+      {remoteColor && <CushionMarker cx={cx} cy={cy} r={r + 15} shape={shape} fill="none" stroke={remoteColor} strokeWidth={2} strokeDasharray="4 2" />}
+      <CushionMarker cx={cx} cy={cy} r={r} shape={shape} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
+      {/* hover reveal: full title. Used to be CSS-only (opacity-0
+          group-hover:opacity-100 on one shared <g> with the chips above) —
+          t25 split chips and glyph into separate <g>s, so this is now driven
+          by the lifted `isHovered` prop (RoadmapTimeline's hoveredMarkerId)
+          instead. A real <title> element gets hoisted by React 19 as
+          document metadata even inside <svg>, which desyncs SSR/client, so
+          this <g>+<rect>+<text> stays the workaround for the visible copy. */}
+      <g className="pointer-events-none transition-opacity duration-100" style={{ opacity: isHovered ? 1 : 0 }} data-testid={`marker-tooltip-${m.id}`}>
         <rect x={cx - tooltipW / 2} y={cy - 58} width={tooltipW} height={hasSlipGhost ? 34 : 20} rx={4} fill={theme.tooltipBg} />
         <text x={cx} y={cy - 44} textAnchor="middle" fontSize={11 * effectiveFontScale} fill={theme.tooltipInk}>
           {m.title}
@@ -1473,6 +1556,11 @@ export function RoadmapTimeline({
   // (not scoped to `rows`) so a hidden lane's milestone doesn't get drawn
   // floating at lanesTop.
   const laneVisible = (laneId: string) => rowById.has(laneId);
+  // Top-to-bottom lane order (t25) — a dependency connector's "lanes
+  // strictly between the two endpoints" is defined against this document
+  // order, matching visual vertical order.
+  const laneRowsOrdered = rows.filter((r) => r.swimlane.type === "lane");
+  const laneIndexById = new Map(laneRowsOrdered.map((r, i) => [r.swimlane.id, i]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
   const categoryById = new Map((data.legendCategories ?? []).map((c) => [c.id, c]));
   /**
@@ -1516,6 +1604,17 @@ export function RoadmapTimeline({
    * left alone so a click still opens the editor.
    */
   const [drag, setDrag] = useState<{ id: string; startX: number; dx: number; moved: boolean } | null>(null);
+
+  /**
+   * Which milestone's hover-reveal tooltip is showing (t25, wayframe#103).
+   * Used to power CSS `group`/`group-hover` on one shared `<g>` per marker;
+   * splitting chips and glyph into separate paint layers (so connectors can
+   * paint between them) broke that, since group-hover can't span two
+   * sibling `<g>`s. Both MilestoneChips and MilestoneGlyph set this on
+   * pointer enter/leave; only MilestoneGlyph reads it back, since it's the
+   * one that renders the tooltip.
+   */
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
 
   // Click-to-edit on programName/owner (wayframe#55/#60) — plain text, not
   // rich text like the BLUF panel, so a bare foreignObject<input> is enough
@@ -1674,7 +1773,10 @@ export function RoadmapTimeline({
   const datePlacement = new Map<string, { text: string; tier: 0 | 1 | 2 }>();
   /** Per-milestone delta-ghost placement (t23) — replaces ghostPlacement/atRiskPlacement, the two independently-blind tiered passes documented as the bug in docs/research/t9-ghost-tier-inventory.md. */
   const deltaGhostPlacement = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
-  for (const laneRow of rows.filter((r) => r.swimlane.type === "lane")) {
+  /** Per-lane tier-zones captured during this pass (t25) — a dependency connector queries these via `occupiesX` to route its midpoint around a lane's own date/ghost/title chips. */
+  const laneZonesByLaneId = new Map<string, Zone[]>();
+  for (const laneRow of laneRowsOrdered) {
+    const laneZones: Zone[] = [];
     // Duration-pill milestones (endDate set) show their own inline title and
     // don't participate in the point-marker tiered-label layout.
     const laneMilestones = data.milestones.filter((m) => m.laneId === laneRow.swimlane.id && !m.endDate);
@@ -1699,6 +1801,7 @@ export function RoadmapTimeline({
     const dates = layoutDateLabels(
       laneMilestones.map((m) => ({ id: m.id, x: x(m.date), full: formatDateShort(m.date), compact: formatDateCompact(m.date) })),
       DATE_CHAR_W * metricsScale,
+      (zone) => laneZones.push(zone),
     );
     for (const [k, v] of primary) primaryPlacement.set(k, v);
     for (const [k, v] of dates) datePlacement.set(k, v);
@@ -1747,7 +1850,7 @@ export function RoadmapTimeline({
             const widestLine = Math.max(...lines.map((l) => l.length));
             return { x: x(m.date), w: widestLine * CHAR_W * metricsScale };
           });
-        const crossItemTiers = layoutGhostBadges(labeledItems, blockers, 6 * metricsScale);
+        const crossItemTiers = layoutGhostBadges(labeledItems, blockers, 6 * metricsScale, (zone) => laneZones.push(zone));
         for (const [id, tierPlacement] of crossItemTiers) {
           const result = perItem.get(id)!;
           result.placed = result.placed.map((g) => (g.labeled ? { ...g, tier: tierPlacement.tier } : g));
@@ -1755,6 +1858,7 @@ export function RoadmapTimeline({
       }
       for (const [id, result] of perItem) deltaGhostPlacement.set(id, result);
     }
+    laneZonesByLaneId.set(laneRow.swimlane.id, laneZones);
   }
 
   /**
@@ -2673,70 +2777,6 @@ export function RoadmapTimeline({
             />
           ))}
 
-        {/* dependency connectors — orthogonal "elbow" steps */}
-        {data.milestones.flatMap((m) =>
-          m.dependsOn
-            // showConnector curates which ordinary edges are worth drawing
-            // (wayframe#5), but a critical edge always draws: the critical
-            // path is only legible as a *line* if every hop in it is
-            // visible, and in practice the curated subset and the computed
-            // critical set don't overlap at all in the demo document.
-            .filter((d) => {
-              const from = milestoneById.get(d.id);
-              // A traced edge always draws, same reasoning as a critical one:
-              // a path is only legible if every hop in it is visible.
-              const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(d.id);
-              // Lane-hide (t22) — a hidden-lane milestone's edges are filtered
-              // out same as any other "don't draw this edge" case.
-              return laneVisible(m.laneId) && (d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath));
-            })
-            .map((d) => {
-              const from = milestoneById.get(d.id);
-              if (!from) return null;
-              // Lane-hide (t22) — the edge's source (dependency target) being
-              // in a hidden lane also drops the edge, not just the target `m`.
-              if (!laneVisible(from.laneId)) return null;
-              const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
-              const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(from.id);
-              const x1 = x(from.date);
-              const y1 = laneY(from.laneId);
-              const x2 = x(m.date);
-              const y2 = laneY(m.laneId);
-              const midX = x1 + (x2 - x1) / 2;
-              const path = buildConnectorPath(x1, y1, x2, y2, midX, connectorStyle);
-              if (!critical) {
-                // Critical wins the line where the two overlap; the trace
-                // still lifts the markers, so a traced critical edge
-                // doesn't lose which one it is. Dash/arrowhead choice
-                // only applies to this plain treatment —
-                // critical/traced connectors keep their own fixed look
-                // below, same reasoning theme.criticalPathColor is never
-                // overridable per-viewer.
-                return (
-                  <path
-                    key={`${d.id}->${m.id}`}
-                    data-testid={traced ? `traced-connector-${d.id}-${m.id}` : undefined}
-                    d={path}
-                    fill="none"
-                    stroke={traced ? theme.traceColor : theme.connector}
-                    strokeOpacity={traced ? 0.95 : 0.55}
-                    strokeWidth={traced ? 2.5 : 1.25}
-                    strokeDasharray={traced ? undefined : CONNECTOR_DASH_ARRAY[connectorDash]}
-                    markerEnd={traced ? "url(#roadmap-arrow-trace)" : `url(#roadmap-arrow-connector-${connectorArrow})`}
-                  />
-                );
-              }
-              const cs = criticalStroke(criticalPathStyle);
-              return (
-                <g key={`${d.id}->${m.id}`} data-testid={`critical-connector-${d.id}-${m.id}`}>
-                  <path d={path} fill="none" stroke={theme.criticalPathColor} strokeWidth={cs.width} strokeDasharray={cs.dash} markerEnd="url(#roadmap-arrow-critical)" />
-                  {/* "double" = overprint the middle in the ground colour */}
-                  {cs.overprint !== undefined && <path d={path} fill="none" stroke={theme.ground} strokeWidth={cs.overprint} />}
-                </g>
-              );
-            }),
-        )}
-
         <defs>
           {/* markerUnits="userSpaceOnUse" is the important bit. The default
               is "strokeWidth", which scales the arrowhead by the line's
@@ -2895,42 +2935,172 @@ export function RoadmapTimeline({
             );
           })}
 
-        {/* milestones on top of connectors — point-in-time only; endDate milestones render as duration pills above instead */}
-        {data.milestones
-          .filter((m) => !m.endDate && !resolveHidden(m, data) && laneVisible(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)))
-          .map((m) => (
-            <MilestoneMarker
-              key={m.id}
-              m={m}
-              cx={x(m.date)}
-              cy={laneY(m.laneId)}
-              theme={theme}
-              program={data}
-              primary={primaryPlacement.get(m.id) ?? null}
-              date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
-              onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
-              selected={selectedIds?.has(m.id)}
-              remoteColor={remoteSelections?.[m.id]}
-              deltaGhosts={deltaGhostPlacement.get(m.id)?.placed ?? []}
-              deltaGhostOverflow={deltaGhostPlacement.get(m.id)?.overflowCount ?? 0}
-              resolveX={x}
-              showCriticalPath={showCriticalPath}
-              traceState={tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null}
-              onDragStart={onMilestoneDateChange ? beginDrag : undefined}
-              dragDx={drag?.id === m.id ? drag.dx : undefined}
-              dragging={drag?.id === m.id}
-              fontScale={fontScale}
-              metricsScale={metricsScale}
-              titleOffset={placementFor(`title-${m.id}`)}
-              onTitleDragStart={(evt) => beginLabelDrag(`title-${m.id}`, evt)}
-              dateOffset={placementFor(`date-${m.id}`)}
-              onDateDragStart={(evt) => beginLabelDrag(`date-${m.id}`, evt)}
-              ghostOffset={placementFor(`ghost-${m.id}`)}
-              onGhostDragStart={(evt) => beginLabelDrag(`ghost-${m.id}`, evt)}
-              category={legendCategoryFillEnabled && m.categoryId ? categoryById.get(m.categoryId) : undefined}
-              dateLabelPlacement={dateLabelPlacement}
-            />
-          ))}
+        {/*
+         * Paint order (t25, wayframe#103): pills (above) -> chips (title/
+         * date/ghosts) -> connectors -> marker glyphs. Connectors paint
+         * above the chips they might cross but stay below the marker glyph
+         * itself, so a rare undodged overlap shows the line winning instead
+         * of vanishing under a chip, while endpoints still terminate
+         * cleanly inside the marker shape. `pointMilestones` is the same
+         * filtered set the old single combined marker render used — point-
+         * in-time only; endDate milestones render as duration pills above
+         * instead.
+         */}
+        {(() => {
+          const pointMilestones = data.milestones.filter(
+            (m) => !m.endDate && !resolveHidden(m, data) && laneVisible(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)),
+          );
+          return (
+            <>
+              {pointMilestones.map((m) => (
+                <MilestoneChips
+                  key={m.id}
+                  m={m}
+                  cx={x(m.date)}
+                  cy={laneY(m.laneId)}
+                  theme={theme}
+                  program={data}
+                  primary={primaryPlacement.get(m.id) ?? null}
+                  date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
+                  onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
+                  deltaGhosts={deltaGhostPlacement.get(m.id)?.placed ?? []}
+                  deltaGhostOverflow={deltaGhostPlacement.get(m.id)?.overflowCount ?? 0}
+                  resolveX={x}
+                  traceState={tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null}
+                  onDragStart={onMilestoneDateChange ? beginDrag : undefined}
+                  dragDx={drag?.id === m.id ? drag.dx : undefined}
+                  dragging={drag?.id === m.id}
+                  fontScale={fontScale}
+                  metricsScale={metricsScale}
+                  titleOffset={placementFor(`title-${m.id}`)}
+                  onTitleDragStart={(evt) => beginLabelDrag(`title-${m.id}`, evt)}
+                  dateOffset={placementFor(`date-${m.id}`)}
+                  onDateDragStart={(evt) => beginLabelDrag(`date-${m.id}`, evt)}
+                  ghostOffset={placementFor(`ghost-${m.id}`)}
+                  onGhostDragStart={(evt) => beginLabelDrag(`ghost-${m.id}`, evt)}
+                  dateLabelPlacement={dateLabelPlacement}
+                  onHoverChange={(hovered) => setHoveredMarkerId((id) => (hovered ? m.id : id === m.id ? null : id))}
+                />
+              ))}
+
+              {/* dependency connectors — orthogonal "elbow" steps */}
+              {data.milestones.flatMap((m) =>
+                m.dependsOn
+                  // showConnector curates which ordinary edges are worth drawing
+                  // (wayframe#5), but a critical edge always draws: the critical
+                  // path is only legible as a *line* if every hop in it is
+                  // visible, and in practice the curated subset and the computed
+                  // critical set don't overlap at all in the demo document.
+                  .filter((d) => {
+                    const from = milestoneById.get(d.id);
+                    // A traced edge always draws, same reasoning as a critical one:
+                    // a path is only legible if every hop in it is visible.
+                    const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(d.id);
+                    // Lane-hide (t22) — a hidden-lane milestone's edges are filtered
+                    // out same as any other "don't draw this edge" case.
+                    return laneVisible(m.laneId) && (d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath));
+                  })
+                  .map((d) => {
+                    const from = milestoneById.get(d.id);
+                    if (!from) return null;
+                    // Lane-hide (t22) — the edge's source (dependency target) being
+                    // in a hidden lane also drops the edge, not just the target `m`.
+                    if (!laneVisible(from.laneId)) return null;
+                    const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
+                    const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(from.id);
+                    const x1 = x(from.date);
+                    const y1 = laneY(from.laneId);
+                    const x2 = x(m.date);
+                    const y2 = laneY(m.laneId);
+                    const midX = x1 + (x2 - x1) / 2;
+                    // Zone-aware column sweep (t25, wayframe#103) — route midX
+                    // around any lane strictly between the two endpoints that has
+                    // a date/ghost/title chip sitting on the naive midpoint.
+                    // Same-lane connectors (fromIdx === toIdx) pass an empty
+                    // interveningZones list, skipping occupiesX entirely — there's
+                    // no "between" to cross.
+                    const fromLaneIdx = laneIndexById.get(from.laneId);
+                    const toLaneIdx = laneIndexById.get(m.laneId);
+                    let interveningZones: Zone[] = [];
+                    if (fromLaneIdx !== undefined && toLaneIdx !== undefined && fromLaneIdx !== toLaneIdx) {
+                      const lo = Math.min(fromLaneIdx, toLaneIdx);
+                      const hi = Math.max(fromLaneIdx, toLaneIdx);
+                      for (let i = lo + 1; i < hi; i++) {
+                        interveningZones = interveningZones.concat(laneZonesByLaneId.get(laneRowsOrdered[i].swimlane.id) ?? []);
+                      }
+                    }
+                    // Slack = room to the chart's own rendered left/right edges —
+                    // the prototype's demo scenarios hardcoded slack values purely
+                    // for narrative purposes; this is the real-world stand-in:
+                    // whichever side of the chart has more room to sweep into.
+                    const slackLeft = midX - MARGIN.left;
+                    const slackRight = MARGIN.left + innerWidth - midX;
+                    // halfWidth: the connector's own stroke is much thinner than
+                    // this, but MIN_GAP (the same minimum clearance every other
+                    // tier-zone consumer in this file already uses) gives the
+                    // swept column a little real breathing room around a chip's
+                    // edge rather than just touching it.
+                    const sweptMidX = sweepMidX(midX, MIN_GAP, interveningZones, slackLeft, slackRight).midX;
+                    const path = buildConnectorPath(x1, y1, x2, y2, sweptMidX, connectorStyle);
+                    if (!critical) {
+                      // Critical wins the line where the two overlap; the trace
+                      // still lifts the markers, so a traced critical edge
+                      // doesn't lose which one it is. Dash/arrowhead choice
+                      // only applies to this plain treatment —
+                      // critical/traced connectors keep their own fixed look
+                      // below, same reasoning theme.criticalPathColor is never
+                      // overridable per-viewer.
+                      return (
+                        <path
+                          key={`${d.id}->${m.id}`}
+                          data-testid={traced ? `traced-connector-${d.id}-${m.id}` : undefined}
+                          d={path}
+                          fill="none"
+                          stroke={traced ? theme.traceColor : theme.connector}
+                          strokeOpacity={traced ? 0.95 : 0.55}
+                          strokeWidth={traced ? 2.5 : 1.25}
+                          strokeDasharray={traced ? undefined : CONNECTOR_DASH_ARRAY[connectorDash]}
+                          markerEnd={traced ? "url(#roadmap-arrow-trace)" : `url(#roadmap-arrow-connector-${connectorArrow})`}
+                        />
+                      );
+                    }
+                    const cs = criticalStroke(criticalPathStyle);
+                    return (
+                      <g key={`${d.id}->${m.id}`} data-testid={`critical-connector-${d.id}-${m.id}`}>
+                        <path d={path} fill="none" stroke={theme.criticalPathColor} strokeWidth={cs.width} strokeDasharray={cs.dash} markerEnd="url(#roadmap-arrow-critical)" />
+                        {/* "double" = overprint the middle in the ground colour */}
+                        {cs.overprint !== undefined && <path d={path} fill="none" stroke={theme.ground} strokeWidth={cs.overprint} />}
+                      </g>
+                    );
+                  }),
+              )}
+
+              {pointMilestones.map((m) => (
+                <MilestoneGlyph
+                  key={m.id}
+                  m={m}
+                  cx={x(m.date)}
+                  cy={laneY(m.laneId)}
+                  theme={theme}
+                  program={data}
+                  onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
+                  selected={selectedIds?.has(m.id)}
+                  remoteColor={remoteSelections?.[m.id]}
+                  showCriticalPath={showCriticalPath}
+                  traceState={tracedIds ? (tracedIds.has(m.id) ? "in" : "out") : null}
+                  onDragStart={onMilestoneDateChange ? beginDrag : undefined}
+                  dragDx={drag?.id === m.id ? drag.dx : undefined}
+                  dragging={drag?.id === m.id}
+                  fontScale={fontScale}
+                  metricsScale={metricsScale}
+                  category={legendCategoryFillEnabled && m.categoryId ? categoryById.get(m.categoryId) : undefined}
+                  isHovered={hoveredMarkerId === m.id}
+                  onHoverChange={(hovered) => setHoveredMarkerId((id) => (hovered ? m.id : id === m.id ? null : id))}
+                />
+              ))}
+            </>
+          );
+        })()}
 
         {/* Vertical marker layer. Everything full-height is drawn here,
             after the lanes, so a date line always reads across the whole

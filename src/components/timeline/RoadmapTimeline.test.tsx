@@ -705,3 +705,122 @@ describe("swimlane groups (t21, wayframe#100)", () => {
     expect(onToggleGroupCollapsed).toHaveBeenCalledWith("grp-1");
   });
 });
+
+describe("connector-line rewrite (t25, wayframe#103)", () => {
+  it("reveals a milestone's tooltip when hovering its chips layer, even though the tooltip lives in the separate glyph layer", () => {
+    // MilestoneChips (title/date/ghosts) and MilestoneGlyph (rings, shape,
+    // tooltip) used to be one <g> with CSS group/group-hover powering the
+    // tooltip; t25 split them into separate paint layers so connectors can
+    // render between them, which broke group-hover across the two sibling
+    // <g>s. Hover state is now lifted into RoadmapTimeline and threaded
+    // down explicitly instead — this is the behavior most at risk from
+    // that rewrite, so it gets real coverage, not just a DOM-presence check.
+    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const tooltip = container.querySelector('[data-testid="marker-tooltip-m1"]') as HTMLElement;
+    const chips = container.querySelector('[data-testid="marker-chips-m1"]') as HTMLElement;
+    const glyph = container.querySelector('[data-testid="marker-glyph-m1"]') as HTMLElement;
+    expect(tooltip).not.toBeNull();
+    expect(tooltip.style.opacity).toBe("0");
+
+    fireEvent.mouseEnter(chips);
+    expect(tooltip.style.opacity).toBe("1");
+    fireEvent.mouseLeave(chips);
+    expect(tooltip.style.opacity).toBe("0");
+
+    // Hovering the glyph itself (not just its chips) must still work too.
+    fireEvent.mouseEnter(glyph);
+    expect(tooltip.style.opacity).toBe("1");
+    fireEvent.mouseLeave(glyph);
+    expect(tooltip.style.opacity).toBe("0");
+  });
+
+  const threeLaneBase: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlanes: [
+      { id: "sep-1", order: 0, type: "separator", name: "Group" },
+      { id: "lane-a", order: 1, type: "lane", name: "Lane A" },
+      { id: "lane-mid", order: 2, type: "lane", name: "Lane Mid" },
+      { id: "lane-c", order: 3, type: "lane", name: "Lane C" },
+    ],
+    topLevelItems: [],
+    // m1 -> m3 both critical, so the dependency always draws
+    // (data-testid="critical-connector-m1-m3") regardless of showConnector,
+    // and its naive geometric midpoint (temporally: Jan 11, exactly halfway
+    // between Jan 1 and Jan 21) crosses lane-mid, strictly between the two
+    // endpoint lanes.
+    milestones: [
+      { id: "m1", laneId: "lane-a", title: "Start", date: "2026-01-01", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: true },
+      { id: "m3", laneId: "lane-c", title: "End", date: "2026-01-21", status: "on-track", dependsOn: [{ id: "m1", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: true },
+    ],
+  };
+
+  function firstConnectorD(container: HTMLElement, testId: string): string {
+    const path = container.querySelector(`[data-testid="${testId}"] path`);
+    expect(path).not.toBeNull();
+    return path!.getAttribute("d")!;
+  }
+
+  function parseElbowMidX(d: string): number {
+    // "M{x1},{y1} L{midX},{y1} L{midX},{y2} L{x2},{y2}"
+    const match = d.match(/^M[-\d.]+,[-\d.]+ L([-\d.]+),/);
+    if (!match) throw new Error(`could not parse elbow path: ${d}`);
+    return Number(match[1]);
+  }
+
+  it("routes a connector's midpoint away from a lane-mid milestone sitting on the naive midpoint, versus staying naive when lane-mid is empty", () => {
+    const clear = threeLaneBase; // lane-mid has no milestones at all
+    const blocked: RenderableProgram = {
+      ...threeLaneBase,
+      milestones: [
+        ...threeLaneBase.milestones,
+        // Sits exactly at the naive midpoint date, in the lane strictly
+        // between m1 and m3's lanes — its date-label chip alone (no delta
+        // ghost needed) is enough to occupy that column in lane-mid's zone.
+        { id: "m2", laneId: "lane-mid", title: "Mid", date: "2026-01-11", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+      ],
+    };
+
+    const { container: clearContainer } = render(<RoadmapTimeline data={clear} today={new Date("2026-01-20T00:00:00Z")} />);
+    const { container: blockedContainer } = render(<RoadmapTimeline data={blocked} today={new Date("2026-01-20T00:00:00Z")} />);
+
+    const clearD = firstConnectorD(clearContainer, "critical-connector-m1-m3");
+    const blockedD = firstConnectorD(blockedContainer, "critical-connector-m1-m3");
+
+    expect(blockedD).not.toBe(clearD);
+    const clearMidX = parseElbowMidX(clearD);
+    const blockedMidX = parseElbowMidX(blockedD);
+    // Swept to a clear column in fixed 8px steps (SWEEP_STEP), not an
+    // arbitrary shift.
+    const stepsMoved = Math.abs(blockedMidX - clearMidX) / 8;
+    expect(Number.isInteger(stepsMoved)).toBe(true);
+    expect(stepsMoved).toBeGreaterThan(0);
+    expect(stepsMoved).toBeLessThanOrEqual(6);
+  });
+
+  it("leaves a same-lane connector's midpoint at the naive geometric midpoint, unaffected by chips sitting on it", () => {
+    const sameLane: RenderableProgram = {
+      ...threeLaneBase,
+      milestones: [
+        { id: "m1", laneId: "lane-a", title: "Start", date: "2026-01-01", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: true },
+        // Sits at m1->m3's own naive midpoint date, in the SAME lane as
+        // both endpoints — there is no "between" lane to cross, so this
+        // must never affect the connector's routing even though it's a
+        // real chip sitting right on the geometric midpoint column.
+        { id: "m2", laneId: "lane-a", title: "Mid", date: "2026-01-11", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+        { id: "m3", laneId: "lane-a", title: "End", date: "2026-01-21", status: "on-track", dependsOn: [{ id: "m1", showConnector: true }], linksToTopLevelMilestone: null, isCriticalPath: true },
+      ],
+    };
+
+    const { container } = render(<RoadmapTimeline data={sameLane} today={new Date("2026-01-20T00:00:00Z")} />);
+    const d = firstConnectorD(container, "critical-connector-m1-m3");
+    const midX = parseElbowMidX(d);
+    const match = d.match(/^M([-\d.]+),([-\d.]+) L/);
+    const x1 = Number(match![1]);
+    const y = Number(match![2]);
+    const lastMatch = d.match(/L([-\d.]+),([-\d.]+)$/);
+    const x2 = Number(lastMatch![1]);
+    expect(midX).toBeCloseTo(x1 + (x2 - x1) / 2, 5);
+    // Same-lane: y1 === y2, both ends at the lane's own y.
+    expect(d).toBe(`M${x1},${y} L${midX},${y} L${midX},${y} L${x2},${y}`);
+  });
+});

@@ -10,7 +10,7 @@
 // layoutDateLabels is migrated onto the shared tier-allocator primitive
 // (t24) — layoutGhostBadges is not yet (a later fork handles that fusion).
 
-import { allocate, createZone, type Demand } from "@/lib/layout/tier-allocator";
+import { allocate, createZone, type Demand, type Zone } from "@/lib/layout/tier-allocator";
 
 export const DATE_TIER_DY = [20, 32, 44] as const; // below marker center
 /**
@@ -55,12 +55,19 @@ export interface GhostBlocker {
  * enough to reach past tier 0 into tier 1's row too, so a badge that
  * collides with one skips straight to tier 2, clear of either.
  */
-export function layoutGhostBadges(items: GhostBadgeItem[], blockers: GhostBlocker[], charWidth = GHOST_CHAR_W): Map<string, TierPlacement> {
+export function layoutGhostBadges(
+  items: GhostBadgeItem[],
+  blockers: GhostBlocker[],
+  charWidth = GHOST_CHAR_W,
+  /** Exposes the zone this call built (t25) — lets a caller later ask `occupiesX` against the exact same placed-interval state, e.g. a dependency connector routing around this lane's chips. */
+  captureZone?: (zone: Zone) => void,
+): Map<string, TierPlacement> {
   // Blockers must be registered before any placement happens — the
   // convenience `allocate()` wrapper runs its whole placement loop
   // internally with no hook for that, so this uses `createZone()` directly
   // (the documented reason it's exported as its own lower-level API).
   const zone = createZone({ tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
+  captureZone?.(zone);
   for (const b of blockers) zone.registerBlocker(b.x, b.w);
   const sorted = [...items].sort((a, b) => a.x - b.x);
   const result = new Map<string, TierPlacement>();
@@ -75,6 +82,8 @@ export function layoutGhostBadges(items: GhostBadgeItem[], blockers: GhostBlocke
 export function layoutDateLabels(
   items: { id: string; x: number; full: string; compact: string }[],
   charWidth = DATE_CHAR_W,
+  /** Exposes the zone this call built (t25) — see layoutGhostBadges's captureZone. */
+  captureZone?: (zone: Zone) => void,
 ): Map<string, TierPlacement> {
   const demands: Demand[] = items.map((it) => ({
     id: it.id,
@@ -85,7 +94,8 @@ export function layoutDateLabels(
       { key: "compact", width: it.compact.length * charWidth + 6 },
     ],
   }));
-  const { results } = allocate(demands, { tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
+  const { results, zone } = allocate(demands, { tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
+  captureZone?.(zone);
   const result = new Map<string, TierPlacement>();
   for (const it of items) {
     const placement = results.get(it.id)!;

@@ -133,6 +133,15 @@ export interface Zone {
    * to the outer slot never re-checks blockers).
    */
   registerBlocker(x: number, w: number, opts?: { tier?: number }): void;
+  /**
+   * Read-only "is this column busy" query (t25) — reads the same placed-
+   * interval state `place()` already builds, plus every registered
+   * blocker, across every real tier. Never mutates zone state: a
+   * connector asking whether a column is clear must not itself claim
+   * that column, or two connectors probing the same clear spot would
+   * fight over who "placed" there first.
+   */
+  occupiesX(x: number, halfWidth: number): boolean;
 }
 
 interface Blocker {
@@ -145,6 +154,11 @@ export function createZone(config: ZoneConfig): Zone {
   const tierBlockers: Blocker[][] = Array.from({ length: config.tierCount }, () => []);
   const anyTierBlockers: Blocker[] = [];
   const anchorCounts = new Map<string, number>();
+  // Full interval list per tier, kept alongside lastRight — lastRight alone
+  // only tells you the rightmost claimed extent, enough for left-to-right
+  // packing but not for occupiesX's "is this column busy" query at an
+  // arbitrary x that may sit inside an earlier gap.
+  const placedIntervals: { left: number; right: number }[][] = Array.from({ length: config.tierCount }, () => []);
 
   function registerBlocker(x: number, w: number, opts?: { tier?: number }): void {
     const b: Blocker = { x, w };
@@ -193,6 +207,7 @@ export function createZone(config: ZoneConfig): Zone {
         const right = item.x + variant.width / 2;
         if (fits(t, left, right)) {
           lastRight[t] = right;
+          placedIntervals[t].push({ left, right });
           return { id: item.id, tier: t, variantKey: variant.key, overflowed: false, hidden: false, left };
         }
       }
@@ -208,7 +223,9 @@ export function createZone(config: ZoneConfig): Zone {
         let best = 0;
         for (let t = 1; t < config.tierCount; t++) if (lastRight[t] < lastRight[best]) best = t;
         const nudgedLeft = lastRight[best] + config.gap;
-        lastRight[best] = nudgedLeft + narrowest.width;
+        const nudgedRight = nudgedLeft + narrowest.width;
+        lastRight[best] = nudgedRight;
+        placedIntervals[best].push({ left: nudgedLeft, right: nudgedRight });
         return { id: item.id, tier: best, variantKey: narrowest.key, overflowed: false, hidden: false, nudged: true, left: nudgedLeft };
       }
       case "hide":
@@ -220,7 +237,21 @@ export function createZone(config: ZoneConfig): Zone {
     }
   }
 
-  return { place, registerBlocker };
+  // Read-only. Does NOT mutate lastRight/placedIntervals/blockers — see the
+  // Zone interface doc comment for why.
+  function occupiesX(x: number, halfWidth: number): boolean {
+    const left = x - halfWidth;
+    const right = x + halfWidth;
+    for (let t = 0; t < config.tierCount; t++) {
+      for (const iv of placedIntervals[t]) {
+        if (left < iv.right + config.gap && right > iv.left - config.gap) return true;
+      }
+    }
+    const hit = (b: Blocker) => left < b.x + b.w / 2 + config.gap && right > b.x - b.w / 2 - config.gap;
+    return anyTierBlockers.some(hit) || tierBlockers.some((list) => list.some(hit));
+  }
+
+  return { place, registerBlocker, occupiesX };
 }
 
 /**

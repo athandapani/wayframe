@@ -214,4 +214,47 @@ describe("tier-allocator", () => {
       expect(result).toEqual({ id: "b", tier: 1, variantKey: "only", overflowed: true, hidden: false });
     });
   });
+
+  describe("occupiesX() (t25)", () => {
+    it("is true when a query interval overlaps a placed item's claimed interval, respecting gap", () => {
+      const zone = createZone({ tierCount: 1, gap: 2, onExhausted: "hide" });
+      zone.place({ id: "a", x: 0, priority: 1, variants: [{ key: "only", width: 10 }] }); // claims [-5, 5]
+
+      expect(zone.occupiesX(6, 1)).toBe(true); // [5,7] — right at the gap-padded edge (5+2=7)
+      expect(zone.occupiesX(20, 1)).toBe(false); // far clear
+    });
+
+    it("is false over a genuinely clear column", () => {
+      const zone = createZone({ tierCount: 2, gap: 2, onExhausted: "hide" });
+      zone.place({ id: "a", x: -100, priority: 1, variants: [{ key: "only", width: 10 }] });
+
+      expect(zone.occupiesX(0, 5)).toBe(false);
+    });
+
+    it("is true over a tier-scoped registered blocker even though nothing was ever placed there", () => {
+      const zone = createZone({ tierCount: 2, gap: 2, onExhausted: "hide" });
+      zone.registerBlocker(50, 20, { tier: 0 });
+
+      expect(zone.occupiesX(50, 1)).toBe(true);
+    });
+
+    it("is true over an any-tier registered blocker", () => {
+      const zone = createZone({ tierCount: 2, gap: 2, onExhausted: "hide" });
+      zone.registerBlocker(50, 20);
+
+      expect(zone.occupiesX(50, 1)).toBe(true);
+    });
+
+    it("does not mutate zone state — a later place() at the queried column is unaffected by intervening occupiesX calls", () => {
+      const zone = createZone({ tierCount: 1, gap: 2, onExhausted: "hide" });
+
+      // Repeated read-only queries over an empty zone.
+      expect(zone.occupiesX(0, 5)).toBe(false);
+      expect(zone.occupiesX(0, 5)).toBe(false);
+
+      // The zone is still pristine: a fresh placement at x=0 gets a clean fit.
+      const result = zone.place({ id: "a", x: 0, priority: 1, variants: [{ key: "only", width: 4 }] });
+      expect(result).toEqual({ id: "a", tier: 0, variantKey: "only", overflowed: false, hidden: false, left: -2 });
+    });
+  });
 });
