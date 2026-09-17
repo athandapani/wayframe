@@ -9,26 +9,11 @@
 import { useState } from "react";
 import type { RenderableProgram } from "../timeline/types";
 import { formatDateShort } from "../timeline/date-utils";
-import { laneRollups, topRisks, type Rag } from "./rag";
+import { laneRollups, topRisks, RAG_BORDER, RAG_BG } from "./rag";
 import { ExecutiveTimeline } from "./ExecutiveTimeline";
 import type { ExecutiveTimelineSummary } from "./timeline-summary";
 import { blufHtmlToPlainText } from "@/lib/rich-text/sanitize";
 
-// Sourced from theme.ragColor via the --wf-rag-* CSS vars RoadmapWorkspace.tsx
-// publishes (wayframe#82) — same pattern as ExecutiveTimeline.tsx's RAG_COLOR.
-// The translucent tile background is derived with color-mix() rather than a
-// second hardcoded rgba() per RAG bucket, so there's one themed color per
-// bucket, not two independently-maintained ones.
-const RAG_BORDER: Record<Rag, string> = {
-  green: "var(--wf-rag-green, #22c55e)",
-  amber: "var(--wf-rag-amber, #f59e0b)",
-  red: "var(--wf-rag-red, #ef4444)",
-};
-const RAG_BG: Record<Rag, string> = {
-  green: `color-mix(in srgb, ${RAG_BORDER.green} 12%, transparent)`,
-  amber: `color-mix(in srgb, ${RAG_BORDER.amber} 14%, transparent)`,
-  red: `color-mix(in srgb, ${RAG_BORDER.red} 14%, transparent)`,
-};
 const TREND_ARROW = { up: "↑", down: "↓", flat: "→" };
 
 /**

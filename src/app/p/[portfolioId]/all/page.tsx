@@ -34,6 +34,7 @@ import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { buildMultiProgramOutlineTree, isLeafKind, type OutlineNode } from "@/lib/outline-tree/tree";
+import { PortfolioRollupBar } from "@/components/executive-view/PortfolioRollupBar";
 
 interface AllProgramsSuccess {
   role: "owner" | "editor" | "viewer";
@@ -249,6 +250,8 @@ export default function AllProgramsPage() {
             </Link>
             <span className="ml-2 font-semibold text-gray-800">All Programs</span>
           </div>
+
+          <PortfolioRollupBar programs={result.data.programs} today={today} />
 
           <div className="mb-4 rounded-lg border border-gray-200 bg-white">
             <button
