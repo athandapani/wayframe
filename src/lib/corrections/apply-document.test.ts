@@ -1,19 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { Milestone, Program } from "@/components/timeline/types";
 import {
+  addSwimlaneGroupOp,
   addSwimlaneOp,
   applyDeletes,
   applySwimlaneOps,
+  moveSwimlaneGroupOp,
   moveSwimlaneOp,
   removeMilestoneOp,
+  removeSwimlaneGroupOp,
   removeSwimlaneOp,
   removeTopLevelItemOp,
+  renameSwimlaneGroupOp,
   renameSwimlaneOp,
   resolveNamedLaneColor,
   setLaneColorOp,
   setLaneDensityOp,
   setLaneHiddenOp,
   setRagOverrideOp,
+  setSwimlaneGroupColorOp,
+  setSwimlaneGroupCollapsedOp,
+  setSwimlaneGroupIdOp,
 } from "./apply-document";
 import type { DeleteOp, SwimlaneOp } from "./schema";
 
@@ -50,6 +57,37 @@ function baseData(): Program {
       milestone("a1", "lane-a", { linksToTopLevelMilestone: "t1" }),
       milestone("b1", "lane-b", { dependsOn: [{ id: "a1", showConnector: true }] }),
     ],
+  };
+}
+
+/**
+ * Top-level order space: lane-a(0), g1(1), g2(2). g1's members are
+ * lane-x(0)/lane-y(1); g2's sole member is lane-z(0) — each group's member
+ * `order` is scoped to its own siblings, deliberately overlapping with the
+ * other group's and with the top-level space, to prove moves stay scoped.
+ */
+function groupedData(): Program {
+  return {
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
+    programName: "P",
+    generatedAt: "2026-01-01T00:00:00Z",
+    owner: "o",
+    bluf: { statement: "s", bullets: [] },
+    actionItems: [],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Alpha" },
+      { id: "lane-x", order: 0, type: "lane", name: "Xray", groupId: "g1" },
+      { id: "lane-y", order: 1, type: "lane", name: "Yankee", groupId: "g1" },
+      { id: "lane-z", order: 0, type: "lane", name: "Zulu", groupId: "g2" },
+    ],
+    swimlaneGroups: [
+      { id: "g1", order: 1, name: "Group 1" },
+      { id: "g2", order: 2, name: "Group 2" },
+    ],
+    topLevelItems: [],
+    milestones: [milestone("x1", "lane-x")],
   };
 }
 
@@ -152,6 +190,166 @@ describe("setLaneColorOp / setRagOverrideOp", () => {
     const hidden = setLaneHiddenOp(baseData(), "lane-a", true);
     const next = setLaneHiddenOp(hidden, "lane-a", false);
     expect(next.swimlanes.find((l) => l.id === "lane-a")!.hidden).toBe(false);
+  });
+});
+
+describe("addSwimlaneGroupOp / renameSwimlaneGroupOp / setSwimlaneGroupColorOp / setSwimlaneGroupCollapsedOp", () => {
+  it("appends a new group at the end of the top-level order space (zero-group document)", () => {
+    // baseData's swimlanes top out at order 2 (the "sep" row) and there are no groups yet.
+    const next = addSwimlaneGroupOp(baseData(), "New group", "g-new");
+    expect(next.swimlaneGroups).toEqual([{ id: "g-new", order: 3, name: "New group" }]);
+  });
+
+  it("appends past both existing groups' and grouped lanes' orders (already-grouped document)", () => {
+    // groupedData's swimlane orders top out at 1 (lane-y, inside g1) and group orders top out at 2 (g2).
+    const next = addSwimlaneGroupOp(groupedData(), "Group 3", "g3");
+    expect(next.swimlaneGroups!.at(-1)).toEqual({ id: "g3", order: 3, name: "Group 3" });
+    // Existing groups/lanes untouched.
+    expect(next.swimlaneGroups!.slice(0, 2)).toEqual(groupedData().swimlaneGroups);
+    expect(next.swimlanes).toEqual(groupedData().swimlanes);
+  });
+
+  it("renames without touching anything else", () => {
+    const next = renameSwimlaneGroupOp(groupedData(), "g1", "Renamed");
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")!.name).toBe("Renamed");
+    expect(next.swimlaneGroups!.find((g) => g.id === "g2")).toEqual(groupedData().swimlaneGroups![1]);
+  });
+
+  it("sets and clears a group's color", () => {
+    const colored = setSwimlaneGroupColorOp(groupedData(), "g1", "#123456");
+    expect(colored.swimlaneGroups!.find((g) => g.id === "g1")!.color).toBe("#123456");
+    const cleared = setSwimlaneGroupColorOp(colored, "g1", undefined);
+    expect(cleared.swimlaneGroups!.find((g) => g.id === "g1")!.color).toBeUndefined();
+  });
+
+  it("collapses and expands a group", () => {
+    const collapsed = setSwimlaneGroupCollapsedOp(groupedData(), "g1", true);
+    expect(collapsed.swimlaneGroups!.find((g) => g.id === "g1")!.collapsed).toBe(true);
+    const expanded = setSwimlaneGroupCollapsedOp(collapsed, "g1", false);
+    expect(expanded.swimlaneGroups!.find((g) => g.id === "g1")!.collapsed).toBe(false);
+  });
+});
+
+describe("removeSwimlaneGroupOp", () => {
+  it("ungroups (not deletes) its member lanes, and never touches their milestones", () => {
+    const next = removeSwimlaneGroupOp(groupedData(), "g1");
+    expect(next.swimlaneGroups!.map((g) => g.id)).toEqual(["g2"]);
+    // Members survive, ungrouped.
+    expect(next.swimlanes.find((l) => l.id === "lane-x")!.groupId).toBeUndefined();
+    expect(next.swimlanes.find((l) => l.id === "lane-y")!.groupId).toBeUndefined();
+    // A lane in the OTHER group, and the ungrouped lane, are untouched.
+    expect(next.swimlanes.find((l) => l.id === "lane-z")).toEqual(groupedData().swimlanes[3]);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")).toEqual(groupedData().swimlanes[0]);
+    // No milestone or dependency cleanup — that's a lane-deletion concern, not a group-removal one.
+    expect(next.milestones).toEqual(groupedData().milestones);
+  });
+
+  it("gives the orphaned lanes valid, non-colliding top-level orders", () => {
+    const next = removeSwimlaneGroupOp(groupedData(), "g1");
+    const x = next.swimlanes.find((l) => l.id === "lane-x")!;
+    const y = next.swimlanes.find((l) => l.id === "lane-y")!;
+    // Top-level order space before removal tops out at 2 (g2) — the orphans
+    // must land strictly above every existing top-level order, and not collide with each other.
+    expect(x.order).toBeGreaterThan(2);
+    expect(y.order).toBeGreaterThan(2);
+    expect(x.order).not.toBe(y.order);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(0);
+  });
+});
+
+describe("moveSwimlaneGroupOp", () => {
+  it("swaps two top-level peers without touching grouped-lane orders", () => {
+    const data = groupedData();
+    // Top-level order: lane-a(0), g1(1), g2(2) — move g1 up past lane-a.
+    const next = moveSwimlaneGroupOp(data, "g1", -1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")!.order).toBe(0);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g2")!.order).toBe(2);
+    // g1's own members (scoped order space) are provably untouched.
+    expect(next.swimlanes.find((l) => l.id === "lane-x")).toEqual(data.swimlanes[1]);
+    expect(next.swimlanes.find((l) => l.id === "lane-y")).toEqual(data.swimlanes[2]);
+    // g2's member likewise untouched.
+    expect(next.swimlanes.find((l) => l.id === "lane-z")).toEqual(data.swimlanes[3]);
+  });
+
+  it("no-ops (same reference) at the top-level boundary", () => {
+    const data = groupedData();
+    expect(moveSwimlaneGroupOp(data, "g2", 1)).toBe(data);
+  });
+
+  it("no-ops (same reference) for an unknown id", () => {
+    const data = groupedData();
+    expect(moveSwimlaneGroupOp(data, "does-not-exist", 1)).toBe(data);
+  });
+});
+
+describe("moveSwimlaneOp (t21 generalization)", () => {
+  it("on a grouped lane, reorders only within that group's siblings", () => {
+    const data = groupedData();
+    // g1's members: lane-x(0), lane-y(1) — move lane-y up.
+    const next = moveSwimlaneOp(data, "lane-y", -1);
+    expect(next.swimlanes.find((l) => l.id === "lane-y")!.order).toBe(0);
+    expect(next.swimlanes.find((l) => l.id === "lane-x")!.order).toBe(1);
+    // A lane in a DIFFERENT group is provably unaffected.
+    expect(next.swimlanes.find((l) => l.id === "lane-z")).toEqual(data.swimlanes[3]);
+    // An ungrouped lane is provably unaffected.
+    expect(next.swimlanes.find((l) => l.id === "lane-a")).toEqual(data.swimlanes[0]);
+    // Groups themselves (and their orders) are untouched by an in-group move.
+    expect(next.swimlaneGroups).toBe(data.swimlaneGroups);
+  });
+
+  it("on an ungrouped lane, treats groups as opaque top-level peers", () => {
+    const data = groupedData();
+    // Top-level order: lane-a(0), g1(1), g2(2) — move lane-a down past g1.
+    const next = moveSwimlaneOp(data, "lane-a", 1);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")!.order).toBe(0);
+    // g1's members are provably untouched by the swap crossing over the group.
+    expect(next.swimlanes.find((l) => l.id === "lane-x")).toEqual(data.swimlanes[1]);
+    expect(next.swimlanes.find((l) => l.id === "lane-y")).toEqual(data.swimlanes[2]);
+    expect(next.swimlanes.find((l) => l.id === "lane-z")).toEqual(data.swimlanes[3]);
+  });
+
+  it("zero-group documents keep the exact pre-t21 behavior (regression guard)", () => {
+    const next = moveSwimlaneOp(baseData(), "lane-b", -1);
+    expect([...next.swimlanes].sort((a, b) => a.order - b.order).map((l) => l.id)).toEqual(["lane-b", "lane-a", "sep"]);
+    // No swimlaneGroups key is introduced where none existed before.
+    expect(next.swimlaneGroups).toBeUndefined();
+  });
+});
+
+describe("setSwimlaneGroupIdOp", () => {
+  it("moves a lane into a different group, landing after that group's existing members", () => {
+    const next = setSwimlaneGroupIdOp(groupedData(), "lane-z", "g1");
+    const moved = next.swimlanes.find((l) => l.id === "lane-z")!;
+    expect(moved.groupId).toBe("g1");
+    expect(moved.order).toBe(2); // after lane-x(0)/lane-y(1)
+  });
+
+  it("moves a lane into an empty group at order 0", () => {
+    const withG3 = addSwimlaneGroupOp(groupedData(), "Group 3", "g3");
+    const next = setSwimlaneGroupIdOp(withG3, "lane-a", "g3");
+    expect(next.swimlanes.find((l) => l.id === "lane-a")).toMatchObject({ groupId: "g3", order: 0 });
+  });
+
+  it("ungroups a lane into the top-level order space with no collision", () => {
+    const data = groupedData();
+    const next = setSwimlaneGroupIdOp(data, "lane-x", undefined);
+    const moved = next.swimlanes.find((l) => l.id === "lane-x")!;
+    expect(moved.groupId).toBeUndefined();
+    expect(moved.order).toBeGreaterThan(2); // strictly past every existing top-level order (g2's order 2)
+    // The other g1 member is untouched.
+    expect(next.swimlanes.find((l) => l.id === "lane-y")).toEqual(data.swimlanes[2]);
+  });
+
+  it("no-ops for an unknown lane id", () => {
+    const data = groupedData();
+    expect(setSwimlaneGroupIdOp(data, "does-not-exist", "g1")).toBe(data);
+  });
+
+  it("no-ops for a groupId that doesn't resolve to a real group", () => {
+    const data = groupedData();
+    expect(setSwimlaneGroupIdOp(data, "lane-a", "not-a-real-group")).toBe(data);
   });
 });
 

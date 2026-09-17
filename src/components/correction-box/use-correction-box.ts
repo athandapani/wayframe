@@ -25,18 +25,25 @@ import type { ProgramConflict } from "@/lib/realtime/program-conflict";
 import { resolveBulkShiftOps } from "@/lib/corrections/bulk-shift";
 import { applyAcceptBaselineOps, applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
 import {
+  addSwimlaneGroupOp,
   addSwimlaneOp,
   applyDeletes,
   applySwimlaneOps,
+  moveSwimlaneGroupOp,
   moveSwimlaneOp,
   removeMilestoneOp,
+  removeSwimlaneGroupOp,
   removeSwimlaneOp,
   removeTopLevelItemOp,
+  renameSwimlaneGroupOp,
   renameSwimlaneOp,
   setLaneColorOp,
   setLaneDensityOp,
   setLaneHiddenOp,
   setRagOverrideOp,
+  setSwimlaneGroupColorOp,
+  setSwimlaneGroupCollapsedOp,
+  setSwimlaneGroupIdOp,
 } from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
 import { validatePortfolioDocument } from "@/lib/document-file/schema";
@@ -165,6 +172,13 @@ export type CorrectionBoxAction =
   | { type: "setRagOverride"; id: string; rag: Rag | "auto" }
   | { type: "setLaneDensity"; id: string; density: "normal" | "lean" }
   | { type: "setLaneHidden"; id: string; hidden: boolean }
+  | { type: "addSwimlaneGroup"; newId: string }
+  | { type: "renameSwimlaneGroup"; id: string; name: string }
+  | { type: "removeSwimlaneGroup"; id: string }
+  | { type: "setSwimlaneGroupColor"; id: string; color: string | undefined }
+  | { type: "setSwimlaneGroupCollapsed"; id: string; collapsed: boolean }
+  | { type: "moveSwimlaneGroup"; id: string; delta: -1 | 1 }
+  | { type: "setSwimlaneGroupId"; laneId: string; groupId: string | undefined }
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
@@ -646,6 +660,75 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "addSwimlaneGroup": {
+      // Mirrors addSwimlane: appended at the end of the top-level order
+      // space, immediately-editable blank name (wayframe t21).
+      return {
+        ...state,
+        data: stampUpdated(state.data, addSwimlaneGroupOp(state.data, "New group", action.newId)),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "renameSwimlaneGroup": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, renameSwimlaneGroupOp(state.data, action.id, action.name)),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "removeSwimlaneGroup": {
+      // A group is an organizational wrapper, not an owner of its lanes —
+      // this ungroups its members rather than deleting them or their
+      // milestones (wayframe t21), unlike removeSwimlane.
+      return {
+        ...state,
+        data: stampUpdated(state.data, removeSwimlaneGroupOp(state.data, action.id)),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "setSwimlaneGroupColor": {
+      // Mirrors setLaneColor's placement/pattern, for a SwimlaneGroup.
+      return {
+        ...state,
+        data: stampUpdated(state.data, setSwimlaneGroupColorOp(state.data, action.id, action.color)),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "setSwimlaneGroupCollapsed": {
+      // Document content, not a viewer preference — same reasoning as setLaneHidden.
+      return {
+        ...state,
+        data: stampUpdated(state.data, setSwimlaneGroupCollapsedOp(state.data, action.id, action.collapsed)),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "moveSwimlaneGroup": {
+      const moved = moveSwimlaneGroupOp(state.data, action.id, action.delta);
+      if (moved === state.data) return state;
+      return {
+        ...state,
+        data: stampUpdated(state.data, moved),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "setSwimlaneGroupId": {
+      // Direct group-picker reassignment (wayframe t21) — distinct from
+      // moveSwimlaneGroup/moveSwimlane's adjacent-swap.
+      const moved = setSwimlaneGroupIdOp(state.data, action.laneId, action.groupId);
+      if (moved === state.data) return state;
+      return {
+        ...state,
+        data: stampUpdated(state.data, moved),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
     case "setCompanyLogo": {
       // Upload / replace (wayframe#46/#54) — same undo-tracked, lastUpdatedAt-bumping
       // treatment as every other document-changing action; not add-only, so a second
@@ -932,6 +1015,16 @@ export interface UseCorrectionBoxResult {
   setLaneDensity: (id: string, density: "normal" | "lean") => void;
   /** Lane-hide (t22) — excluded from layout entirely when true, per the SwimlaneManager toggle. */
   setLaneHidden: (id: string, hidden: boolean) => void;
+  /** Swimlane Groups (t21) — mirrors addSwimlane; always "New group", editable after. */
+  addSwimlaneGroup: () => void;
+  renameSwimlaneGroup: (id: string, name: string) => void;
+  /** Ungroups the group's member lanes rather than deleting them. */
+  removeSwimlaneGroup: (id: string) => void;
+  setSwimlaneGroupColor: (id: string, color: string | undefined) => void;
+  setSwimlaneGroupCollapsed: (id: string, collapsed: boolean) => void;
+  moveSwimlaneGroup: (id: string, delta: -1 | 1) => void;
+  /** Direct group-picker reassignment — moves a lane into a different group, or ungroups it (`groupId: undefined`). */
+  setSwimlaneGroupId: (laneId: string, groupId: string | undefined) => void;
   loadDocument: (data: Program) => void;
   /** File-Open — replaces the whole PortfolioDocument (Program + its Portfolio), unlike loadDocument's Program-only replace. */
   loadPortfolioDocument: (document: PortfolioDocument) => void;
@@ -1228,6 +1321,13 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const setRagOverride = useCallback((id: string, rag: Rag | "auto") => dispatch({ type: "setRagOverride", id, rag }), []);
   const setLaneDensity = useCallback((id: string, density: "normal" | "lean") => dispatch({ type: "setLaneDensity", id, density }), []);
   const setLaneHidden = useCallback((id: string, hidden: boolean) => dispatch({ type: "setLaneHidden", id, hidden }), []);
+  const addSwimlaneGroup = useCallback(() => dispatch({ type: "addSwimlaneGroup", newId: nanoid() }), []);
+  const renameSwimlaneGroup = useCallback((id: string, name: string) => dispatch({ type: "renameSwimlaneGroup", id, name }), []);
+  const removeSwimlaneGroup = useCallback((id: string) => dispatch({ type: "removeSwimlaneGroup", id }), []);
+  const setSwimlaneGroupColor = useCallback((id: string, color: string | undefined) => dispatch({ type: "setSwimlaneGroupColor", id, color }), []);
+  const setSwimlaneGroupCollapsed = useCallback((id: string, collapsed: boolean) => dispatch({ type: "setSwimlaneGroupCollapsed", id, collapsed }), []);
+  const moveSwimlaneGroup = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlaneGroup", id, delta }), []);
+  const setSwimlaneGroupId = useCallback((laneId: string, groupId: string | undefined) => dispatch({ type: "setSwimlaneGroupId", laneId, groupId }), []);
   const loadDocument = useCallback((data: Program) => dispatch({ type: "loadDocument", data }), []);
   /** File-Open (wayframe t11) — replaces the whole PortfolioDocument, unlike loadDocument's Program-only replace (ImportPanel's structured-data import), since a .wayframe.json round-trips Portfolio content (logo/legend) too. */
   const loadPortfolioDocument = useCallback(
@@ -1292,6 +1392,13 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     setRagOverride,
     setLaneDensity,
     setLaneHidden,
+    addSwimlaneGroup,
+    renameSwimlaneGroup,
+    removeSwimlaneGroup,
+    setSwimlaneGroupColor,
+    setSwimlaneGroupCollapsed,
+    moveSwimlaneGroup,
+    setSwimlaneGroupId,
     loadDocument,
     loadPortfolioDocument,
     setCompanyLogo,

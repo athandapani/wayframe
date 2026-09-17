@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import type { RenderableProgram, RenderableMilestone, Swimlane, Milestone, TopLevelItem, LegendCategory, MarkerShape, Program, PhaseSize } from "./types";
+import type { RenderableProgram, RenderableMilestone, Swimlane, SwimlaneGroup, Milestone, TopLevelItem, LegendCategory, MarkerShape, Program, PhaseSize } from "./types";
 import type { Theme } from "./theme";
 import { defaultTheme } from "./theme";
 import {
@@ -135,8 +135,39 @@ interface RowInfo {
 /** "lean" lanes (Swimlane.density) render at this fraction of the normal lane height. */
 const LEAN_LANE_FACTOR = 0.75;
 
-function computeRows(
+/** One SwimlaneGroup's vertical band extent (t21) — the "header" variant's own row, painted above its members. Collapsed-vs-expanded is looked up by the caller via `collapsedGroupIds`, not stored here. */
+interface GroupBandInfo {
+  group: SwimlaneGroup;
+  relY: number;
+  height: number;
+}
+
+/**
+ * Replaces the old flat computeRows (t21). With zero SwimlaneGroups this
+ * produces byte-identical `rows` to what computeRows always did — every
+ * Swimlane sorted by `order`, pushed via the exact same per-row height
+ * logic below — because a Swimlane with no `groupId` (or one pointing at a
+ * group that doesn't exist) is placed straight into `topLevel` exactly like
+ * every Swimlane used to be, and zero SwimlaneGroups means `topLevel` holds
+ * nothing else. This is provable by construction, not just visual
+ * similarity: the migration's "a document with zero groups renders
+ * pixel-identical to today" promise rests on this function, not on the
+ * caller re-checking it.
+ *
+ * Ungrouped Swimlanes and SwimlaneGroups share one order space at the top
+ * level (mirrors today's flat separator/lane order space); a group's member
+ * lanes sort by their own `order`, scoped to that group, and render
+ * contiguously right after its band.
+ *
+ * The "header" variant (the only one that ships — see t21's gist) reserves
+ * its own `separatorHeight`-tall row above its members, same treatment as
+ * today's separator band; a collapsed group still reserves that row (for
+ * the caret) but contributes none of its members' rows.
+ */
+function computeRowsAndBands(
   swimlanes: Swimlane[],
+  groups: SwimlaneGroup[],
+  collapsedGroupIds: Set<string>,
   laneHeight = LANE_HEIGHT,
   separatorHeight = SEPARATOR_HEIGHT,
   /**
@@ -148,18 +179,47 @@ function computeRows(
    * default here only remains as a defensive fallback.
    */
   heightByLaneId?: Map<string, number>,
-): RowInfo[] {
+): { rows: RowInfo[]; bands: GroupBandInfo[] } {
+  const groupById = new Map(groups.map((g) => [g.id, g]));
+  const membersByGroup = new Map<string, Swimlane[]>();
+  for (const sl of swimlanes) {
+    if (sl.groupId && groupById.has(sl.groupId)) {
+      if (!membersByGroup.has(sl.groupId)) membersByGroup.set(sl.groupId, []);
+      membersByGroup.get(sl.groupId)!.push(sl);
+    }
+  }
+  for (const members of membersByGroup.values()) members.sort((a, b) => a.order - b.order);
+
+  const topLevel: Array<{ order: number; kind: "swimlane"; sl: Swimlane } | { order: number; kind: "group"; group: SwimlaneGroup }> = [
+    ...swimlanes.filter((sl) => !sl.groupId || !groupById.has(sl.groupId)).map((sl) => ({ order: sl.order, kind: "swimlane" as const, sl })),
+    ...groups.map((g) => ({ order: g.order, kind: "group" as const, group: g })),
+  ];
+  topLevel.sort((a, b) => a.order - b.order);
+
   let y = 0;
   let laneIndex = 0;
-  const out: RowInfo[] = [];
-  for (const sl of [...swimlanes].sort((a, b) => a.order - b.order)) {
+  const rows: RowInfo[] = [];
+  const bands: GroupBandInfo[] = [];
+  const pushSwimlane = (sl: Swimlane) => {
     const base = sl.type === "separator" ? separatorHeight : sl.density === "lean" ? laneHeight * LEAN_LANE_FACTOR : laneHeight;
     const height = sl.type === "lane" ? (heightByLaneId?.get(sl.id) ?? base) : base;
-    out.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
+    rows.push({ swimlane: sl, relY: y, height, laneIndex: sl.type === "lane" ? laneIndex : -1 });
     if (sl.type === "lane") laneIndex += 1;
     y += height;
+  };
+  for (const item of topLevel) {
+    if (item.kind === "swimlane") {
+      pushSwimlane(item.sl);
+      continue;
+    }
+    const bandY = y;
+    y += separatorHeight;
+    bands.push({ group: item.group, relY: bandY, height: separatorHeight });
+    if (!collapsedGroupIds.has(item.group.id)) {
+      for (const sl of membersByGroup.get(item.group.id) ?? []) pushSwimlane(sl);
+    }
   }
-  return out;
+  return { rows, bands };
 }
 
 /** Exported for use-zoom-window.ts (wayframe t10) — the full-document domain a zoom window clamps against. */
@@ -1263,6 +1323,8 @@ export interface RoadmapTimelineProps {
    * party/ and src/lib/realtime/provider.ts.
    */
   remoteSelections?: Record<string, string>;
+  /** Fired when a swimlane group's header band is clicked, with that group's id (t21) — the caller flips SwimlaneGroup.collapsed in response. Omit to render group bands non-interactive. */
+  onToggleGroupCollapsed?: (groupId: string) => void;
 }
 
 export function RoadmapTimeline({
@@ -1310,6 +1372,7 @@ export function RoadmapTimeline({
   onMarqueeSelect,
   domainOverride,
   remoteSelections,
+  onToggleGroupCollapsed,
 }: RoadmapTimelineProps) {
   // Fit to screen (wayframe#94/t20) — expand-only, replacing the old
   // shrink-based "Auto lane height" toggle entirely. Measures window
@@ -1340,9 +1403,18 @@ export function RoadmapTimeline({
   // which row it collides inside, never turns off collision safety there.
   // Point milestones never participate, same restriction stack-
   // intervals.ts always had.
+  // Swimlane Groups (t21) — a collapsed group's member lanes are excluded
+  // from layout entirely too, same "no row slot reserved" treatment
+  // hidden lanes get (see the filter just below). Built once, up front, so
+  // both the filter and the computeRowsAndBands call further down share it.
+  const swimlaneGroups = data.swimlaneGroups ?? [];
+  const groupById = new Map(swimlaneGroups.map((g) => [g.id, g]));
+  const collapsedGroupIds = new Set(swimlaneGroups.filter((g) => g.collapsed).map((g) => g.id));
   // Lane-hide (t22) — excluded from layout entirely, not just unpainted: a hidden
   // lane reserves no row slot, so it's filtered out before any row computation.
-  const visibleSwimlanes = data.swimlanes.filter((sl) => sl.type !== "lane" || !sl.hidden);
+  const visibleSwimlanes = data.swimlanes.filter(
+    (sl) => sl.type !== "lane" || (!sl.hidden && !(sl.groupId && collapsedGroupIds.has(sl.groupId))),
+  );
 
   const laneRowModelByLaneId = new Map<string, LaneRowModel>();
   const naturalHeightByLaneId = new Map<string, number>();
@@ -1386,7 +1458,14 @@ export function RoadmapTimeline({
   const heightByLaneId = new Map<string, number>();
   for (const [laneId, natural] of naturalHeightByLaneId) heightByLaneId.set(laneId, natural * fitRatio);
 
-  const rows = computeRows(visibleSwimlanes, LANE_HEIGHT * boxScale, SEPARATOR_HEIGHT * boxScale, heightByLaneId);
+  const { rows, bands: groupBands } = computeRowsAndBands(
+    visibleSwimlanes,
+    swimlaneGroups,
+    collapsedGroupIds,
+    LANE_HEIGHT * boxScale,
+    SEPARATOR_HEIGHT * boxScale,
+    heightByLaneId,
+  );
   const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   // Lane-hide (t22) — rowById only contains visible lanes as a side effect
@@ -2430,6 +2509,11 @@ export function RoadmapTimeline({
           // that carries the least information.
           const tint = laneColor(row.swimlane, row.laneIndex);
           const laneNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 3, { breakWords: false });
+          // Swimlane Groups (t21) — a grouped lane's name/owner text gets a
+          // small extra indent versus an ungrouped lane's, as a nesting cue;
+          // no side gutter is reserved for it (that's the "rail" variant,
+          // not shipping — see computeRowsAndBands's doc).
+          const laneTextX = row.swimlane.groupId && groupById.has(row.swimlane.groupId) ? 28 : 16;
           return (
             <g key={row.swimlane.id}>
               {/* The wash and rail are inset by theme.laneGutter so bare
@@ -2471,7 +2555,7 @@ export function RoadmapTimeline({
                 {laneNameLines.map((line, i) => (
                   <tspan
                     key={i}
-                    x={16}
+                    x={laneTextX}
                     y={y0 + row.height / 2 + (i - (laneNameLines.length - 1) / 2 - (swimlaneOwnerVisible && row.swimlane.owner ? 0.5 : 0)) * 15 * fontScale}
                     dominantBaseline="middle"
                   >
@@ -2484,7 +2568,7 @@ export function RoadmapTimeline({
                   treatment as the header's owner line. */}
               {swimlaneOwnerVisible && row.swimlane.owner && (
                 <text
-                  x={16}
+                  x={laneTextX}
                   y={y0 + row.height / 2 + ((laneNameLines.length - 1) / 2 + 1) * 15 * fontScale}
                   fontSize={10 * fontScale}
                   fill={theme.inkMuted}
@@ -2495,6 +2579,50 @@ export function RoadmapTimeline({
               {onAddMilestone && onPickShape && (
                 <AddLanePicker x={MARGIN.left - RAIL_W - 20} y={y0 + 16} theme={theme} fontScale={fontScale} onPick={(shape) => onPickShape(row.swimlane.id, shape)} />
               )}
+            </g>
+          );
+        })}
+
+        {/* Swimlane Group bands (t21, wayframe#100) — the "header" variant:
+            a full-width band above a group's member lanes, generalizing
+            today's `type: "separator"` Swimlane row into a real container.
+            Painted after every lane row so the band sits on top of lane
+            washes, same stacking order the lane rail (RAIL_W) already uses
+            against its own wash. */}
+        {groupBands.map((band) => {
+          const y0 = lanesTop + band.relY;
+          const groupColor = band.group.color ?? theme.inkMuted;
+          const collapsed = collapsedGroupIds.has(band.group.id);
+          const caretGlyph = collapsed ? "▸" : "▾"; // ▸ collapsed, ▾ expanded
+          const headerLines = wrapText(band.group.name, Math.max(8, Math.floor(24 / metricsScale)), 2, { breakWords: false });
+          return (
+            <g
+              key={band.group.id}
+              className={onToggleGroupCollapsed ? "cursor-pointer" : undefined}
+              onClick={onToggleGroupCollapsed ? () => onToggleGroupCollapsed(band.group.id) : undefined}
+            >
+              <rect x={0} y={y0} width={width} height={band.height} fill={theme.separatorBg} />
+              <rect x={0} y={y0} width={4} height={band.height} fill={groupColor} />
+              <text fontSize={11 * fontScale} fill={theme.separatorText} dominantBaseline="middle">
+                <tspan x={16} y={y0 + band.height / 2}>
+                  {caretGlyph}
+                </tspan>
+              </text>
+              <text
+                fontSize={10.5 * fontScale}
+                fontWeight={700}
+                letterSpacing="0.09em"
+                fill={theme.separatorText}
+                // CSS, not .toUpperCase() — keeps the real string in the DOM
+                // so assistive tech doesn't announce it as an initialism.
+                style={{ textTransform: "uppercase" }}
+              >
+                {headerLines.map((line, i) => (
+                  <tspan key={i} x={30} y={y0 + band.height / 2 + (i - (headerLines.length - 1) / 2) * 12 * fontScale} dominantBaseline="middle">
+                    {line}
+                  </tspan>
+                ))}
+              </text>
             </g>
           );
         })}

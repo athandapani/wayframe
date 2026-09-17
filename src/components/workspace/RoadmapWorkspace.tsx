@@ -155,6 +155,7 @@ function RoadmapView({
   onMarqueeSelect,
   zoom,
   remoteSelections,
+  onToggleGroupCollapsed,
 }: {
   mode: Mode;
   data: RenderableProgram;
@@ -227,6 +228,8 @@ function RoadmapView({
   zoom?: UseZoomWindowResult;
   /** Live-room remote-selection rings (wayframe t38) — milestone id -> peer color, from remoteSelectionsFromPeers(peers). Omit for the off-screen export capture, same convention as every other on-screen-only prop here. */
   remoteSelections?: Record<string, string>;
+  /** Swimlane Groups (t21) — fired when a group's header band is clicked. Omit for the off-screen export capture, which always renders every group expanded, same convention as onAxisTiersChange. */
+  onToggleGroupCollapsed?: (groupId: string) => void;
 }) {
   if (mode === "program") {
     const zoomedData = zoom?.active ? filterToWindow(data, zoom.committedWindow) : data;
@@ -275,6 +278,7 @@ function RoadmapView({
         onMarqueeSelect={onMarqueeSelect}
         domainOverride={zoom?.active ? zoom.committedWindow : undefined}
         remoteSelections={remoteSelections}
+        onToggleGroupCollapsed={onToggleGroupCollapsed}
       />
     );
     return (
@@ -1448,6 +1452,14 @@ export function RoadmapWorkspace({
             onToggleSelect={selection.toggle}
             onMarqueeSelect={selection.addAll}
             zoom={zoom}
+            onToggleGroupCollapsed={
+              isViewMode
+                ? undefined
+                : (groupId) => {
+                    const group = renderable.swimlaneGroups?.find((g) => g.id === groupId);
+                    box.setSwimlaneGroupCollapsed(groupId, !group?.collapsed);
+                  }
+            }
             legend={
               <ChartLegend
                 theme={theme}
@@ -1538,6 +1550,13 @@ export function RoadmapWorkspace({
           onRagOverride={box.setRagOverride}
           onDensity={box.setLaneDensity}
           onHidden={box.setLaneHidden}
+          onAddGroup={box.addSwimlaneGroup}
+          onRenameGroup={box.renameSwimlaneGroup}
+          onRemoveGroup={box.removeSwimlaneGroup}
+          onMoveGroup={box.moveSwimlaneGroup}
+          onGroupColor={box.setSwimlaneGroupColor}
+          onToggleGroupCollapsed={box.setSwimlaneGroupCollapsed}
+          onAssignGroup={box.setSwimlaneGroupId}
           onClose={() => setLanesOpen(false)}
         />
       )}

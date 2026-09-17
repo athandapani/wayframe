@@ -41,6 +41,21 @@ function baseData(): Program {
 
 const state = (): CorrectionBoxState => ({ data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] });
 
+/** Swimlane Groups (t21) — g1's members are lane-x(0)/lane-y(1); lane-a is ungrouped; top-level order: lane-a(0), g1(1). */
+function groupedData(): Program {
+  return {
+    ...baseData(),
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Alpha" },
+      { id: "lane-x", order: 0, type: "lane", name: "Xray", groupId: "g1" },
+      { id: "lane-y", order: 1, type: "lane", name: "Yankee", groupId: "g1" },
+    ],
+    swimlaneGroups: [{ id: "g1", order: 1, name: "Group 1" }],
+  };
+}
+
+const groupedState = (): CorrectionBoxState => ({ data: groupedData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] });
+
 describe("swimlane actions", () => {
   it("appends a new lane after the last row", () => {
     const next = reduce(state(), { type: "addSwimlane", swimlaneType: "lane", newId: "new-1" });
@@ -197,5 +212,77 @@ describe("apply with deletes and swimlaneOps (wayframe#58)", () => {
     });
     expect(next.data.swimlanes.find((l) => l.id === "new-lane")).toMatchObject({ name: "Delta", type: "lane" });
     expect(next.data.swimlanes.find((l) => l.id === "lane-a")!.color).toBeDefined();
+  });
+});
+
+describe("swimlane group actions (wayframe t21)", () => {
+  it("adds a new group defaulting to 'New group', undo-tracked", () => {
+    const next = reduce(groupedState(), { type: "addSwimlaneGroup", newId: "g-new" });
+    const added = next.data.swimlaneGroups!.find((g) => g.id === "g-new")!;
+    expect(added).toMatchObject({ name: "New group" });
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("renames a group without touching its members", () => {
+    const next = reduce(groupedState(), { type: "renameSwimlaneGroup", id: "g1", name: "Renamed" });
+    expect(next.data.swimlaneGroups!.find((g) => g.id === "g1")!.name).toBe("Renamed");
+    expect(next.data.swimlanes.find((l) => l.id === "lane-x")!.groupId).toBe("g1");
+  });
+
+  it("removes a group and ungroups (not deletes) its members", () => {
+    const next = reduce(groupedState(), { type: "removeSwimlaneGroup", id: "g1" });
+    expect(next.data.swimlaneGroups).toEqual([]);
+    expect(next.data.swimlanes.find((l) => l.id === "lane-x")!.groupId).toBeUndefined();
+    expect(next.data.swimlanes.find((l) => l.id === "lane-y")!.groupId).toBeUndefined();
+    expect(next.data.swimlanes).toHaveLength(3);
+  });
+
+  it("sets a group's color", () => {
+    const next = reduce(groupedState(), { type: "setSwimlaneGroupColor", id: "g1", color: "#654321" });
+    expect(next.data.swimlaneGroups!.find((g) => g.id === "g1")!.color).toBe("#654321");
+  });
+
+  it("collapses a group", () => {
+    const next = reduce(groupedState(), { type: "setSwimlaneGroupCollapsed", id: "g1", collapsed: true });
+    expect(next.data.swimlaneGroups!.find((g) => g.id === "g1")!.collapsed).toBe(true);
+  });
+
+  it("moves a group within the top-level order space", () => {
+    const next = reduce(groupedState(), { type: "moveSwimlaneGroup", id: "g1", delta: -1 });
+    expect(next.data.swimlaneGroups!.find((g) => g.id === "g1")!.order).toBe(0);
+    expect(next.data.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(1);
+  });
+
+  it("skips the history push when moveSwimlaneGroup would go out of bounds", () => {
+    const s = groupedState();
+    const next = reduce(s, { type: "moveSwimlaneGroup", id: "g1", delta: 1 });
+    expect(next).toBe(s);
+    expect(next.history).toHaveLength(0);
+  });
+
+  it("reassigns a lane to a different group via setSwimlaneGroupId", () => {
+    const next = reduce(groupedState(), { type: "setSwimlaneGroupId", laneId: "lane-a", groupId: "g1" });
+    const moved = next.data.swimlanes.find((l) => l.id === "lane-a")!;
+    expect(moved.groupId).toBe("g1");
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("skips the history push when setSwimlaneGroupId is a no-op", () => {
+    const s = groupedState();
+    const next = reduce(s, { type: "setSwimlaneGroupId", laneId: "lane-a", groupId: "not-a-real-group" });
+    expect(next).toBe(s);
+    expect(next.history).toHaveLength(0);
+  });
+
+  it("makes every swimlane-group change undoable", () => {
+    for (const action of [
+      { type: "addSwimlaneGroup", newId: "n" } as const,
+      { type: "renameSwimlaneGroup", id: "g1", name: "x" } as const,
+      { type: "setSwimlaneGroupColor", id: "g1", color: "#111111" } as const,
+      { type: "setSwimlaneGroupCollapsed", id: "g1", collapsed: true } as const,
+      { type: "removeSwimlaneGroup", id: "g1" } as const,
+    ]) {
+      expect(reduce(groupedState(), action).history).toHaveLength(1);
+    }
   });
 });

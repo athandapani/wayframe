@@ -156,12 +156,20 @@ describe("validatePortfolioDocument", () => {
         {
           ...demoRoadmap,
           milestones: [{ ...demoRoadmap.milestones[0], isCriticalPath: true }],
+          // Attached to swimlanes[1] (a "lane" row), not swimlanes[0] (a
+          // "separator" row) — since t21's later v3->v4 migration step
+          // (which now also runs, since CURRENT_SCHEMA_VERSION has advanced
+          // past 3) strips separator rows into SwimlaneGroups, which don't
+          // carry rollupHistory. This test is only exercising the v2->v3
+          // array->record conversion, so it needs a swimlane that survives
+          // every later step too.
           swimlanes: [
+            demoRoadmap.swimlanes[0],
             {
-              ...demoRoadmap.swimlanes[0],
+              ...demoRoadmap.swimlanes[1],
               rollupHistory: [{ date: "2026-06-09", rag: "amber", atRiskCount: 1, delayedCount: 0 }],
             },
-            ...demoRoadmap.swimlanes.slice(1),
+            ...demoRoadmap.swimlanes.slice(2),
           ],
         },
       ],
@@ -174,8 +182,79 @@ describe("validatePortfolioDocument", () => {
     expect(result.document.portfolio.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     const migratedMilestone = result.document.programs[0].milestones[0] as unknown as Record<string, unknown>;
     expect(migratedMilestone.isCriticalPath).toBeUndefined();
-    expect(result.document.programs[0].swimlanes[0].rollupHistory).toEqual({
+    const migratedLane = result.document.programs[0].swimlanes.find((l) => l.id === demoRoadmap.swimlanes[1].id)!;
+    expect(migratedLane.rollupHistory).toEqual({
       "2026-06-09": { rag: "amber", atRiskCount: 1, delayedCount: 0 },
     });
+  });
+
+  it("migrates a v3 document's separator rows into SwimlaneGroups, writing each member lane's groupId (t21, wayframe#100)", () => {
+    const v3Document = {
+      portfolio: { ...demoPortfolio, schemaVersion: 3 },
+      programs: [
+        {
+          ...demoRoadmap,
+          milestones: [],
+          swimlanes: [
+            { id: "s1", type: "separator", order: 0, name: "Group A" },
+            { id: "l1", type: "lane", order: 1, name: "Lane 1" },
+            { id: "l2", type: "lane", order: 2, name: "Lane 2" },
+            { id: "s2", type: "separator", order: 3, name: "Group B" },
+            { id: "l3", type: "lane", order: 4, name: "Lane 3" },
+          ],
+        },
+      ],
+    };
+
+    const result = validatePortfolioDocument(v3Document);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.document.portfolio.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    const program = result.document.programs[0];
+
+    // Separators are gone; the surviving lanes keep their original `order`
+    // values unrenumbered.
+    expect(program.swimlanes.map((l) => l.id)).toEqual(["l1", "l2", "l3"]);
+    expect(program.swimlanes.map((l) => l.order)).toEqual([1, 2, 4]);
+
+    expect(program.swimlaneGroups).toHaveLength(2);
+    const groupA = program.swimlaneGroups!.find((g) => g.name === "Group A")!;
+    const groupB = program.swimlaneGroups!.find((g) => g.name === "Group B")!;
+    expect(groupA.order).toBe(0);
+    expect(groupB.order).toBe(3);
+
+    const byId = new Map(program.swimlanes.map((l) => [l.id, l]));
+    expect(byId.get("l1")!.groupId).toBe(groupA.id);
+    expect(byId.get("l2")!.groupId).toBe(groupA.id);
+    expect(byId.get("l3")!.groupId).toBe(groupB.id);
+  });
+
+  it("leaves swimlanes/swimlaneGroups untouched (modulo the schemaVersion bump) for a v3 document with no separator rows", () => {
+    const v3Document = {
+      portfolio: { ...demoPortfolio, schemaVersion: 3 },
+      programs: [
+        {
+          ...demoRoadmap,
+          milestones: [],
+          swimlanes: [
+            { id: "l1", type: "lane", order: 0, name: "Lane 1" },
+            { id: "l2", type: "lane", order: 1, name: "Lane 2" },
+          ],
+        },
+      ],
+    };
+
+    const result = validatePortfolioDocument(v3Document);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.document.portfolio.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    const program = result.document.programs[0];
+    expect(program.swimlanes).toEqual([
+      { id: "l1", type: "lane", order: 0, name: "Lane 1" },
+      { id: "l2", type: "lane", order: 1, name: "Lane 2" },
+    ]);
+    expect(program.swimlaneGroups).toBeUndefined();
   });
 });

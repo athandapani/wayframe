@@ -30,9 +30,9 @@ _Avoid_: Preference (viewer-local settings like theme choice or font family rema
 The existing `Theme` interface (colors, lane ramps) — reclassified from a viewer-local preference (localStorage) to **Portfolio document content**, so a shared or snapshotted Portfolio renders with the author's intended palette rather than each viewer's own. Custom themes are created and managed per Portfolio.
 _Avoid_: Skin (informal), View preference (the old scope, no longer accurate)
 
-**Swimlane Group**:
-A structural container owning an ordered set of child Swimlanes, rendered as a single vertical band spanning those lanes with a rotated label. New concept — today's "group" (`SwimlaneManager.tsx`) is actually a `separator`-type Swimlane, a flat band in the same ordered list, not a container other lanes belong to.
-_Avoid_: Separator (the existing flat-band concept, kept distinct from Swimlane Group), Section
+**Swimlane Group** (t21):
+A structural container owning an ordered set of member Swimlanes (via `Swimlane.groupId`), rendered as a full-width header band above them — generalizing the look of today's separator row, not a rotated side rail (that prototype variant went illegible on short groups with long names, and the interactive canvas doesn't need it since it's deferred to export/Slides). A Group and an ungrouped Swimlane are peers sharing one top-level `order` space; a member lane's `order` is scoped to its group's siblings instead.
+_Avoid_: Separator (`Swimlane.type === "separator"`) — the pre-t21 flat-band concept a schema migration converts into a real Swimlane Group on load; it remains a legal type value only as a defensive fallback for a not-yet-migrated or hand-edited document, not a permanently-coexisting concept, Section
 
 **Lane Row**:
 A structural sub-division of a Swimlane that a milestone or phase can be assigned to, letting items be placed at different vertical positions within one lane. A Swimlane owns a variable-length list of Lane Rows (starting at 2, growing as needed) independent of any single milestone's placement.

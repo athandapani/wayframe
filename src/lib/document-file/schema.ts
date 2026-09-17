@@ -8,7 +8,7 @@
 // (owner/actionItems/annotation.message).
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import type { ActionItem, Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
+import type { ActionItem, Portfolio, PortfolioDocument, Program, SwimlaneGroup } from "@/components/timeline/types";
 import type { PortfolioTheme } from "@/components/timeline/theme";
 import type { MilestoneOverride, MilestonePatch, Scenario, TopLevelItemOverride, TopLevelItemPatch } from "@/lib/scenario/types";
 import { sanitizeBlufHtml } from "@/lib/rich-text/sanitize";
@@ -31,6 +31,18 @@ const SwimlaneSchema = z
     density: z.enum(["normal", "lean"]).optional(),
     owner: z.string().optional(),
     hidden: z.boolean().optional(),
+    groupId: z.string().optional(),
+  })
+  .strict();
+
+/** Mirrors SwimlaneGroup exactly (t21) — see its doc in types.ts. */
+const SwimlaneGroupSchema = z
+  .object({
+    id: z.string().min(1),
+    order: z.number(),
+    name: z.string(),
+    color: z.string().optional(),
+    collapsed: z.boolean().optional(),
   })
   .strict();
 
@@ -222,7 +234,7 @@ const ActionItemSchema = z
  * `schemaVersion: "1.0"` string, which had zero comparison sites and no
  * migration code anywhere.
  */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 const ProgramSchema = z
   .object({
@@ -246,6 +258,7 @@ const ProgramSchema = z
       .strict(),
     actionItems: z.array(ActionItemSchema),
     swimlanes: z.array(SwimlaneSchema),
+    swimlaneGroups: z.array(SwimlaneGroupSchema).optional(),
     topLevelItems: z.array(TopLevelItemSchema),
     milestones: z.array(MilestoneSchema),
   })
@@ -314,6 +327,8 @@ type _MilestoneOverrideSchemaMatchesMilestoneOverride = AssertTrue<Equals<z.infe
 type _TopLevelItemOverrideSchemaMatchesTopLevelItemOverride = AssertTrue<Equals<z.infer<typeof TopLevelItemOverrideSchema>, TopLevelItemOverride>>;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ScenarioSchemaMatchesScenario = AssertTrue<Equals<z.infer<typeof ScenarioSchema>, Scenario>>;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _SwimlaneGroupSchemaMatchesSwimlaneGroup = AssertTrue<Equals<z.infer<typeof SwimlaneGroupSchema>, SwimlaneGroup>>;
 
 export type LoadResult = { ok: true; document: PortfolioDocument } | { ok: false; message: string; issues: string[] };
 
@@ -394,6 +409,56 @@ const migrations: Migration[] = [
               return { ...lane, rollupHistory };
             }),
           };
+        }),
+      };
+    },
+  },
+  // t21: `type: "separator"` Swimlane rows become real SwimlaneGroup
+  // containers — a separator row was never more than render order marking
+  // "everything below this until the next separator"; a Group makes that
+  // relationship explicit via Swimlane.groupId instead. Walk each program's
+  // swimlanes in `order`, turning every separator into a SwimlaneGroup
+  // (same name/order) and writing that group's id into every subsequent
+  // lane's `groupId` until the next separator or end of list. Surviving
+  // lanes keep their original document-wide `order` unrenumbered — a
+  // grouped lane's `order` is scoped to its group's siblings from here on,
+  // and the original numbers are still a correct relative ordering within
+  // that scope even though they're no longer contiguous from 0.
+  {
+    from: 3,
+    migrate: (doc) => {
+      const programs = Array.isArray(doc.programs) ? doc.programs : [];
+      return {
+        ...doc,
+        portfolio: { ...(doc.portfolio as Record<string, unknown>), schemaVersion: 4 },
+        programs: programs.map((program) => {
+          if (!isPlainObject(program)) return program;
+          const swimlanes = Array.isArray(program.swimlanes) ? program.swimlanes : [];
+          const sorted = [...swimlanes].sort((a, b) => {
+            const ao = isPlainObject(a) && typeof a.order === "number" ? a.order : 0;
+            const bo = isPlainObject(b) && typeof b.order === "number" ? b.order : 0;
+            return ao - bo;
+          });
+
+          const swimlaneGroups: Record<string, unknown>[] = [];
+          const nextSwimlanes: unknown[] = [];
+          let currentGroupId: string | undefined;
+          for (const sl of sorted) {
+            if (!isPlainObject(sl)) {
+              nextSwimlanes.push(sl);
+              continue;
+            }
+            if (sl.type === "separator") {
+              const groupId = nanoid();
+              currentGroupId = groupId;
+              swimlaneGroups.push({ id: groupId, order: sl.order, name: sl.name });
+              continue;
+            }
+            nextSwimlanes.push(currentGroupId ? { ...sl, groupId: currentGroupId } : sl);
+          }
+
+          if (swimlaneGroups.length === 0) return program;
+          return { ...program, swimlanes: nextSwimlanes, swimlaneGroups };
         }),
       };
     },

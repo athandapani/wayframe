@@ -1,4 +1,4 @@
-import type { Rag, Program } from "@/components/timeline/types";
+import type { Rag, Program, Swimlane, SwimlaneGroup } from "@/components/timeline/types";
 import type { DeleteOp, NamedLaneColor, SwimlaneOp } from "./schema";
 
 /**
@@ -65,13 +65,170 @@ export function renameSwimlaneOp(data: Program, id: string, name: string): Progr
   return { ...data, swimlanes: data.swimlanes.map((l) => (l.id === id ? { ...l, name } : l)) };
 }
 
-export function moveSwimlaneOp(data: Program, id: string, delta: -1 | 1): Program {
-  const ordered = [...data.swimlanes].sort((a, b) => a.order - b.order);
-  const i = ordered.findIndex((l) => l.id === id);
+/**
+ * t21: a "top-level" entry is either an ungrouped Swimlane (no `groupId`,
+ * or a `groupId` that doesn't resolve to a real SwimlaneGroup — a
+ * dangling reference is treated the same as ungrouped, never as an error)
+ * or a SwimlaneGroup itself — the two are peers sharing one order space,
+ * exactly like a separator row and a lane were peers before t21. Grouped
+ * lanes (real membership) are excluded; they live in their own group-
+ * scoped order space instead.
+ */
+type TopLevelEntry = { kind: "lane"; item: Swimlane } | { kind: "group"; item: SwimlaneGroup };
+
+function isTopLevelLane(l: Swimlane, realGroupIds: ReadonlySet<string>): boolean {
+  return l.groupId === undefined || !realGroupIds.has(l.groupId);
+}
+
+function topLevelEntries(data: Program): TopLevelEntry[] {
+  const realGroupIds = new Set((data.swimlaneGroups ?? []).map((g) => g.id));
+  const lanes: TopLevelEntry[] = data.swimlanes.filter((l) => isTopLevelLane(l, realGroupIds)).map((l) => ({ kind: "lane", item: l }));
+  const groups: TopLevelEntry[] = (data.swimlaneGroups ?? []).map((g) => ({ kind: "group", item: g }));
+  return [...lanes, ...groups].sort((a, b) => a.item.order - b.item.order);
+}
+
+/** The top-level order space's next free slot — max `order` across every Swimlane (grouped or not) and every SwimlaneGroup, +1. Scanning grouped lanes too (not just top-level ones) costs nothing but a possible unused gap, and guarantees no collision with anything anywhere in the document, group-scoped or not. */
+function topOrderSpaceNextOrder(data: Program): number {
+  const swimlaneMax = data.swimlanes.reduce((max, l) => Math.max(max, l.order), -1);
+  const groupMax = (data.swimlaneGroups ?? []).reduce((max, g) => Math.max(max, g.order), -1);
+  return Math.max(swimlaneMax, groupMax) + 1;
+}
+
+/**
+ * Shared swap-and-renumber-from-0 core for both moveSwimlaneOp's ungrouped
+ * branch and moveSwimlaneGroupOp — the combined top-level list is the same
+ * order space either way, only which entry is being moved differs. Omits
+ * `swimlaneGroups` from the result entirely when the source document never
+ * had one (rather than writing back `[]`), so a zero-group document's
+ * moveSwimlaneOp output stays byte-identical to before t21.
+ */
+function swapAndRenumberTopLevel(data: Program, entries: TopLevelEntry[], i: number, delta: -1 | 1): Program {
   const j = i + delta;
-  if (i === -1 || j < 0 || j >= ordered.length) return data;
-  [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
-  return { ...data, swimlanes: ordered.map((l, k) => ({ ...l, order: k })) };
+  if (i === -1 || j < 0 || j >= entries.length) return data;
+  const next = [...entries];
+  [next[i], next[j]] = [next[j], next[i]];
+  const laneOrderById = new Map<string, number>();
+  const groupOrderById = new Map<string, number>();
+  next.forEach((e, k) => {
+    if (e.kind === "lane") laneOrderById.set(e.item.id, k);
+    else groupOrderById.set(e.item.id, k);
+  });
+  const swimlanes = data.swimlanes.map((l) => (laneOrderById.has(l.id) ? { ...l, order: laneOrderById.get(l.id)! } : l));
+  if (!data.swimlaneGroups) return { ...data, swimlanes };
+  const swimlaneGroups = data.swimlaneGroups.map((g) => (groupOrderById.has(g.id) ? { ...g, order: groupOrderById.get(g.id)! } : g));
+  return { ...data, swimlanes, swimlaneGroups };
+}
+
+/**
+ * Generalized for t21: a grouped lane's ▲/▼ swaps only among its group's
+ * member lanes (siblings sharing `groupId`, renumbered among themselves);
+ * an ungrouped lane's ▲/▼ swaps among top-level peers instead — other
+ * ungrouped lanes and SwimlaneGroups — never among a group's internal
+ * members. Pre-t21 (zero-group) documents have no grouped lanes and no
+ * SwimlaneGroups, so every lane takes the ungrouped branch and
+ * topLevelEntries/swapAndRenumberTopLevel reduce to exactly the old
+ * sort-swap-renumber-from-0 behavior over `data.swimlanes` alone.
+ */
+export function moveSwimlaneOp(data: Program, id: string, delta: -1 | 1): Program {
+  const target = data.swimlanes.find((l) => l.id === id);
+  if (!target) return data;
+  const realGroupIds = new Set((data.swimlaneGroups ?? []).map((g) => g.id));
+  const inRealGroup = target.groupId !== undefined && realGroupIds.has(target.groupId);
+
+  if (inRealGroup) {
+    const siblings = data.swimlanes.filter((l) => l.groupId === target.groupId).sort((a, b) => a.order - b.order);
+    const i = siblings.findIndex((l) => l.id === id);
+    const j = i + delta;
+    if (j < 0 || j >= siblings.length) return data;
+    [siblings[i], siblings[j]] = [siblings[j], siblings[i]];
+    const orderById = new Map(siblings.map((l, k) => [l.id, k]));
+    const swimlanes = data.swimlanes.map((l) => (orderById.has(l.id) ? { ...l, order: orderById.get(l.id)! } : l));
+    return { ...data, swimlanes };
+  }
+
+  const entries = topLevelEntries(data);
+  const i = entries.findIndex((e) => e.kind === "lane" && e.item.id === id);
+  return swapAndRenumberTopLevel(data, entries, i, delta);
+}
+
+/** Mirrors addSwimlaneOp's placement/pattern — a new SwimlaneGroup, appended at the end of the top-level order space. `color`/`collapsed` start unset. */
+export function addSwimlaneGroupOp(data: Program, name: string, newId: string): Program {
+  const nextOrder = topOrderSpaceNextOrder(data);
+  return { ...data, swimlaneGroups: [...(data.swimlaneGroups ?? []), { id: newId, order: nextOrder, name }] };
+}
+
+/** Mirrors renameSwimlaneOp. */
+export function renameSwimlaneGroupOp(data: Program, id: string, name: string): Program {
+  return { ...data, swimlaneGroups: (data.swimlaneGroups ?? []).map((g) => (g.id === id ? { ...g, name } : g)) };
+}
+
+/**
+ * A group is an organizational wrapper, not an owner of its lanes the way
+ * a lane owns its milestones — removing it ungroups its member lanes
+ * (`groupId: undefined`) rather than deleting them. Each orphaned lane
+ * gets a fresh top-level `order` (same order-space computation
+ * addSwimlaneGroupOp uses), incrementing per lane so multiple
+ * simultaneously-orphaned lanes don't collide with each other.
+ */
+export function removeSwimlaneGroupOp(data: Program, id: string): Program {
+  const swimlaneGroups = (data.swimlaneGroups ?? []).filter((g) => g.id !== id);
+  let nextOrder = topOrderSpaceNextOrder(data);
+  const swimlanes = data.swimlanes.map((l) => {
+    if (l.groupId !== id) return l;
+    const order = nextOrder;
+    nextOrder += 1;
+    return { ...l, groupId: undefined, order };
+  });
+  return { ...data, swimlaneGroups, swimlanes };
+}
+
+/** Mirrors setLaneColorOp's placement/pattern, for a SwimlaneGroup instead of a Swimlane. */
+export function setSwimlaneGroupColorOp(data: Program, id: string, color: string | undefined): Program {
+  return { ...data, swimlaneGroups: (data.swimlaneGroups ?? []).map((g) => (g.id === id ? { ...g, color } : g)) };
+}
+
+/** Mirrors setLaneHiddenOp's placement/pattern, for a SwimlaneGroup's collapsed state. */
+export function setSwimlaneGroupCollapsedOp(data: Program, id: string, collapsed: boolean): Program {
+  return { ...data, swimlaneGroups: (data.swimlaneGroups ?? []).map((g) => (g.id === id ? { ...g, collapsed } : g)) };
+}
+
+/**
+ * Reorders a SwimlaneGroup within the top-level order space (groups +
+ * ungrouped swimlanes combined), swapping with its adjacent top-level
+ * neighbor. Grouped lanes aren't part of this list, so their `order`
+ * values are never touched. Same no-op-on-boundary convention as
+ * moveSwimlaneOp: returns `data` unchanged (same reference) if `id` isn't
+ * found or the move would go out of bounds.
+ */
+export function moveSwimlaneGroupOp(data: Program, id: string, delta: -1 | 1): Program {
+  const entries = topLevelEntries(data);
+  const i = entries.findIndex((e) => e.kind === "group" && e.item.id === id);
+  return swapAndRenumberTopLevel(data, entries, i, delta);
+}
+
+/**
+ * Reassigns a lane into a different group, or ungroups it (`groupId:
+ * undefined`) — the direct group-picker control's mutation, distinct from
+ * moveSwimlaneOp's adjacent-swap (which can only cross one group boundary
+ * at a time). The lane is appended at the end of its *new* scope's order
+ * space: the max `order` among the new group's existing members +1 (or 0
+ * if it has none), or the shared top-level order space if ungrouping (same
+ * computation removeSwimlaneGroupOp uses for orphaned lanes). No-op if
+ * `laneId` doesn't resolve to a real lane, or `groupId` is given but
+ * doesn't resolve to a real group.
+ */
+export function setSwimlaneGroupIdOp(data: Program, laneId: string, groupId: string | undefined): Program {
+  const lane = data.swimlanes.find((l) => l.id === laneId);
+  if (!lane) return data;
+  if (groupId !== undefined && !(data.swimlaneGroups ?? []).some((g) => g.id === groupId)) return data;
+
+  const nextOrder =
+    groupId === undefined
+      ? topOrderSpaceNextOrder(data)
+      : data.swimlanes.filter((l) => l.groupId === groupId).reduce((max, l) => Math.max(max, l.order), -1) + 1;
+
+  const swimlanes = data.swimlanes.map((l) => (l.id === laneId ? { ...l, groupId, order: nextOrder } : l));
+  return { ...data, swimlanes };
 }
 
 export function setLaneColorOp(data: Program, id: string, color: string | undefined): Program {

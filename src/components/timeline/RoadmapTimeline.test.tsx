@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { defaultTheme } from "./theme";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RoadmapTimeline } from "./RoadmapTimeline";
 import { BlufCallout } from "./BlufCallout";
 import { sampleRoadmap } from "./__fixtures__/sample-roadmap";
@@ -602,5 +602,62 @@ describe("lane-hide (wayframe t22)", () => {
     };
     const { container: unhidden } = render(<RoadmapTimeline data={explicitlyUnhiddenRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
     expect(unhidden.querySelector("svg")!.outerHTML).toBe(base.querySelector("svg")!.outerHTML);
+  });
+});
+
+describe("swimlane groups (t21, wayframe#100)", () => {
+  // One group ("Group One") with two member lanes (lane-a, lane-b — reusing
+  // sampleRoadmap's m1/m2, which already live there) plus one ungrouped lane
+  // (lane-c). Replaces sampleRoadmap's separator row entirely — this fixture
+  // is exercising the group-band path, not the separator fallback.
+  const groupedRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlaneGroups: [{ id: "grp-1", order: 0, name: "Group One" }],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Lane A", groupId: "grp-1" },
+      { id: "lane-b", order: 1, type: "lane", name: "Lane B", groupId: "grp-1" },
+      { id: "lane-c", order: 2, type: "lane", name: "Lane C" },
+    ],
+  };
+
+  it("renders a group header band with the group's name, and its member lanes as ordinary rows beneath it", () => {
+    render(<RoadmapTimeline data={groupedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(screen.getByText("Group One")).toBeInTheDocument();
+    expect(screen.getByText("Lane A")).toBeInTheDocument();
+    expect(screen.getByText("Lane B")).toBeInTheDocument();
+    expect(screen.getByText("Lane C")).toBeInTheDocument();
+  });
+
+  it("collapsing a group removes its member lanes' rows entirely, and hides a milestone inside one instead of floating it at the top (the prototype's own wayframe#100 regression)", () => {
+    const collapsedRoadmap: RenderableProgram = {
+      ...groupedRoadmap,
+      swimlaneGroups: [{ id: "grp-1", order: 0, name: "Group One", collapsed: true }],
+    };
+    render(<RoadmapTimeline data={collapsedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    // lane-a/lane-b are members of the now-collapsed group — their rows are gone.
+    expect(screen.queryByText("Lane A")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lane B")).not.toBeInTheDocument();
+    // lane-c (ungrouped) is untouched.
+    expect(screen.getByText("Lane C")).toBeInTheDocument();
+    // m1 (lane-a) and m2 (lane-b) both live in the collapsed group — neither
+    // marker renders at all, rather than orphan-stacking at the top of the chart.
+    expect(screen.queryByText("First milestone")).not.toBeInTheDocument();
+    expect(screen.queryByText("Second milestone")).not.toBeInTheDocument();
+    // The band itself still renders (reserves its row for the caret).
+    expect(screen.getByText("Group One")).toBeInTheDocument();
+  });
+
+  it("renders identically to a document that never had the concept, with zero swimlaneGroups", () => {
+    const { container: base } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const explicitlyEmptyGroups: RenderableProgram = { ...sampleRoadmap, swimlaneGroups: [] };
+    const { container: withEmptyGroups } = render(<RoadmapTimeline data={explicitlyEmptyGroups} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(withEmptyGroups.querySelector("svg")!.outerHTML).toBe(base.querySelector("svg")!.outerHTML);
+  });
+
+  it("calls onToggleGroupCollapsed with the group's id when its header band is clicked", () => {
+    const onToggleGroupCollapsed = vi.fn();
+    render(<RoadmapTimeline data={groupedRoadmap} today={new Date("2026-01-20T00:00:00Z")} onToggleGroupCollapsed={onToggleGroupCollapsed} />);
+    fireEvent.click(screen.getByText("Group One"));
+    expect(onToggleGroupCollapsed).toHaveBeenCalledWith("grp-1");
   });
 });

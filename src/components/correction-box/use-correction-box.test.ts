@@ -152,6 +152,30 @@ describe("setLaneHidden reducer action (wayframe t22)", () => {
   });
 });
 
+describe("swimlane group reducer actions (wayframe t21)", () => {
+  it("adds a group, undo-tracked", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "addSwimlaneGroup", newId: "g1" });
+    expect(next.data.swimlaneGroups!.find((g) => g.id === "g1")).toMatchObject({ name: "New group" });
+    expect(next.history).toHaveLength(1);
+    expect(next.history[0].data).toBe(state.data);
+
+    const undone = reduce(next, { type: "undo" });
+    expect(undone.data.swimlaneGroups ?? []).toEqual([]);
+    expect(undone.history).toHaveLength(0);
+  });
+
+  it("reassigns a lane's group via setSwimlaneGroupId, undo-tracked", () => {
+    const withGroup = reduce(initialState(), { type: "addSwimlaneGroup", newId: "g1" });
+    const next = reduce(withGroup, { type: "setSwimlaneGroupId", laneId: "lane-1", groupId: "g1" });
+    expect(next.data.swimlanes.find((l) => l.id === "lane-1")!.groupId).toBe("g1");
+    expect(next.history).toHaveLength(2);
+
+    const undone = reduce(next, { type: "undo" });
+    expect(undone.data.swimlanes.find((l) => l.id === "lane-1")!.groupId).toBeUndefined();
+  });
+});
+
 describe("editDocument reducer action (wayframe#55/#60)", () => {
   it("merges the patch into the document root and pushes history", () => {
     const state = initialState();
