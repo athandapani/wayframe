@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useState } from "react";
-import { currentRev, type Portfolio, type PortfolioDocument, type Rag, type Milestone, type Program, type RollupSnapshot, type TopLevelItem } from "@/components/timeline/types";
+import { currentRev, type Portfolio, type PortfolioDocument, type Rag, type Milestone, type Program, type RollupSnapshot, type StyleOverride, type TopLevelItem } from "@/components/timeline/types";
 import { defaultPortfolioTheme, type Theme, type ThemeId } from "@/components/timeline/theme";
 import {
   coercePatchOp,
@@ -198,6 +198,9 @@ export type CorrectionBoxAction =
   | { type: "recolorCategory"; id: string; color: string }
   | { type: "removeCategory"; id: string }
   | { type: "setMilestoneCategory"; id: string; categoryId: string | null }
+  | { type: "setMilestoneStyleOverride"; id: string; patch: Partial<StyleOverride> }
+  | { type: "clearMilestoneStyleOverride"; id: string; field: keyof StyleOverride }
+  | { type: "setMilestoneLaneRow"; id: string; laneRow: number | undefined }
   | { type: "importMerge"; newLanes: { id: string; name: string }[]; adds: Milestone[]; updateOps: PatchOp[] }
   | { type: "bulkEdit"; patchOps: PatchOp[]; laneReassignments: { id: string; laneId: string }[]; acceptBaselineOps: AcceptBaselineOp[] }
   // Realtime plumbing (wayframe t38) — see CorrectionBoxState.conflicts's doc
@@ -833,6 +836,46 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setMilestoneStyleOverride": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, {
+          ...state.data,
+          milestones: state.data.milestones.map((m) =>
+            m.id === action.id ? { ...m, styleOverride: { ...m.styleOverride, ...action.patch } } : m,
+          ),
+        }),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "clearMilestoneStyleOverride": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, {
+          ...state.data,
+          milestones: state.data.milestones.map((m) => {
+            if (m.id !== action.id || !m.styleOverride) return m;
+            const next = { ...m.styleOverride };
+            delete next[action.field];
+            return { ...m, styleOverride: Object.keys(next).length > 0 ? next : undefined };
+          }),
+        }),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "setMilestoneLaneRow": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, {
+          ...state.data,
+          milestones: state.data.milestones.map((m) => (m.id === action.id ? { ...m, laneRow: action.laneRow } : m)),
+        }),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
     case "importMerge": {
       // Deterministic CSV/XLSX import merge — one
       // atomic edit (new lanes + field updates on matched milestones + new
@@ -1045,6 +1088,12 @@ export interface UseCorrectionBoxResult {
   removeCategory: (id: string) => void;
   /** Milestone editor's "Category" select — null clears the tag. */
   setMilestoneCategory: (id: string, categoryId: string | null) => void;
+  /** Milestone editor's Appearance section (t19/t34) — merges into the item's styleOverride; unset fields are left alone. */
+  setMilestoneStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
+  /** Resets one styleOverride field back to "inherit from the ladder" (t34) — removes the key entirely, not just sets it undefined, so an override count reads accurately. */
+  clearMilestoneStyleOverride: (id: string, field: keyof StyleOverride) => void;
+  /** Explicit Lane Row assignment (t20/t34) — `undefined` clears back to the implicit Row 1 default. */
+  setMilestoneLaneRow: (id: string, laneRow: number | undefined) => void;
   /** Deterministic CSV/XLSX import merge — one atomic edit, see ImportDiffReview.tsx. */
   importMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
   /** Mass-edit — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/apply.ts. */
@@ -1345,6 +1394,9 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const recolorCategory = useCallback((id: string, color: string) => dispatch({ type: "recolorCategory", id, color }), []);
   const removeCategory = useCallback((id: string) => dispatch({ type: "removeCategory", id }), []);
   const setMilestoneCategory = useCallback((id: string, categoryId: string | null) => dispatch({ type: "setMilestoneCategory", id, categoryId }), []);
+  const setMilestoneStyleOverride = useCallback((id: string, patch: Partial<StyleOverride>) => dispatch({ type: "setMilestoneStyleOverride", id, patch }), []);
+  const clearMilestoneStyleOverride = useCallback((id: string, field: keyof StyleOverride) => dispatch({ type: "clearMilestoneStyleOverride", id, field }), []);
+  const setMilestoneLaneRow = useCallback((id: string, laneRow: number | undefined) => dispatch({ type: "setMilestoneLaneRow", id, laneRow }), []);
   const importMerge = useCallback(
     (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => dispatch({ type: "importMerge", newLanes, adds, updateOps }),
     [],
@@ -1412,6 +1464,9 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     recolorCategory,
     removeCategory,
     setMilestoneCategory,
+    setMilestoneStyleOverride,
+    clearMilestoneStyleOverride,
+    setMilestoneLaneRow,
     importMerge,
     bulkEdit,
     conflicts: state.conflicts,

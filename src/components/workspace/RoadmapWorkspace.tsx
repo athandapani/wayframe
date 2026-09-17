@@ -1517,6 +1517,7 @@ export function RoadmapWorkspace({
       {selectMode && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
       <MilestoneEditorModal
         data={renderable}
+        theme={theme}
         milestone={selectedMilestone}
         onSave={box.editMilestone}
         onClose={() => setSelectedMilestoneId(null)}
@@ -1529,6 +1530,10 @@ export function RoadmapWorkspace({
           setSelectedMilestoneId(null);
         }}
         onSetCategory={box.setMilestoneCategory}
+        legendCategoryFillEnabled={legendCategoryStyle.enabled}
+        onSetStyleOverride={box.setMilestoneStyleOverride}
+        onClearStyleOverride={box.clearMilestoneStyleOverride}
+        onSetLaneRow={box.setMilestoneLaneRow}
       />
       <TopLevelItemEditorModal
         item={selectedTopLevelItem}

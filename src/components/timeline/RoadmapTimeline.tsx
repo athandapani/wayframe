@@ -78,7 +78,7 @@ const PILL_ROW_HEIGHT = 18;
  * multiplied down by a lean lane's density factor (see lane-rows.ts's
  * computeRowHeight).
  */
-const PILL_PHASE_HEIGHT: Record<PhaseSize, number> = { lean: 14, normal: PILL_ROW_HEIGHT, tall: 26 };
+export const PILL_PHASE_HEIGHT: Record<PhaseSize, number> = { lean: 14, normal: PILL_ROW_HEIGHT, tall: 26 };
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
 /** Gap between the marker and the bottom line of its label block. */
@@ -371,7 +371,7 @@ function AxisTriangleButton({
 }
 
 /** 5-point star path, outer radius `rOuter`, inner radius `rInner`, apex pointing up (wayframe#t19 markerShape). */
-function starPath(cx: number, cy: number, rOuter: number, rInner: number): string {
+export function starPath(cx: number, cy: number, rOuter: number, rInner: number): string {
   const points: string[] = [];
   for (let i = 0; i < 10; i++) {
     const angle = -Math.PI / 2 + i * (Math.PI / 5);
@@ -390,7 +390,7 @@ function starPath(cx: number, cy: number, rOuter: number, rInner: number): strin
 // variant is parameterized purely by (cx, cy, r) so an existing call site
 // drawing a bigger ring via a bigger `r` keeps working unmodified for any
 // shape.
-function CushionMarker({
+export function CushionMarker({
   cx,
   cy,
   r,
@@ -2792,7 +2792,9 @@ export function RoadmapTimeline({
         {data.milestones
           .filter((m) => m.endDate && laneVisible(m.laneId))
           .map((m) => {
-            const pillHeightSm = PILL_HEIGHT_SM * boxScale;
+            const phaseSize = resolvePhaseSize(m, data, theme);
+            const phaseShape = resolvePhaseShape(m, data, theme);
+            const pillHeightSm = PILL_PHASE_HEIGHT[phaseSize] * boxScale;
             const pillDragging = drag?.id === m.id;
             const pillDx = pillDragging ? drag.dx : 0;
             const px = x(m.date);
@@ -2827,7 +2829,7 @@ export function RoadmapTimeline({
                 onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}
                 onPointerDown={onMilestoneDateRangeChange ? (e) => beginDrag(m, e) : undefined}
               >
-                <rect x={px} y={cy - pillHeightSm / 2} width={w} height={pillHeightSm} rx={pillHeightSm / 2} fill={fill} />
+                <rect x={px} y={cy - pillHeightSm / 2} width={w} height={pillHeightSm} rx={phaseShape === "pill" ? pillHeightSm / 2 : 3} fill={fill} />
                 {pillProgressStyle === "fill" && pct !== undefined && (
                   <rect x={px} y={cy - pillHeightSm / 2} width={completeW} height={pillHeightSm} rx={pillHeightSm / 2} fill={lighten(fill, 0.35)} />
                 )}

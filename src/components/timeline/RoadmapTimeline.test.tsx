@@ -443,6 +443,50 @@ describe("style-override resolution ladder rendering (wayframe#t19)", () => {
   });
 });
 
+describe("in-lane duration pill phaseSize/phaseShape rendering (t34 regression — a styleOverride used to silently reserve layout space without ever changing the drawn pill)", () => {
+  const basePill: RenderableProgram["milestones"][number] = {
+    id: "ph1",
+    laneId: "lane-a",
+    title: "Design",
+    date: "2026-01-10",
+    endDate: "2026-02-10",
+    status: "on-track",
+    dependsOn: [],
+    linksToTopLevelMilestone: null,
+    isCriticalPath: false,
+  };
+
+  it("renders a pill taller when styleOverride.phaseSize is 'tall' than the default-size pill", () => {
+    const normalRoadmap: RenderableProgram = { ...sampleRoadmap, milestones: [...sampleRoadmap.milestones, basePill] };
+    const tallRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: [...sampleRoadmap.milestones, { ...basePill, styleOverride: { phaseSize: "tall" as const } }],
+    };
+    const { container: normalContainer } = render(<RoadmapTimeline data={normalRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const { container: tallContainer } = render(<RoadmapTimeline data={tallRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const normalRect = normalContainer.querySelector('[data-testid="pill-ph1"] rect')!;
+    const tallRect = tallContainer.querySelector('[data-testid="pill-ph1"] rect')!;
+    expect(Number(tallRect.getAttribute("height"))).toBeGreaterThan(Number(normalRect.getAttribute("height")));
+  });
+
+  it("renders a non-pill (small, fixed) corner radius when styleOverride.phaseShape is 'rectangle'", () => {
+    const rectRoadmap: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: [...sampleRoadmap.milestones, { ...basePill, styleOverride: { phaseShape: "rectangle" as const } }],
+    };
+    const { container } = render(<RoadmapTimeline data={rectRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const rect = container.querySelector('[data-testid="pill-ph1"] rect')!;
+    expect(rect.getAttribute("rx")).toBe("3");
+  });
+
+  it("defaults to a fully-rounded pill (rx = height/2) with no styleOverride", () => {
+    const normalRoadmap: RenderableProgram = { ...sampleRoadmap, milestones: [...sampleRoadmap.milestones, basePill] };
+    const { container } = render(<RoadmapTimeline data={normalRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const rect = container.querySelector('[data-testid="pill-ph1"] rect')!;
+    expect(Number(rect.getAttribute("rx"))).toBeCloseTo(Number(rect.getAttribute("height")) / 2, 5);
+  });
+});
+
 describe("deriveShortLabel", () => {
   it("takes initials of significant words", () => {
     expect(deriveShortLabel("Chassis design freeze")).toBe("CDF");

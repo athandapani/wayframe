@@ -152,6 +152,69 @@ describe("setLaneHidden reducer action (wayframe t22)", () => {
   });
 });
 
+describe("milestone editor Appearance/Lane-row reducer actions (t34)", () => {
+  it("setMilestoneStyleOverride merges a patch into an existing styleOverride without clobbering other fields", () => {
+    const seeded: CorrectionBoxState = {
+      ...initialState(),
+      data: { ...baseData(), milestones: [{ ...baseData().milestones[0], styleOverride: { markerShape: "star" } }] },
+    };
+    const next = reduce(seeded, { type: "setMilestoneStyleOverride", id: "m1", patch: { markerScale: 1.5 } });
+    expect(next.data.milestones[0].styleOverride).toEqual({ markerShape: "star", markerScale: 1.5 });
+    expect(next.history).toHaveLength(1);
+    expect(next.history[0].data).toBe(seeded.data);
+  });
+
+  it("setMilestoneStyleOverride sets the first override on an item with none yet", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setMilestoneStyleOverride", id: "m1", patch: { hidden: true } });
+    expect(next.data.milestones[0].styleOverride).toEqual({ hidden: true });
+  });
+
+  it("clearMilestoneStyleOverride removes exactly one key and leaves the rest of the styleOverride intact", () => {
+    const seeded: CorrectionBoxState = {
+      ...initialState(),
+      data: {
+        ...baseData(),
+        milestones: [{ ...baseData().milestones[0], styleOverride: { markerShape: "star", markerScale: 1.5, hidden: true } }],
+      },
+    };
+    const next = reduce(seeded, { type: "clearMilestoneStyleOverride", id: "m1", field: "markerScale" });
+    expect(next.data.milestones[0].styleOverride).toEqual({ markerShape: "star", hidden: true });
+    expect(next.history).toHaveLength(1);
+  });
+
+  it("clearMilestoneStyleOverride clears the whole styleOverride to undefined when it was the last key", () => {
+    const seeded: CorrectionBoxState = {
+      ...initialState(),
+      data: { ...baseData(), milestones: [{ ...baseData().milestones[0], styleOverride: { hidden: true } }] },
+    };
+    const next = reduce(seeded, { type: "clearMilestoneStyleOverride", id: "m1", field: "hidden" });
+    expect(next.data.milestones[0].styleOverride).toBeUndefined();
+  });
+
+  it("clearMilestoneStyleOverride is a no-op-safe pass-through for an item with no styleOverride at all", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "clearMilestoneStyleOverride", id: "m1", field: "hidden" });
+    expect(next.data.milestones[0].styleOverride).toBeUndefined();
+  });
+
+  it("setMilestoneLaneRow sets an explicit row, undo-tracked", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setMilestoneLaneRow", id: "m1", laneRow: 2 });
+    expect(next.data.milestones[0].laneRow).toBe(2);
+    expect(next.history).toHaveLength(1);
+
+    const undone = reduce(next, { type: "undo" });
+    expect(undone.data.milestones[0].laneRow).toBeUndefined();
+  });
+
+  it("setMilestoneLaneRow clears back to the implicit Row 1 default with undefined", () => {
+    const seeded: CorrectionBoxState = { ...initialState(), data: { ...baseData(), milestones: [{ ...baseData().milestones[0], laneRow: 3 }] } };
+    const next = reduce(seeded, { type: "setMilestoneLaneRow", id: "m1", laneRow: undefined });
+    expect(next.data.milestones[0].laneRow).toBeUndefined();
+  });
+});
+
 describe("swimlane group reducer actions (wayframe t21)", () => {
   it("adds a group, undo-tracked", () => {
     const state = initialState();
