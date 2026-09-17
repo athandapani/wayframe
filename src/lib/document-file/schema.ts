@@ -35,7 +35,7 @@ const SwimlaneSchema = z
   })
   .strict();
 
-/** Mirrors SwimlaneGroup exactly (t21) — see its doc in types.ts. */
+/** Mirrors SwimlaneGroup exactly (t21, extended in t26 with parentGroupId/accentHue) — see its doc in types.ts. */
 const SwimlaneGroupSchema = z
   .object({
     id: z.string().min(1),
@@ -43,6 +43,8 @@ const SwimlaneGroupSchema = z
     name: z.string(),
     color: z.string().optional(),
     collapsed: z.boolean().optional(),
+    parentGroupId: z.string().optional(),
+    accentHue: z.number().optional(),
   })
   .strict();
 

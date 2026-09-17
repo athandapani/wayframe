@@ -9,6 +9,7 @@
 // (name-prompted once per Portfolio per browser session) or a signed-out
 // invite-email recipient (nothing to fetch yet — just a sign-in prompt).
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { nanoid } from "nanoid";
@@ -193,6 +194,17 @@ export default function PortfolioLandingPage() {
     return (
       <>
         <AuthControls />
+        {/* wayframe t26 — unobtrusive, unconditional link to the All-Programs
+            merged view. Rendered unconditionally rather than only when this
+            Portfolio has more than one Program: detecting that here would
+            need an extra fetch just to decide whether to show a link, and
+            the /all page itself already handles the single-Program case
+            gracefully (mergeProgramsForAllView works correctly for N=1). */}
+        <div className="fixed top-2 left-2 z-50 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
+          <Link href={`/p/${portfolioId}/all`} className="text-blue-600 hover:underline">
+            View all Programs
+          </Link>
+        </div>
         <RoadmapWorkspace
           initialData={result.data.program}
           initialPortfolio={result.data.portfolio}

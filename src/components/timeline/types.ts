@@ -103,6 +103,26 @@ export interface SwimlaneGroup {
    * layout call everyone opening the file should see.
    */
   collapsed?: boolean;
+  /**
+   * Self-reference FK enabling nesting (t26, wayframe#104) — undefined means
+   * top-level, same as every SwimlaneGroup before this field existed. A
+   * Program in the merged All-Programs view is modeled as one more depth-0
+   * (parentGroupId-less) SwimlaneGroup wrapping that Program's own real
+   * SwimlaneGroups as depth-1+ children — this is what makes a Program band
+   * and an ordinary SwimlaneGroup band the same mechanism at two nesting
+   * depths, not two competing systems.
+   */
+  parentGroupId?: string;
+  /**
+   * Hue (degrees), meaningful only on a top-level (depth-0, Program-tier)
+   * group (t26, wayframe#104). Theme stays one shared Portfolio-level object
+   * (t18) — this is NOT a per-Program theme override, just a hue used to
+   * tint that Program's own band via lane-colors.ts's `laneColorAt` (fed the
+   * active theme's own laneRamp L/C, only the hue swapped), so a Program
+   * band reads as a distinct section without becoming a second competing
+   * theme.
+   */
+  accentHue?: number;
 }
 
 export interface Swimlane {

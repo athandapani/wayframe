@@ -136,34 +136,50 @@ interface RowInfo {
 /** "lean" lanes (Swimlane.density) render at this fraction of the normal lane height. */
 const LEAN_LANE_FACTOR = 0.75;
 
-/** One SwimlaneGroup's vertical band extent (t21) — the "header" variant's own row, painted above its members. Collapsed-vs-expanded is looked up by the caller via `collapsedGroupIds`, not stored here. */
+/**
+ * One SwimlaneGroup's vertical band extent (t21, nested in t26) — the
+ * "header" variant's own row, painted above its members. Collapsed-vs-
+ * expanded is looked up by the caller via `collapsedGroupIds`, not stored
+ * here. `depth` is 0 for a top-level (Program-tier, per t26's gist) group,
+ * incrementing by one per nesting level — see computeRowsAndBands's doc.
+ */
 interface GroupBandInfo {
   group: SwimlaneGroup;
   relY: number;
   height: number;
+  depth: number;
 }
 
 /**
- * Replaces the old flat computeRows (t21). With zero SwimlaneGroups this
- * produces byte-identical `rows` to what computeRows always did — every
- * Swimlane sorted by `order`, pushed via the exact same per-row height
- * logic below — because a Swimlane with no `groupId` (or one pointing at a
- * group that doesn't exist) is placed straight into `topLevel` exactly like
- * every Swimlane used to be, and zero SwimlaneGroups means `topLevel` holds
- * nothing else. This is provable by construction, not just visual
- * similarity: the migration's "a document with zero groups renders
- * pixel-identical to today" promise rests on this function, not on the
- * caller re-checking it.
+ * Replaces the old flat computeRows (t21), now recursive to support nested
+ * SwimlaneGroups (t26, wayframe#104: a Program in the merged All-Programs
+ * view is modeled as one more depth-0 SwimlaneGroup wrapping that Program's
+ * own real SwimlaneGroups as depth-1+ children). With zero SwimlaneGroups,
+ * or a document where no SwimlaneGroup has a (resolvable) `parentGroupId`,
+ * this produces byte-identical `rows`/`bands` to the original single-level
+ * implementation — every Swimlane and top-level SwimlaneGroup sorted by
+ * `order`, pushed via the exact same per-row height logic below — because a
+ * SwimlaneGroup with no `parentGroupId` (or one pointing at a group that
+ * doesn't exist) is treated as a depth-0 child of the implicit root exactly
+ * like every SwimlaneGroup used to be treated as top-level, and a Swimlane
+ * with no `groupId` (or one pointing at a group that doesn't exist) is
+ * likewise a depth-0 child of the implicit root exactly like before. This is
+ * provable by construction, not just visual similarity: the migration's "a
+ * document with zero groups (or zero nesting) renders pixel-identical to
+ * today" promise rests on this function, not on the caller re-checking it.
  *
- * Ungrouped Swimlanes and SwimlaneGroups share one order space at the top
- * level (mirrors today's flat separator/lane order space); a group's member
- * lanes sort by their own `order`, scoped to that group, and render
- * contiguously right after its band.
+ * A group's own children (its member Swimlanes AND its child SwimlaneGroups,
+ * interleaved) share one order space, scoped to that group — mirrors the
+ * original flat implementation's single shared order space at the top
+ * level, just recursed one (or more) levels deeper.
  *
  * The "header" variant (the only one that ships — see t21's gist) reserves
  * its own `separatorHeight`-tall row above its members, same treatment as
- * today's separator band; a collapsed group still reserves that row (for
- * the caret) but contributes none of its members' rows.
+ * today's separator band, at every nesting depth — no extra gutter width per
+ * depth (t26's gist: "rendered by #100's already-decided 'header' full-width
+ * band at zero extra gutter width"). A collapsed group still reserves that
+ * row (for the caret) but contributes none of its members' rows, and none of
+ * its descendant groups' bands either (the whole subtree is skipped).
  */
 function computeRowsAndBands(
   swimlanes: Swimlane[],
@@ -182,20 +198,37 @@ function computeRowsAndBands(
   heightByLaneId?: Map<string, number>,
 ): { rows: RowInfo[]; bands: GroupBandInfo[] } {
   const groupById = new Map(groups.map((g) => [g.id, g]));
-  const membersByGroup = new Map<string, Swimlane[]>();
-  for (const sl of swimlanes) {
-    if (sl.groupId && groupById.has(sl.groupId)) {
-      if (!membersByGroup.has(sl.groupId)) membersByGroup.set(sl.groupId, []);
-      membersByGroup.get(sl.groupId)!.push(sl);
-    }
-  }
-  for (const members of membersByGroup.values()) members.sort((a, b) => a.order - b.order);
+  // A group's *resolved* parent — undefined (the implicit root) for a
+  // top-level group, or for one whose parentGroupId points nowhere real
+  // (same defensive treatment a Swimlane pointing at a nonexistent group
+  // already got below).
+  const resolvedParentOf = (g: SwimlaneGroup): string | undefined => (g.parentGroupId && groupById.has(g.parentGroupId) ? g.parentGroupId : undefined);
+  // A lane's *resolved* containing group — undefined for an ungrouped lane,
+  // or one whose groupId points nowhere real.
+  const resolvedGroupOf = (sl: Swimlane): string | undefined => (sl.groupId && groupById.has(sl.groupId) ? sl.groupId : undefined);
 
-  const topLevel: Array<{ order: number; kind: "swimlane"; sl: Swimlane } | { order: number; kind: "group"; group: SwimlaneGroup }> = [
-    ...swimlanes.filter((sl) => !sl.groupId || !groupById.has(sl.groupId)).map((sl) => ({ order: sl.order, kind: "swimlane" as const, sl })),
-    ...groups.map((g) => ({ order: g.order, kind: "group" as const, group: g })),
-  ];
-  topLevel.sort((a, b) => a.order - b.order);
+  const membersByParent = new Map<string | undefined, Swimlane[]>();
+  for (const sl of swimlanes) {
+    const key = resolvedGroupOf(sl);
+    if (!membersByParent.has(key)) membersByParent.set(key, []);
+    membersByParent.get(key)!.push(sl);
+  }
+  const childGroupsByParent = new Map<string | undefined, SwimlaneGroup[]>();
+  for (const g of groups) {
+    const key = resolvedParentOf(g);
+    if (!childGroupsByParent.has(key)) childGroupsByParent.set(key, []);
+    childGroupsByParent.get(key)!.push(g);
+  }
+
+  type Child = { order: number; kind: "swimlane"; sl: Swimlane } | { order: number; kind: "group"; group: SwimlaneGroup };
+  const childrenOf = (parentId: string | undefined): Child[] => {
+    const items: Child[] = [
+      ...(membersByParent.get(parentId) ?? []).map((sl) => ({ order: sl.order, kind: "swimlane" as const, sl })),
+      ...(childGroupsByParent.get(parentId) ?? []).map((g) => ({ order: g.order, kind: "group" as const, group: g })),
+    ];
+    items.sort((a, b) => a.order - b.order);
+    return items;
+  };
 
   let y = 0;
   let laneIndex = 0;
@@ -208,17 +241,19 @@ function computeRowsAndBands(
     if (sl.type === "lane") laneIndex += 1;
     y += height;
   };
-  for (const item of topLevel) {
-    if (item.kind === "swimlane") {
-      pushSwimlane(item.sl);
-      continue;
-    }
+  const layoutGroup = (group: SwimlaneGroup, depth: number) => {
     const bandY = y;
     y += separatorHeight;
-    bands.push({ group: item.group, relY: bandY, height: separatorHeight });
-    if (!collapsedGroupIds.has(item.group.id)) {
-      for (const sl of membersByGroup.get(item.group.id) ?? []) pushSwimlane(sl);
+    bands.push({ group, relY: bandY, height: separatorHeight, depth });
+    if (collapsedGroupIds.has(group.id)) return;
+    for (const item of childrenOf(group.id)) {
+      if (item.kind === "swimlane") pushSwimlane(item.sl);
+      else layoutGroup(item.group, depth + 1);
     }
+  };
+  for (const item of childrenOf(undefined)) {
+    if (item.kind === "swimlane") pushSwimlane(item.sl);
+    else layoutGroup(item.group, 0);
   }
   return { rows, bands };
 }
@@ -1493,6 +1528,24 @@ export function RoadmapTimeline({
   const swimlaneGroups = data.swimlaneGroups ?? [];
   const groupById = new Map(swimlaneGroups.map((g) => [g.id, g]));
   const collapsedGroupIds = new Set(swimlaneGroups.filter((g) => g.collapsed).map((g) => g.id));
+  /**
+   * A group's nesting depth (t26, wayframe#104) — 0 for a top-level group,
+   * incrementing per resolvable `parentGroupId` hop. Guards against a cycle
+   * (shouldn't exist, but this is render code, not a place to infinite-loop
+   * on bad data) and a `parentGroupId` pointing nowhere real, same
+   * defensive treatment computeRowsAndBands gives that case.
+   */
+  function groupDepth(id: string): number {
+    let depth = 0;
+    let current = groupById.get(id);
+    const seen = new Set<string>();
+    while (current?.parentGroupId && groupById.has(current.parentGroupId) && !seen.has(current.id)) {
+      seen.add(current.id);
+      depth += 1;
+      current = groupById.get(current.parentGroupId);
+    }
+    return depth;
+  }
   // Lane-hide (t22) — excluded from layout entirely, not just unpainted: a hidden
   // lane reserves no row slot, so it's filtered out before any row computation.
   const visibleSwimlanes = data.swimlanes.filter(
@@ -2613,11 +2666,16 @@ export function RoadmapTimeline({
           // that carries the least information.
           const tint = laneColor(row.swimlane, row.laneIndex);
           const laneNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 3, { breakWords: false });
-          // Swimlane Groups (t21) — a grouped lane's name/owner text gets a
-          // small extra indent versus an ungrouped lane's, as a nesting cue;
-          // no side gutter is reserved for it (that's the "rail" variant,
-          // not shipping — see computeRowsAndBands's doc).
-          const laneTextX = row.swimlane.groupId && groupById.has(row.swimlane.groupId) ? 28 : 16;
+          // Swimlane Groups (t21, generalized to nesting depth in t26) — a
+          // grouped lane's name/owner text gets a small extra indent versus
+          // an ungrouped lane's, as a nesting cue, scaled by its own group's
+          // nesting depth so a lane nested two groups deep reads deeper than
+          // one nested one group deep; no side gutter is reserved for it
+          // (that's the "rail" variant, not shipping — see
+          // computeRowsAndBands's doc). For today's single-nesting-level
+          // case this evaluates to exactly 28, same as before `groupDepth`
+          // existed (a top-level group's own depth is 0, so 16 + 12*1 = 28).
+          const laneTextX = row.swimlane.groupId && groupById.has(row.swimlane.groupId) ? 16 + 12 * (groupDepth(row.swimlane.groupId) + 1) : 16;
           return (
             <g key={row.swimlane.id}>
               {/* The wash and rail are inset by theme.laneGutter so bare
@@ -2695,26 +2753,39 @@ export function RoadmapTimeline({
             against its own wash. */}
         {groupBands.map((band) => {
           const y0 = lanesTop + band.relY;
-          const groupColor = band.group.color ?? theme.inkMuted;
+          // Program band tint (t26, wayframe#104) — a depth-0 group with an
+          // accentHue set is a Program band (per the gist, a Program *is* a
+          // depth-0 SwimlaneGroup, not a second mechanism); tint it off the
+          // active theme's own laneRamp L/C with only the hue swapped
+          // (laneColorAt with index=0, count=1 makes the computed hue
+          // exactly accentHue) rather than the ordinary flat group.color/
+          // inkMuted fallback. Every other band (depth 1+, or a depth-0
+          // group with no accentHue) keeps today's plain rendering.
+          const isProgramBand = band.depth === 0 && band.group.accentHue != null;
+          const groupColor = isProgramBand ? laneColorAt({ ...theme.laneRamp, startHue: band.group.accentHue! }, 0, 1) : band.group.color ?? theme.inkMuted;
           const collapsed = collapsedGroupIds.has(band.group.id);
           const caretGlyph = collapsed ? "▸" : "▾"; // ▸ collapsed, ▾ expanded
           const headerLines = wrapText(band.group.name, Math.max(8, Math.floor(24 / metricsScale)), 2, { breakWords: false });
+          // Nesting indent (t26) — a nested band's caret/label shift right
+          // by its own depth, so a depth-2 band reads visibly deeper than a
+          // depth-0 Program band.
+          const indent = band.depth * 14;
           return (
             <g
               key={band.group.id}
               className={onToggleGroupCollapsed ? "cursor-pointer" : undefined}
               onClick={onToggleGroupCollapsed ? () => onToggleGroupCollapsed(band.group.id) : undefined}
             >
-              <rect x={0} y={y0} width={width} height={band.height} fill={theme.separatorBg} />
-              <rect x={0} y={y0} width={4} height={band.height} fill={groupColor} />
+              <rect x={0} y={y0} width={width} height={band.height} fill={isProgramBand ? groupColor : theme.separatorBg} fillOpacity={isProgramBand ? 0.16 : 1} />
+              <rect x={0} y={y0} width={isProgramBand ? 8 : 4} height={band.height} fill={groupColor} />
               <text fontSize={11 * fontScale} fill={theme.separatorText} dominantBaseline="middle">
-                <tspan x={16} y={y0 + band.height / 2}>
+                <tspan x={16 + indent} y={y0 + band.height / 2}>
                   {caretGlyph}
                 </tspan>
               </text>
               <text
-                fontSize={10.5 * fontScale}
-                fontWeight={700}
+                fontSize={isProgramBand ? 11 * fontScale : 10.5 * fontScale}
+                fontWeight={isProgramBand ? 800 : 700}
                 letterSpacing="0.09em"
                 fill={theme.separatorText}
                 // CSS, not .toUpperCase() — keeps the real string in the DOM
@@ -2722,7 +2793,7 @@ export function RoadmapTimeline({
                 style={{ textTransform: "uppercase" }}
               >
                 {headerLines.map((line, i) => (
-                  <tspan key={i} x={30} y={y0 + band.height / 2 + (i - (headerLines.length - 1) / 2) * 12 * fontScale} dominantBaseline="middle">
+                  <tspan key={i} x={30 + indent} y={y0 + band.height / 2 + (i - (headerLines.length - 1) / 2) * 12 * fontScale} dominantBaseline="middle">
                     {line}
                   </tspan>
                 ))}

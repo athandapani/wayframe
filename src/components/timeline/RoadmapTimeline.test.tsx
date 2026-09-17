@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { defaultTheme } from "./theme";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RoadmapTimeline } from "./RoadmapTimeline";
 import { BlufCallout } from "./BlufCallout";
@@ -703,6 +703,96 @@ describe("swimlane groups (t21, wayframe#100)", () => {
     render(<RoadmapTimeline data={groupedRoadmap} today={new Date("2026-01-20T00:00:00Z")} onToggleGroupCollapsed={onToggleGroupCollapsed} />);
     fireEvent.click(screen.getByText("Group One"));
     expect(onToggleGroupCollapsed).toHaveBeenCalledWith("grp-1");
+  });
+});
+
+describe("swimlane group nesting (t26, wayframe#104)", () => {
+  // Same single-level fixture as the "swimlane groups (t21, wayframe#100)"
+  // describe block's own `groupedRoadmap` above — redeclared locally since
+  // that one is scoped to its own describe callback.
+  const groupedRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlaneGroups: [{ id: "grp-1", order: 0, name: "Group One" }],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Lane A", groupId: "grp-1" },
+      { id: "lane-b", order: 1, type: "lane", name: "Lane B", groupId: "grp-1" },
+      { id: "lane-c", order: 2, type: "lane", name: "Lane C" },
+    ],
+  };
+
+  // A 2-level nesting: a top-level (depth-0) group containing a child
+  // (depth-1) group containing a lane — the recursive layoutGroup path
+  // computeRowsAndBands's doc describes.
+  const nestedRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlaneGroups: [
+      { id: "parent-grp", order: 0, name: "Parent Group" },
+      { id: "child-grp", order: 0, name: "Child Group", parentGroupId: "parent-grp" },
+    ],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Lane A", groupId: "child-grp" },
+      { id: "lane-b", order: 1, type: "lane", name: "Lane B" },
+    ],
+  };
+
+  it("renders both a top-level band and its nested child band, with the child band's caret/label indented deeper (by exactly one nesting level) than the top-level one's", () => {
+    render(<RoadmapTimeline data={nestedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(screen.getByText("Parent Group")).toBeInTheDocument();
+    expect(screen.getByText("Child Group")).toBeInTheDocument();
+    expect(screen.getByText("Lane A")).toBeInTheDocument();
+
+    const parentLabel = screen.getByText("Parent Group");
+    const childLabel = screen.getByText("Child Group");
+    const parentG = parentLabel.closest("g")!;
+    const childG = childLabel.closest("g")!;
+    // The caret is the first <tspan> painted in each band's <g> (it comes
+    // before the label text in render order).
+    const parentCaretX = Number(parentG.querySelector("tspan")!.getAttribute("x"));
+    const childCaretX = Number(childG.querySelector("tspan")!.getAttribute("x"));
+    const parentLabelX = Number(parentLabel.getAttribute("x"));
+    const childLabelX = Number(childLabel.getAttribute("x"));
+
+    expect(parentCaretX).toBe(16); // depth 0: indent = 0
+    expect(childCaretX).toBe(30); // depth 1: indent = 14
+    expect(parentLabelX).toBe(30); // depth 0: indent = 0
+    expect(childLabelX).toBe(44); // depth 1: indent = 14
+  });
+
+  it("indents a lane's own name by its group's nesting depth — a depth-1-nested lane sits deeper than a depth-1 (single-level) grouped lane would", () => {
+    render(<RoadmapTimeline data={nestedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    // lane-a's containing group (child-grp) is itself nested one level under
+    // parent-grp, so groupDepth("child-grp") is 1, giving laneTextX =
+    // 16 + 12*(1+1) = 40 — deeper than the 28 a lane in a top-level
+    // (unnested) group gets.
+    const laneALabel = screen.getByText("Lane A");
+    expect(Number(laneALabel.getAttribute("x"))).toBe(40);
+  });
+
+  it("SwimlaneGroup.accentHue on a depth-0 group changes that band's rendered fill and rail width versus an otherwise-identical band with no accentHue", () => {
+    const withoutHue: RenderableProgram = { ...groupedRoadmap, swimlaneGroups: [{ id: "grp-1", order: 0, name: "Group One" }] };
+    const withHue: RenderableProgram = { ...groupedRoadmap, swimlaneGroups: [{ id: "grp-1", order: 0, name: "Group One", accentHue: 200 }] };
+
+    const { container: withoutHueContainer } = render(<RoadmapTimeline data={withoutHue} today={new Date("2026-01-20T00:00:00Z")} />);
+    const { container: withHueContainer } = render(<RoadmapTimeline data={withHue} today={new Date("2026-01-20T00:00:00Z")} />);
+
+    const plainG = within(withoutHueContainer).getByText("Group One").closest("g")!;
+    const tintedG = within(withHueContainer).getByText("Group One").closest("g")!;
+    const [plainFillRect, plainRailRect] = plainG.querySelectorAll("rect");
+    const [tintedFillRect, tintedRailRect] = tintedG.querySelectorAll("rect");
+
+    expect(plainFillRect.getAttribute("fill")).not.toBe(tintedFillRect.getAttribute("fill"));
+    expect(plainRailRect.getAttribute("width")).toBe("4");
+    expect(tintedRailRect.getAttribute("width")).toBe("8");
+  });
+
+  it("a SwimlaneGroup whose parentGroupId points at a nonexistent group is treated the same as unset (top-level) — same defensive treatment an invalid Swimlane.groupId already gets", () => {
+    const danglingParent: RenderableProgram = {
+      ...groupedRoadmap,
+      swimlaneGroups: [{ id: "grp-1", order: 0, name: "Group One", parentGroupId: "does-not-exist" }],
+    };
+    const { container: base } = render(<RoadmapTimeline data={groupedRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const { container: withDangling } = render(<RoadmapTimeline data={danglingParent} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(withDangling.querySelector("svg")!.outerHTML).toBe(base.querySelector("svg")!.outerHTML);
   });
 });
 
