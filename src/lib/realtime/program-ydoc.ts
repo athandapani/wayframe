@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import type { Milestone, Program, Swimlane, TopLevelItem } from "@/components/timeline/types";
+import type { Milestone, Program, Swimlane, SwimlaneGroup, TopLevelItem } from "@/components/timeline/types";
 
 /**
  * The client<->Yjs bridge for one Program room (wayframe t38) — t4 built
@@ -16,6 +16,16 @@ import type { Milestone, Program, Swimlane, TopLevelItem } from "@/components/ti
  *    meaning, so it gets a real Y.Array rather than a keyed Y.Map). Swimlane
  *    has no nested collections of its own, so each entry is a flat Y.Map of
  *    its plain-JS fields.
+ *  - `doc.getArray<Y.Map<unknown>>("swimlaneGroups")` — same array-order
+ *    idiom as `swimlanes` (SwimlaneGroup.order is meaningful, same reasoning),
+ *    added post-hoc: this bridge originally predated wayframe#t21
+ *    (SwimlaneGroups) entirely and silently dropped `Program.swimlaneGroups`
+ *    on every round-trip through live editing — a real bug, not a
+ *    deliberate scope cut, fixed here since t32's outline tree is
+ *    fundamentally about groups and can't work through the live editing
+ *    path without this. Empty/absent `swimlaneGroups` round-trips back as
+ *    `undefined` (never `[]`), matching Program.swimlaneGroups's own
+ *    optional-field convention elsewhere (t21/t26).
  *  - `doc.getMap<Y.Map<unknown>>("milestones")` — keyed by Milestone id, one
  *    flat Y.Map per Milestone. Milestone's own fields are flat/scalar or
  *    small nested values (`dependsOn: DependencyEdge[]`, `attachments`,
@@ -132,6 +142,9 @@ export function seedProgramDoc(doc: Y.Doc, program: Program, origin?: unknown): 
     const swimlanes = doc.getArray<Y.Map<unknown>>("swimlanes");
     swimlanes.push(program.swimlanes.map((lane) => objectToYMap(lane as unknown as Record<string, unknown>)));
 
+    const swimlaneGroups = doc.getArray<Y.Map<unknown>>("swimlaneGroups");
+    swimlaneGroups.push((program.swimlaneGroups ?? []).map((group) => objectToYMap(group as unknown as Record<string, unknown>)));
+
     const milestones = doc.getMap<Y.Map<unknown>>("milestones");
     for (const milestone of program.milestones) {
       milestones.set(milestone.id, objectToYMap(milestone as unknown as Record<string, unknown>));
@@ -160,6 +173,11 @@ export function readProgramFromDoc(doc: Y.Doc): Program {
     .toArray()
     .map((entry) => yMapToObject<Swimlane>(entry));
 
+  const swimlaneGroups = doc
+    .getArray<Y.Map<unknown>>("swimlaneGroups")
+    .toArray()
+    .map((entry) => yMapToObject<SwimlaneGroup>(entry));
+
   const milestones = Array.from(doc.getMap<Y.Map<unknown>>("milestones").values()).map((entry) => yMapToObject<Milestone>(entry));
 
   const topLevelItems = Array.from(doc.getMap<Y.Map<unknown>>("topLevelItems").values()).map((entry) => yMapToObject<TopLevelItem>(entry));
@@ -167,6 +185,7 @@ export function readProgramFromDoc(doc: Y.Doc): Program {
   return {
     ...meta,
     swimlanes,
+    swimlaneGroups: swimlaneGroups.length > 0 ? swimlaneGroups : undefined,
     milestones,
     topLevelItems,
   } as unknown as Program;
@@ -201,18 +220,20 @@ export function readProgramFromDoc(doc: Y.Doc): Program {
  */
 export function applyProgramPatch(doc: Y.Doc, previous: Program, next: Program, origin?: unknown): void {
   doc.transact(() => {
-    patchSwimlanes(doc.getArray<Y.Map<unknown>>("swimlanes"), previous.swimlanes, next.swimlanes);
+    patchOrderedCollection(doc.getArray<Y.Map<unknown>>("swimlanes"), previous.swimlanes, next.swimlanes);
+    patchOrderedCollection(doc.getArray<Y.Map<unknown>>("swimlaneGroups"), previous.swimlaneGroups ?? [], next.swimlaneGroups ?? []);
     patchKeyedCollection(doc.getMap<Y.Map<unknown>>("milestones"), previous.milestones, next.milestones);
     patchKeyedCollection(doc.getMap<Y.Map<unknown>>("topLevelItems"), previous.topLevelItems, next.topLevelItems);
     patchMeta(doc.getMap<unknown>("meta"), previous, next);
   }, origin);
 }
 
-function patchSwimlanes(swimlanes: Y.Array<Y.Map<unknown>>, previous: readonly Swimlane[], next: readonly Swimlane[]): void {
-  const changed = previous.length !== next.length || previous.some((lane, i) => !jsonEqual(lane, next[i]));
+/** Shared by `swimlanes` and `swimlaneGroups` — both are small, order-meaningful arrays where a whole-array rebuild on any change is cheap enough (see this file's top doc comment). */
+function patchOrderedCollection(yarray: Y.Array<Y.Map<unknown>>, previous: readonly (Swimlane | SwimlaneGroup)[], next: readonly (Swimlane | SwimlaneGroup)[]): void {
+  const changed = previous.length !== next.length || previous.some((item, i) => !jsonEqual(item, next[i]));
   if (!changed) return;
-  swimlanes.delete(0, swimlanes.length);
-  swimlanes.insert(0, next.map((lane) => objectToYMap(lane as unknown as Record<string, unknown>)));
+  yarray.delete(0, yarray.length);
+  yarray.insert(0, next.map((item) => objectToYMap(item as unknown as Record<string, unknown>)));
 }
 
 function patchKeyedCollection<T extends { id: string }>(yMap: Y.Map<Y.Map<unknown>>, previous: readonly T[], next: readonly T[]): void {

@@ -49,9 +49,10 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     bluf: { statement: "<p>On track</p>", bullets: ["Bullet one", "Bullet two"], label: "So what", size: { width: 300, height: null } },
     actionItems: [{ id: "a1", text: "Follow up", owner: "Jane", dueDate: "2026-01-10", done: false }],
     swimlanes: [
-      { id: "lane-1", order: 0, type: "lane", name: "Lane 1", color: "#123456", density: "normal" },
+      { id: "lane-1", order: 0, type: "lane", name: "Lane 1", color: "#123456", density: "normal", groupId: "group-1" },
       { id: "lane-2", order: 1, type: "separator", name: "Group" },
     ],
+    swimlaneGroups: [{ id: "group-1", order: 0, name: "Core Platform", collapsed: false }],
     topLevelItems: [phase, annotation],
     milestones: [milestone1, milestone2],
     ...overrides,
@@ -91,6 +92,17 @@ describe("seedProgramDoc + readProgramFromDoc round-trip", () => {
     seedProgramDoc(doc, program);
     const read = readProgramFromDoc(doc);
     expect(read.swimlanes.map((l) => l.id)).toEqual(program.swimlanes.map((l) => l.id));
+  });
+
+  it("round-trips swimlaneGroups, and reads back undefined (not []) when a Program has none", () => {
+    const doc = new Y.Doc();
+    const program = makeProgram();
+    seedProgramDoc(doc, program);
+    expect(readProgramFromDoc(doc).swimlaneGroups).toEqual(program.swimlaneGroups);
+
+    const docNoGroups = new Y.Doc();
+    seedProgramDoc(docNoGroups, makeProgram({ swimlaneGroups: undefined }));
+    expect(readProgramFromDoc(docNoGroups).swimlaneGroups).toBeUndefined();
   });
 
   it("does not clobber existing state when called a second time on an already-seeded doc", () => {
@@ -169,6 +181,20 @@ describe("applyProgramPatch", () => {
     const reordered: Program = { ...program, swimlanes: [...program.swimlanes].reverse() };
     applyProgramPatch(doc, program, reordered);
     expect(readProgramFromDoc(doc).swimlanes.map((l) => l.id)).toEqual(["lane-2", "lane-1"]);
+  });
+
+  it("patches swimlaneGroups the same way as swimlanes", () => {
+    const doc = new Y.Doc();
+    const program = makeProgram();
+    seedProgramDoc(doc, program);
+
+    const renamed: Program = { ...program, swimlaneGroups: [{ ...program.swimlaneGroups![0], name: "Renamed Group" }] };
+    applyProgramPatch(doc, program, renamed);
+    expect(readProgramFromDoc(doc).swimlaneGroups?.[0].name).toBe("Renamed Group");
+
+    const cleared: Program = { ...program, swimlaneGroups: undefined };
+    applyProgramPatch(doc, renamed, cleared);
+    expect(readProgramFromDoc(doc).swimlaneGroups).toBeUndefined();
   });
 
   it("updates only changed meta fields", () => {

@@ -80,10 +80,15 @@ function isTopLevelLane(l: Swimlane, realGroupIds: ReadonlySet<string>): boolean
   return l.groupId === undefined || !realGroupIds.has(l.groupId);
 }
 
+/** t26: mirrors isTopLevelLane one tier up — a group with a `parentGroupId` resolving to another real SwimlaneGroup is really nested, not top-level, even though nothing enforced that distinction before t26 (see moveSwimlaneGroupOp's doc for why it matters now). */
+function isTopLevelGroup(g: SwimlaneGroup, realGroupIds: ReadonlySet<string>): boolean {
+  return g.parentGroupId === undefined || !realGroupIds.has(g.parentGroupId);
+}
+
 function topLevelEntries(data: Program): TopLevelEntry[] {
   const realGroupIds = new Set((data.swimlaneGroups ?? []).map((g) => g.id));
   const lanes: TopLevelEntry[] = data.swimlanes.filter((l) => isTopLevelLane(l, realGroupIds)).map((l) => ({ kind: "lane", item: l }));
-  const groups: TopLevelEntry[] = (data.swimlaneGroups ?? []).map((g) => ({ kind: "group", item: g }));
+  const groups: TopLevelEntry[] = (data.swimlaneGroups ?? []).filter((g) => isTopLevelGroup(g, realGroupIds)).map((g) => ({ kind: "group", item: g }));
   return [...lanes, ...groups].sort((a, b) => a.item.order - b.item.order);
 }
 
@@ -193,17 +198,108 @@ export function setSwimlaneGroupCollapsedOp(data: Program, id: string, collapsed
 }
 
 /**
- * Reorders a SwimlaneGroup within the top-level order space (groups +
- * ungrouped swimlanes combined), swapping with its adjacent top-level
- * neighbor. Grouped lanes aren't part of this list, so their `order`
- * values are never touched. Same no-op-on-boundary convention as
- * moveSwimlaneOp: returns `data` unchanged (same reference) if `id` isn't
- * found or the move would go out of bounds.
+ * A group's true sibling scope (t26 generalization of the t21 pattern
+ * moveSwimlaneOp already applies to lanes, one level up): a group whose
+ * `parentGroupId` resolves to another real SwimlaneGroup has its siblings
+ * scoped to that parent's own children — lanes with `groupId` equal to that
+ * parent, PLUS groups with `parentGroupId` equal to that parent — mirroring
+ * topLevelEntries' own combined lane+group idiom, just one level deeper
+ * instead of at the top level. A group with no resolvable `parentGroupId`
+ * is itself top-level, and shares topLevelEntries' own list (which already
+ * excludes any really-nested group via isTopLevelGroup).
+ *
+ * Before t26, no real (user-editable) nested group ever existed inside one
+ * Program's own live data — `parentGroupId` was only ever populated
+ * synthetically by merge-programs.ts for the read-only All-Programs view —
+ * so this function's nested branch was dead code until now; every existing
+ * group in every pre-t26 document takes the top-level branch, unchanged.
+ */
+function siblingEntriesOfGroup(data: Program, group: SwimlaneGroup): TopLevelEntry[] {
+  const groups = data.swimlaneGroups ?? [];
+  const realGroupIds = new Set(groups.map((g) => g.id));
+  const parentId = group.parentGroupId;
+  if (parentId !== undefined && realGroupIds.has(parentId)) {
+    const lanes: TopLevelEntry[] = data.swimlanes.filter((l) => l.groupId === parentId).map((l) => ({ kind: "lane", item: l }));
+    const nestedGroups: TopLevelEntry[] = groups.filter((g) => g.parentGroupId === parentId).map((g) => ({ kind: "group", item: g }));
+    return [...lanes, ...nestedGroups].sort((a, b) => a.item.order - b.item.order);
+  }
+  return topLevelEntries(data);
+}
+
+/**
+ * Reorders a SwimlaneGroup within its true sibling scope (t26 generalizes
+ * this the same way t21 generalized moveSwimlaneOp for lanes — see
+ * siblingEntriesOfGroup's doc): a nested group's ▲/▼ swaps only among its
+ * own parent's other children, never among the top-level list; a top-level
+ * group's ▲/▼ still swaps among the top-level order space (groups +
+ * ungrouped swimlanes combined), exactly as before t26. Same no-op-on-
+ * boundary convention as moveSwimlaneOp: returns `data` unchanged (same
+ * reference) if `id` isn't found or the move would go out of bounds.
  */
 export function moveSwimlaneGroupOp(data: Program, id: string, delta: -1 | 1): Program {
-  const entries = topLevelEntries(data);
+  const group = (data.swimlaneGroups ?? []).find((g) => g.id === id);
+  if (!group) return data;
+  const entries = siblingEntriesOfGroup(data, group);
   const i = entries.findIndex((e) => e.kind === "group" && e.item.id === id);
   return swapAndRenumberTopLevel(data, entries, i, delta);
+}
+
+/**
+ * Depth-walk cycle guard, mirroring RoadmapTimeline.tsx's `groupDepth` (its
+ * own doc: "guards against a cycle... on bad data" and "a `parentGroupId`
+ * pointing nowhere real") — but answering "is `descendantId` findable by
+ * walking UP from `startId`'s own resolvable `parentGroupId` chain" instead
+ * of computing a depth. Used by setSwimlaneGroupParentIdOp to reject moving
+ * a group under one of its own descendants, which would otherwise close a
+ * cycle back onto itself once the reparent lands.
+ */
+function isDescendantViaParentChain(groupById: Map<string, SwimlaneGroup>, descendantId: string, startId: string): boolean {
+  let current = groupById.get(startId);
+  const seen = new Set<string>();
+  while (current) {
+    if (current.id === descendantId) return true;
+    if (seen.has(current.id) || current.parentGroupId === undefined || !groupById.has(current.parentGroupId)) return false;
+    seen.add(current.id);
+    current = groupById.get(current.parentGroupId);
+  }
+  return false;
+}
+
+/**
+ * Reparents a SwimlaneGroup under a new parent group (or to top-level, when
+ * `newParentGroupId` is `undefined`) — mirrors setSwimlaneGroupIdOp's exact
+ * pattern one tier up: appended at the end of the NEW sibling scope (max
+ * existing sibling `order` there, +1, or 0 if none), same "append at the end
+ * of the new scope" convention. No-op (returns `data` unchanged) if:
+ *  - `groupId` doesn't resolve to a real group;
+ *  - `newParentGroupId` is given but doesn't resolve to a real group;
+ *  - `newParentGroupId === groupId` (a group can't be its own parent);
+ *  - `newParentGroupId` is a descendant of `groupId` (would close a cycle —
+ *    see isDescendantViaParentChain).
+ */
+export function setSwimlaneGroupParentIdOp(data: Program, groupId: string, newParentGroupId: string | undefined): Program {
+  const groups = data.swimlaneGroups ?? [];
+  const group = groups.find((g) => g.id === groupId);
+  if (!group) return data;
+
+  if (newParentGroupId !== undefined) {
+    const newParent = groups.find((g) => g.id === newParentGroupId);
+    if (!newParent) return data;
+    if (newParentGroupId === groupId) return data;
+    const groupById = new Map(groups.map((g) => [g.id, g]));
+    if (isDescendantViaParentChain(groupById, groupId, newParentGroupId)) return data;
+  }
+
+  const nextOrder =
+    newParentGroupId === undefined
+      ? topOrderSpaceNextOrder(data)
+      : Math.max(
+          data.swimlanes.filter((l) => l.groupId === newParentGroupId).reduce((max, l) => Math.max(max, l.order), -1),
+          groups.filter((g) => g.parentGroupId === newParentGroupId).reduce((max, g) => Math.max(max, g.order), -1),
+        ) + 1;
+
+  const swimlaneGroups = groups.map((g) => (g.id === groupId ? { ...g, parentGroupId: newParentGroupId, order: nextOrder } : g));
+  return { ...data, swimlaneGroups };
 }
 
 /**

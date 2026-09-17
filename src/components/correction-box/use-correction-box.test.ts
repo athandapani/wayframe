@@ -237,6 +237,25 @@ describe("swimlane group reducer actions (wayframe t21)", () => {
     const undone = reduce(next, { type: "undo" });
     expect(undone.data.swimlanes.find((l) => l.id === "lane-1")!.groupId).toBeUndefined();
   });
+
+  it("reparents a group via setSwimlaneGroupParentId, undo-tracked (t32)", () => {
+    const withG1 = reduce(initialState(), { type: "addSwimlaneGroup", newId: "g1" });
+    const withG2 = reduce(withG1, { type: "addSwimlaneGroup", newId: "g2" });
+    const next = reduce(withG2, { type: "setSwimlaneGroupParentId", groupId: "g2", newParentGroupId: "g1" });
+    expect(next.data.swimlaneGroups!.find((g) => g.id === "g2")!.parentGroupId).toBe("g1");
+    expect(next.history).toHaveLength(3);
+
+    const undone = reduce(next, { type: "undo" });
+    expect(undone.data.swimlaneGroups!.find((g) => g.id === "g2")!.parentGroupId).toBeUndefined();
+  });
+
+  it("setSwimlaneGroupParentId is a no-op (same state reference held) for a cycle", () => {
+    const withG1 = reduce(initialState(), { type: "addSwimlaneGroup", newId: "g1" });
+    const withG2 = reduce(withG1, { type: "addSwimlaneGroup", newId: "g2" });
+    const nested = reduce(withG2, { type: "setSwimlaneGroupParentId", groupId: "g2", newParentGroupId: "g1" });
+    const attemptCycle = reduce(nested, { type: "setSwimlaneGroupParentId", groupId: "g1", newParentGroupId: "g2" });
+    expect(attemptCycle).toBe(nested);
+  });
 });
 
 describe("editDocument reducer action (wayframe#55/#60)", () => {

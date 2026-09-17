@@ -21,6 +21,7 @@ import {
   setSwimlaneGroupColorOp,
   setSwimlaneGroupCollapsedOp,
   setSwimlaneGroupIdOp,
+  setSwimlaneGroupParentIdOp,
 } from "./apply-document";
 import type { DeleteOp, SwimlaneOp } from "./schema";
 
@@ -88,6 +89,44 @@ function groupedData(): Program {
     ],
     topLevelItems: [],
     milestones: [milestone("x1", "lane-x")],
+  };
+}
+
+/**
+ * t26: one top-level group (g1) that itself nests two child groups (g1a,
+ * g1b) alongside two member lanes (lane-x, lane-y) — all four sharing one
+ * order space scoped to g1, mirroring topLevelEntries' own lane+group order
+ * space one level up. g1a has its own single member lane (lane-p). g2 is a
+ * second top-level group with no nesting, and lane-a is a plain top-level
+ * ungrouped lane — both exist to prove a nested group's move never touches
+ * anything outside its own parent's scope, and a top-level group's move
+ * never touches anything inside a nested scope.
+ */
+function nestedGroupedData(): Program {
+  return {
+    id: "program-1",
+    portfolioId: "portfolio-1",
+    order: 0,
+    programName: "P",
+    generatedAt: "2026-01-01T00:00:00Z",
+    owner: "o",
+    bluf: { statement: "s", bullets: [] },
+    actionItems: [],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Alpha" },
+      { id: "lane-x", order: 0, type: "lane", name: "Xray", groupId: "g1" },
+      { id: "lane-y", order: 1, type: "lane", name: "Yankee", groupId: "g1" },
+      { id: "lane-p", order: 0, type: "lane", name: "Papa", groupId: "g1a" },
+      { id: "lane-z", order: 0, type: "lane", name: "Zulu", groupId: "g2" },
+    ],
+    swimlaneGroups: [
+      { id: "g1", order: 1, name: "Group 1" },
+      { id: "g1a", order: 2, name: "Group 1a", parentGroupId: "g1" },
+      { id: "g1b", order: 3, name: "Group 1b", parentGroupId: "g1" },
+      { id: "g2", order: 2, name: "Group 2" },
+    ],
+    topLevelItems: [],
+    milestones: [],
   };
 }
 
@@ -283,6 +322,55 @@ describe("moveSwimlaneGroupOp", () => {
   });
 });
 
+describe("moveSwimlaneGroupOp (t26 generalization: nested groups)", () => {
+  it("a nested group's ▲/▼ swaps only among its own parent's other children, never among the top-level list", () => {
+    const data = nestedGroupedData();
+    // g1's own scope: lane-x(0), lane-y(1), g1a(2), g1b(3) — move g1a up past lane-y.
+    const next = moveSwimlaneGroupOp(data, "g1a", -1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1a")!.order).toBe(1);
+    expect(next.swimlanes.find((l) => l.id === "lane-y")!.order).toBe(2);
+    expect(next.swimlanes.find((l) => l.id === "lane-x")!.order).toBe(0);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1b")!.order).toBe(3);
+    // The top-level list (lane-a, g1, g2) is provably untouched by a nested move.
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(0);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")!.order).toBe(1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g2")!.order).toBe(2);
+    // Unrelated nested/sibling entries are untouched too.
+    expect(next.swimlanes.find((l) => l.id === "lane-p")).toEqual(data.swimlanes.find((l) => l.id === "lane-p"));
+    expect(next.swimlanes.find((l) => l.id === "lane-z")).toEqual(data.swimlanes.find((l) => l.id === "lane-z"));
+  });
+
+  it("a real top-level group's ▲/▼ is unaffected by the existence of nested groups elsewhere in the document", () => {
+    const data = nestedGroupedData();
+    // Top-level order: lane-a(0), g1(1), g2(2) — move g2 up past g1.
+    const next = moveSwimlaneGroupOp(data, "g2", -1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g2")!.order).toBe(1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")!.order).toBe(2);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(0);
+    // g1's own nested scope (members + child groups) is provably untouched by a top-level swap.
+    expect(next.swimlanes.find((l) => l.id === "lane-x")).toEqual(data.swimlanes.find((l) => l.id === "lane-x"));
+    expect(next.swimlanes.find((l) => l.id === "lane-y")).toEqual(data.swimlanes.find((l) => l.id === "lane-y"));
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1a")).toEqual(data.swimlaneGroups!.find((g) => g.id === "g1a"));
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1b")).toEqual(data.swimlaneGroups!.find((g) => g.id === "g1b"));
+    // g2's own member is untouched.
+    expect(next.swimlanes.find((l) => l.id === "lane-z")).toEqual(data.swimlanes.find((l) => l.id === "lane-z"));
+  });
+
+  it("a zero-nested-group document (groupedData) behaves byte-identically to the pre-t26 flat implementation", () => {
+    // Same assertions as the "moveSwimlaneGroupOp" describe block above,
+    // repeated here to pin down that the t26 generalization doesn't change
+    // any existing, already-tested behavior for a document with no real
+    // parentGroupId anywhere.
+    const data = groupedData();
+    const next = moveSwimlaneGroupOp(data, "g1", -1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")!.order).toBe(0);
+    expect(next.swimlanes.find((l) => l.id === "lane-a")!.order).toBe(1);
+    expect(next.swimlaneGroups!.find((g) => g.id === "g2")!.order).toBe(2);
+    expect(moveSwimlaneGroupOp(data, "g2", 1)).toBe(data);
+    expect(moveSwimlaneGroupOp(data, "does-not-exist", 1)).toBe(data);
+  });
+});
+
 describe("moveSwimlaneOp (t21 generalization)", () => {
   it("on a grouped lane, reorders only within that group's siblings", () => {
     const data = groupedData();
@@ -350,6 +438,51 @@ describe("setSwimlaneGroupIdOp", () => {
   it("no-ops for a groupId that doesn't resolve to a real group", () => {
     const data = groupedData();
     expect(setSwimlaneGroupIdOp(data, "lane-a", "not-a-real-group")).toBe(data);
+  });
+});
+
+describe("setSwimlaneGroupParentIdOp", () => {
+  it("legally reparents a top-level group under another group, landing after that scope's existing children", () => {
+    // groupedData: g1's own scope has lane-x(0)/lane-y(1), no child groups yet.
+    const next = setSwimlaneGroupParentIdOp(groupedData(), "g2", "g1");
+    const moved = next.swimlaneGroups!.find((g) => g.id === "g2")!;
+    expect(moved.parentGroupId).toBe("g1");
+    expect(moved.order).toBe(2); // after lane-x(0)/lane-y(1)
+    // g1 and g1's existing members are untouched.
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1")).toEqual(groupedData().swimlaneGroups![0]);
+    expect(next.swimlanes.find((l) => l.id === "lane-x")).toEqual(groupedData().swimlanes[1]);
+  });
+
+  it("legally reparents a nested group back to top-level (newParentGroupId undefined)", () => {
+    const data = nestedGroupedData();
+    const next = setSwimlaneGroupParentIdOp(data, "g1a", undefined);
+    const moved = next.swimlaneGroups!.find((g) => g.id === "g1a")!;
+    expect(moved.parentGroupId).toBeUndefined();
+    // Lands strictly above every existing top-level order (g2's order 2).
+    expect(moved.order).toBeGreaterThan(2);
+    // g1b, g1's other nested child, is untouched.
+    expect(next.swimlaneGroups!.find((g) => g.id === "g1b")).toEqual(data.swimlaneGroups!.find((g) => g.id === "g1b"));
+  });
+
+  it("rejects a cycle — moving a group under its own descendant", () => {
+    const data = nestedGroupedData();
+    // g1a's parent is g1 — making g1a the parent of g1 would close a cycle.
+    expect(setSwimlaneGroupParentIdOp(data, "g1", "g1a")).toBe(data);
+  });
+
+  it("rejects reparenting a group under itself", () => {
+    const data = nestedGroupedData();
+    expect(setSwimlaneGroupParentIdOp(data, "g1", "g1")).toBe(data);
+  });
+
+  it("no-ops for a nonexistent groupId", () => {
+    const data = groupedData();
+    expect(setSwimlaneGroupParentIdOp(data, "does-not-exist", "g1")).toBe(data);
+  });
+
+  it("no-ops for a newParentGroupId that doesn't resolve to a real group", () => {
+    const data = groupedData();
+    expect(setSwimlaneGroupParentIdOp(data, "g1", "not-a-real-group")).toBe(data);
   });
 });
 

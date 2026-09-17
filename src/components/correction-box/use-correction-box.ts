@@ -44,6 +44,7 @@ import {
   setSwimlaneGroupColorOp,
   setSwimlaneGroupCollapsedOp,
   setSwimlaneGroupIdOp,
+  setSwimlaneGroupParentIdOp,
 } from "@/lib/corrections/apply-document";
 import { laneRollups } from "@/components/executive-view/rag";
 import { validatePortfolioDocument } from "@/lib/document-file/schema";
@@ -179,6 +180,7 @@ export type CorrectionBoxAction =
   | { type: "setSwimlaneGroupCollapsed"; id: string; collapsed: boolean }
   | { type: "moveSwimlaneGroup"; id: string; delta: -1 | 1 }
   | { type: "setSwimlaneGroupId"; laneId: string; groupId: string | undefined }
+  | { type: "setSwimlaneGroupParentId"; groupId: string; newParentGroupId: string | undefined }
   | { type: "setCompanyLogo"; dataUrl: string }
   | { type: "clearCompanyLogo" }
   | { type: "setCompanyLogoGeometry"; dx: number; dy: number; scale: number }
@@ -732,6 +734,21 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setSwimlaneGroupParentId": {
+      // Outline tree's group-reparent control (t32) — mirrors
+      // setSwimlaneGroupId's exact placement/pattern one tier up: reassigns
+      // a group into a different parent group, or ungroups it to top-level
+      // (`newParentGroupId: undefined`), distinct from moveSwimlaneGroup's
+      // adjacent-swap.
+      const moved = setSwimlaneGroupParentIdOp(state.data, action.groupId, action.newParentGroupId);
+      if (moved === state.data) return state;
+      return {
+        ...state,
+        data: stampUpdated(state.data, moved),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
     case "setCompanyLogo": {
       // Upload / replace (wayframe#46/#54) — same undo-tracked, lastUpdatedAt-bumping
       // treatment as every other document-changing action; not add-only, so a second
@@ -1068,6 +1085,8 @@ export interface UseCorrectionBoxResult {
   moveSwimlaneGroup: (id: string, delta: -1 | 1) => void;
   /** Direct group-picker reassignment — moves a lane into a different group, or ungroups it (`groupId: undefined`). */
   setSwimlaneGroupId: (laneId: string, groupId: string | undefined) => void;
+  /** Outline tree (t32) — reassigns a group into a different parent group, or ungroups it to top-level (`newParentGroupId: undefined`). Mirrors setSwimlaneGroupId one tier up. */
+  setSwimlaneGroupParentId: (groupId: string, newParentGroupId: string | undefined) => void;
   loadDocument: (data: Program) => void;
   /** File-Open — replaces the whole PortfolioDocument (Program + its Portfolio), unlike loadDocument's Program-only replace. */
   loadPortfolioDocument: (document: PortfolioDocument) => void;
@@ -1377,6 +1396,10 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const setSwimlaneGroupCollapsed = useCallback((id: string, collapsed: boolean) => dispatch({ type: "setSwimlaneGroupCollapsed", id, collapsed }), []);
   const moveSwimlaneGroup = useCallback((id: string, delta: -1 | 1) => dispatch({ type: "moveSwimlaneGroup", id, delta }), []);
   const setSwimlaneGroupId = useCallback((laneId: string, groupId: string | undefined) => dispatch({ type: "setSwimlaneGroupId", laneId, groupId }), []);
+  const setSwimlaneGroupParentId = useCallback(
+    (groupId: string, newParentGroupId: string | undefined) => dispatch({ type: "setSwimlaneGroupParentId", groupId, newParentGroupId }),
+    [],
+  );
   const loadDocument = useCallback((data: Program) => dispatch({ type: "loadDocument", data }), []);
   /** File-Open (wayframe t11) — replaces the whole PortfolioDocument, unlike loadDocument's Program-only replace (ImportPanel's structured-data import), since a .wayframe.json round-trips Portfolio content (logo/legend) too. */
   const loadPortfolioDocument = useCallback(
@@ -1451,6 +1474,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     setSwimlaneGroupCollapsed,
     moveSwimlaneGroup,
     setSwimlaneGroupId,
+    setSwimlaneGroupParentId,
     loadDocument,
     loadPortfolioDocument,
     setCompanyLogo,

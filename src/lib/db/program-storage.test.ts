@@ -107,8 +107,9 @@ describe("program-storage", () => {
     expect(rows.map((r) => r.id)).toEqual(["pA"]);
   });
 
-  it("createProgramFromData (wayframe#t17) seeds a snapshot that round-trips the whole Program object", async () => {
+  it("createProgramFromData (wayframe#t17) seeds a snapshot that round-trips the whole Program object via the field-level bridge (program-ydoc.ts, t38)", async () => {
     const { createProgramFromData, getProgramSnapshot } = await import("./program-storage");
+    const { readProgramFromDoc } = await import("@/lib/realtime/program-ydoc");
     const program = { ...demoRoadmap, id: "prog-migrated", portfolioId: "portfolio-1" };
     await createProgramFromData(program);
 
@@ -116,7 +117,7 @@ describe("program-storage", () => {
     expect(snapshot).not.toBeNull();
     const doc = new Y.Doc();
     Y.applyUpdate(doc, snapshot!);
-    expect(doc.getMap("program").get("data")).toEqual(program);
+    expect(readProgramFromDoc(doc)).toEqual(program);
   });
 
   it("createProgramFromData rows are visible to the All-Programs read path", async () => {

@@ -33,6 +33,7 @@ import type { LabelDensity } from "@/components/timeline/title-layout";
 import { THEME_LIST } from "@/components/timeline/theme";
 import { laneColors } from "@/components/timeline/lane-colors";
 import { SwimlaneManager } from "./SwimlaneManager";
+import { OutlineTree } from "./OutlineTree";
 import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
 import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
 import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
@@ -509,6 +510,7 @@ export function RoadmapWorkspace({
     setConfirmingNew(true);
   }
   const [lanesOpen, setLanesOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [confirmingAcceptAll, setConfirmingAcceptAll] = useState(false);
   const openFileRef = useRef<HTMLInputElement>(null);
   const logoFileRef = useRef<HTMLInputElement>(null);
@@ -1338,6 +1340,11 @@ export function RoadmapWorkspace({
                   Add / edit lanes
                 </button>
               </OptionsMenuRow>
+              <OptionsMenuRow label="Outline">
+                <button onClick={() => setOutlineOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                  Open outline
+                </button>
+              </OptionsMenuRow>
               <OptionsMenuRow label="Swimlane owners">
                 <button
                   onClick={() => swimlaneOwner.setVisible(!swimlaneOwner.visible)}
@@ -1563,6 +1570,21 @@ export function RoadmapWorkspace({
           onToggleGroupCollapsed={box.setSwimlaneGroupCollapsed}
           onAssignGroup={box.setSwimlaneGroupId}
           onClose={() => setLanesOpen(false)}
+        />
+      )}
+      {outlineOpen && (
+        <OutlineTree
+          data={box.data}
+          theme={theme}
+          selection={selection}
+          onMove={box.moveSwimlane}
+          onMoveGroup={box.moveSwimlaneGroup}
+          onAssignGroup={box.setSwimlaneGroupId}
+          onSetGroupParentId={box.setSwimlaneGroupParentId}
+          onHidden={box.setLaneHidden}
+          onToggleGroupCollapsed={box.setSwimlaneGroupCollapsed}
+          onBulkEdit={box.bulkEdit}
+          onClose={() => setOutlineOpen(false)}
         />
       )}
       {categoriesOpen && (
