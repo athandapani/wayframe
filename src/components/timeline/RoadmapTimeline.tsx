@@ -57,6 +57,7 @@ import { CONNECTOR_DASH_ARRAY, type ConnectorDash, type ConnectorArrow } from ".
 import type { PillProgressStyle } from "./use-pill-progress-style";
 import type { DateLabelPlacement } from "./use-date-label-placement";
 import { computeFitToScreenRatio, computeLaneRowModel, ROW_GAP, type LaneRowModel, type RowItem } from "@/lib/layout/lane-rows";
+import { useRowVirtualization } from "./use-row-virtualization";
 
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 /**
@@ -125,6 +126,14 @@ const DRAG_THRESHOLD_PX = 3; // below this a gesture is a click, not a drag
  * collide and helps nobody.
  */
 const MIN_CHART_WIDTH = 900;
+/**
+ * t41's explicit performance budget (docs/research/t41-performance-budget.md):
+ * stay fully smooth with every row painted, page/window scrolling, up to
+ * this many real lane rows in one view. Only past it does the container
+ * become its own overflow-y scroll region with row virtualization active —
+ * below it, rendering is byte-identical to pre-t41.
+ */
+const LANE_VIRTUALIZATION_THRESHOLD = 50;
 
 interface RowInfo {
   swimlane: Swimlane;
@@ -1734,6 +1743,11 @@ export function RoadmapTimeline({
   }, [fixedWidth]);
   const width = fixedWidth ?? Math.max(measuredWidth ?? MIN_CHART_WIDTH, MIN_CHART_WIDTH);
   const laneCount = rows.filter((r) => r.swimlane.type === "lane").length;
+  // t41 — only past the budget does the container become its own scroll
+  // region with row virtualization active; below it this hook's own
+  // isActive stays false and isRowVisible fails open (always true).
+  const rowVirtualizationEnabled = laneCount > LANE_VIRTUALIZATION_THRESHOLD;
+  const rowVirtualization = useRowVirtualization(containerRef, rowVirtualizationEnabled);
   /**
    * A lane's accent. `Swimlane.color` is a per-document override (same
    * pattern as ragOverride / isCriticalPathOverride); unset generates from
@@ -1770,6 +1784,14 @@ export function RoadmapTimeline({
   const todayVisible = todayTs >= domainMin && todayTs <= domainMax;
   const todayLabel = `Today · ${today.getUTCMonth() + 1}/${today.getUTCDate()}`;
   const refAnnotations = data.topLevelItems.filter((t): t is Extract<TopLevelItem, { type: "annotation" }> => t.type === "annotation");
+  // t41 — deliberately laneVisible-only, not laneRenderable: this feeds
+  // layoutReferenceLines below, whose own refTopMarginExtra output is one of
+  // lanesTop's own inputs (chartTopMargin -> topBandY -> lanesTop), and
+  // isLaneInViewport needs lanesTop to exist first — a genuine circular
+  // dependency, not an oversight. Left ungated on viewport: it's a cheap
+  // single filter over all milestones, not the expensive per-lane layout
+  // pass (that's the loop over laneRowsOrdered further down) the budget
+  // actually targets.
   const refLaneRefs = data.milestones.filter((m) => m.showReferenceLine && laneVisible(m.laneId));
   const refTopRefs = data.topLevelItems.filter(
     (t): t is Extract<TopLevelItem, { type: "milestone" }> => t.type === "milestone" && t.showReferenceLine === true,
@@ -1819,6 +1841,30 @@ export function RoadmapTimeline({
     return lanesTop + row.relY + row.height / 2;
   }
 
+  /**
+   * t41 — is this lane's row within the (buffered) scrolled viewport, once
+   * row virtualization is active? A lane with no row (already excluded by
+   * laneVisible) trivially counts as "in viewport" here — laneRenderable
+   * below still gates on laneVisible first, this only ever narrows a
+   * lane that's already visible. Fails open to true whenever virtualization
+   * isn't active (below the budget, or unmeasured), matching
+   * rowVirtualization.isRowVisible's own fail-open contract.
+   */
+  const isLaneInViewport = (laneId: string): boolean => {
+    const row = rowById.get(laneId);
+    if (!row) return true;
+    return rowVirtualization.isRowVisible(lanesTop + row.relY, row.height);
+  };
+  /**
+   * The real render-cost gate: t22's laneVisible (a hidden lane, document
+   * content) ANDed with t41's isLaneInViewport (an off-screen lane, a pure
+   * render-cost optimization with no document-content meaning). Used at
+   * every content-painting call site that used to check laneVisible alone;
+   * laneVisible's own definition and rowById/row-membership stay untouched
+   * so a virtualized-out lane still reserves its row's height.
+   */
+  const laneRenderable = (laneId: string): boolean => laneVisible(laneId) && isLaneInViewport(laneId);
+
   // per-lane label layout — titles are wrapped into the room each marker
   // actually has, computed per lane so a crowded lane doesn't shrink labels
   // in a sparse one.
@@ -1829,6 +1875,14 @@ export function RoadmapTimeline({
   /** Per-lane tier-zones captured during this pass (t25) — a dependency connector queries these via `occupiesX` to route its midpoint around a lane's own date/ghost/title chips. */
   const laneZonesByLaneId = new Map<string, Zone[]>();
   for (const laneRow of laneRowsOrdered) {
+    // t41 — this lane's label/date/delta-ghost layout is real per-milestone
+    // work (the actual perf liability the budget targets, not just the JSX
+    // paint below); skip it entirely for a virtualized-out lane. Leaves no
+    // entry in primaryPlacement/datePlacement/deltaGhostPlacement/
+    // laneZonesByLaneId for this lane — every downstream reader already
+    // null-coalesces a missing lane safely (a hidden lane has done the same
+    // for years via laneVisible).
+    if (rowVirtualizationEnabled && !isLaneInViewport(laneRow.swimlane.id)) continue;
     const laneZones: Zone[] = [];
     // Duration-pill milestones (endDate set) show their own inline title and
     // don't participate in the point-marker tiered-label layout.
@@ -2229,7 +2283,21 @@ export function RoadmapTimeline({
   const logoH = COMPANY_LOGO_HEIGHT * fontScale * logoScale;
 
   return (
-    <div ref={containerRef} className="overflow-x-auto" data-testid="roadmap-timeline" style={{ background: theme.ground }}>
+    <div
+      ref={containerRef}
+      className={rowVirtualizationEnabled ? "overflow-x-auto overflow-y-auto" : "overflow-x-auto"}
+      data-testid="roadmap-timeline"
+      style={
+        rowVirtualizationEnabled
+          ? // t41 — only past the lane-row budget does this become its own
+            // scroll region; ~220px approximates the page chrome (toolbar,
+            // BLUF/legend, etc.) RoadmapWorkspace mounts above the chart.
+            // Below the budget this key is omitted entirely (untouched,
+            // page/window-scrolling behavior), not just set to "none".
+            { background: theme.ground, maxHeight: "calc(100vh - 220px)" }
+          : { background: theme.ground }
+      }
+    >
       {/* `color` (not a Tailwind class) drives every `currentColor` in the
           chart, so the theme owns the ink rather than the page's dark-mode
           class deciding it. */}
@@ -2687,6 +2755,11 @@ export function RoadmapTimeline({
               </g>
             );
           }
+          // t41 — a virtualized-out lane still reserves its row's height
+          // (the y0/row.height math above stays untouched) but paints no
+          // chrome; separators/bands (handled above/below, not lane rows)
+          // are always painted regardless, since they're cheap.
+          if (rowVirtualizationEnabled && !isLaneInViewport(row.swimlane.id)) return null;
           // No header slab. Lane identity is a colour rail plus a faint wash
           // over the plot area; the name sits directly on the chart ground in
           // ink. Filling the header — whether with the lane colour or with a
@@ -2929,7 +3002,7 @@ export function RoadmapTimeline({
 
         {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
         {data.milestones
-          .filter((m) => m.endDate && laneVisible(m.laneId))
+          .filter((m) => m.endDate && laneRenderable(m.laneId))
           .map((m) => {
             const phaseSize = resolvePhaseSize(m, data, theme);
             const phaseShape = resolvePhaseShape(m, data, theme);
@@ -3047,7 +3120,7 @@ export function RoadmapTimeline({
          */}
         {(() => {
           const pointMilestones = data.milestones.filter(
-            (m) => !m.endDate && !resolveHidden(m, data) && laneVisible(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)),
+            (m) => !m.endDate && !resolveHidden(m, data) && laneRenderable(m.laneId) && !(m.categoryId && isCategoryHidden?.(m.categoryId)),
           );
           return (
             <>
@@ -3095,16 +3168,18 @@ export function RoadmapTimeline({
                     // A traced edge always draws, same reasoning as a critical one:
                     // a path is only legible if every hop in it is visible.
                     const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(d.id);
-                    // Lane-hide (t22) — a hidden-lane milestone's edges are filtered
-                    // out same as any other "don't draw this edge" case.
-                    return laneVisible(m.laneId) && (d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath));
+                    // Lane-hide (t22) / row virtualization (t41) — a hidden or
+                    // off-screen lane's milestone edges are filtered out same as
+                    // any other "don't draw this edge" case.
+                    return laneRenderable(m.laneId) && (d.showConnector || traced || (showCriticalPath && m.isCriticalPath && from?.isCriticalPath));
                   })
                   .map((d) => {
                     const from = milestoneById.get(d.id);
                     if (!from) return null;
-                    // Lane-hide (t22) — the edge's source (dependency target) being
-                    // in a hidden lane also drops the edge, not just the target `m`.
-                    if (!laneVisible(from.laneId)) return null;
+                    // Lane-hide (t22) / row virtualization (t41) — the edge's
+                    // source (dependency target) being in a hidden or off-screen
+                    // lane also drops the edge, not just the target `m`.
+                    if (!laneRenderable(from.laneId)) return null;
                     const critical = showCriticalPath && m.isCriticalPath && from.isCriticalPath;
                     const traced = !!tracedIds && tracedIds.has(m.id) && tracedIds.has(from.id);
                     const x1 = x(from.date);

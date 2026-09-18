@@ -649,6 +649,61 @@ describe("lane-hide (wayframe t22)", () => {
   });
 });
 
+describe("row virtualization (t41)", () => {
+  function manyLaneRoadmap(laneCount: number): RenderableProgram {
+    const swimlanes = Array.from({ length: laneCount }, (_, i) => ({
+      id: `lane-${i}`,
+      order: i,
+      type: "lane" as const,
+      name: `Lane ${i}`,
+    }));
+    const milestones = swimlanes.map((lane, i) => ({
+      id: `m-${i}`,
+      laneId: lane.id,
+      title: `Milestone ${i}`,
+      date: "2026-01-10",
+      status: "on-track" as const,
+      dependsOn: [],
+      linksToTopLevelMilestone: null,
+      isCriticalPath: false,
+    }));
+    return { ...sampleRoadmap, swimlanes, milestones, topLevelItems: [] };
+  }
+
+  it("stays below the 50-lane budget with no overflow-y/maxHeight on the container, and every lane's content renders (below-threshold no-op)", () => {
+    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const el = container.querySelector('[data-testid="roadmap-timeline"]') as HTMLElement;
+    expect(el.className).not.toMatch(/overflow-y/);
+    expect(el.style.maxHeight).toBe("");
+  });
+
+  it("above the 50-lane budget, the container becomes its own overflow-y scroll region with a maxHeight", () => {
+    const { container } = render(<RoadmapTimeline data={manyLaneRoadmap(60)} today={new Date("2026-01-20T00:00:00Z")} />);
+    const el = container.querySelector('[data-testid="roadmap-timeline"]') as HTMLElement;
+    expect(el.className).toMatch(/overflow-y-auto/);
+    expect(el.style.maxHeight).not.toBe("");
+  });
+
+  it("above the budget, every lane's milestone still renders under the jsdom ResizeObserver stub — virtualization fails open (render everything) when the container is unmeasured, not fail-closed", () => {
+    const roadmap = manyLaneRoadmap(60);
+    render(<RoadmapTimeline data={roadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    for (let i = 0; i < 60; i++) {
+      expect(screen.getAllByText(`Milestone ${i}`).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("a 60-lane document's chart height still reserves every lane's row (virtualization never changes row position/height, only content painting)", () => {
+    const belowBudget = render(<RoadmapTimeline data={manyLaneRoadmap(10)} today={new Date("2026-01-20T00:00:00Z")} />);
+    const belowHeight = Number(belowBudget.container.querySelector("svg")!.getAttribute("height"));
+    belowBudget.unmount();
+
+    const aboveBudget = render(<RoadmapTimeline data={manyLaneRoadmap(60)} today={new Date("2026-01-20T00:00:00Z")} />);
+    const aboveHeight = Number(aboveBudget.container.querySelector("svg")!.getAttribute("height"));
+    // 6x the lanes reserves noticeably more height, proving rows aren't collapsed.
+    expect(aboveHeight).toBeGreaterThan(belowHeight * 4);
+  });
+});
+
 describe("swimlane groups (t21, wayframe#100)", () => {
   // One group ("Group One") with two member lanes (lane-a, lane-b — reusing
   // sampleRoadmap's m1/m2, which already live there) plus one ungrouped lane

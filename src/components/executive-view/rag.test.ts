@@ -69,6 +69,37 @@ describe("laneRollups trend (wayframe#33)", () => {
     const [rollup] = laneRollups(data, new Date("2026-06-10"));
     expect(rollup.trend).toBe("down");
   });
+
+  it("t41: repeated calls against the same rollupHistory reference return the same result (cache hit, not a stale one)", () => {
+    const data = baseData();
+    data.swimlanes[0].ragOverride = "red";
+    data.swimlanes[0].rollupHistory = {
+      "2026-06-01": { rag: "red", atRiskCount: 2, delayedCount: 1 },
+      "2026-06-05": { rag: "amber", atRiskCount: 1, delayedCount: 0 },
+      "2026-06-09": { rag: "green", atRiskCount: 0, delayedCount: 0 },
+    };
+    for (let i = 0; i < 3; i++) {
+      const [rollup] = laneRollups(data, new Date("2026-06-10"));
+      expect(rollup.trend).toBe("down");
+    }
+  });
+
+  it("t41: a new rollupHistory object reference (immutable-append, per use-correction-box.ts) is picked up, not served a stale cached sort", () => {
+    const data = baseData();
+    data.swimlanes[0].ragOverride = "amber";
+    data.swimlanes[0].rollupHistory = { "2026-06-01": { rag: "red", atRiskCount: 2, delayedCount: 1 } };
+    const first = laneRollups(data, new Date("2026-06-10"))[0];
+    expect(first.trend).toBe("up"); // amber improved vs. red
+
+    // Immutable spread-append, exactly as use-correction-box.ts does it — a fresh
+    // object reference with a newer, more-recent-prior entry.
+    data.swimlanes[0].rollupHistory = {
+      ...data.swimlanes[0].rollupHistory,
+      "2026-06-09": { rag: "amber", atRiskCount: 1, delayedCount: 0 },
+    };
+    const second = laneRollups(data, new Date("2026-06-10"))[0];
+    expect(second.trend).toBe("flat"); // amber vs. the newer amber entry, not the stale red one
+  });
 });
 
 describe("worstRag", () => {

@@ -68,17 +68,43 @@ export function worstRag(rags: Rag[]): Rag {
 }
 
 /**
+ * t41: rollupHistory grows unbounded by design (t9/t14's append-only
+ * doctrine — never pruned), so the read path has to stay cheap instead.
+ * `rollupHistory` is only ever replaced via immutable spread
+ * (use-correction-box.ts), never mutated in place, so caching the sorted key
+ * list per object reference is safe and self-invalidating: a fresh append
+ * always produces a fresh reference, a WeakMap miss, and a fresh sort — a
+ * re-render with the same reference reuses the cached sort instead of
+ * repeating the full Object.keys().filter().sort() scan every time.
+ */
+const sortedHistoryKeysCache = new WeakMap<Record<string, RollupSnapshot>, string[]>();
+
+function sortedHistoryKeys(history: Record<string, RollupSnapshot>): string[] {
+  const cached = sortedHistoryKeysCache.get(history);
+  if (cached) return cached;
+  const sorted = Object.keys(history).sort();
+  sortedHistoryKeysCache.set(history, sorted);
+  return sorted;
+}
+
+/**
  * Most recent rollupHistory entry strictly before today — string comparison
  * of the record's date keys is safe since dates are always "YYYY-MM-DD"
- * (see cascade.ts's isBefore).
+ * (see cascade.ts's isBefore). Binary-searches a cached sorted key list
+ * (see sortedHistoryKeys) instead of scanning+sorting on every call.
  */
 function priorSnapshot(lane: Swimlane, todayKey: string): RollupSnapshot | undefined {
-  const history = lane.rollupHistory ?? {};
-  const priorKey = Object.keys(history)
-    .filter((date) => date < todayKey)
-    .sort()
-    .at(-1);
-  return priorKey ? history[priorKey] : undefined;
+  const history = lane.rollupHistory;
+  if (!history) return undefined;
+  const sorted = sortedHistoryKeys(history);
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid] < todayKey) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo > 0 ? history[sorted[lo - 1]] : undefined;
 }
 
 function trendFromPrior(currentRag: Rag, priorRag: Rag | undefined): LaneRollup["trend"] {
