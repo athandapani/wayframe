@@ -10,8 +10,10 @@ function milestone(id: string, laneId: string, overrides: Partial<Milestone> = {
  * Mirrors the prototype's "Atlas Platform" fixture (prototypes/outline-tree-106.html)
  * adapted to this repo's real types: a grouped pair of lanes (Backend/Data
  * under "Core Platform"), one ungrouped lane (Design), a two-row Backend
- * lane (m1 on Row 1, m2 on Row 2), and one Program-band phase — the leaf
- * kind with no laneId at all.
+ * lane (m1 on Row 1, m2 on Row 2), one Program-band phase (p1, no laneId at
+ * all) and one Program-band annotation (a1) — added for wayframe#t33 to
+ * cover the one Program-band kind that stays non-selectable even after this
+ * ticket's generalization.
  */
 function atlasProgram(): Program {
   return {
@@ -29,7 +31,10 @@ function atlasProgram(): Program {
       { id: "lane-design", order: 1, type: "lane", name: "Design" },
     ],
     swimlaneGroups: [{ id: "g-core", order: 0, name: "Core Platform" }],
-    topLevelItems: [{ id: "p1", type: "phase", title: "Design system v2", startDate: "2026-01-01", endDate: "2026-02-01", status: "not-started" }],
+    topLevelItems: [
+      { id: "p1", type: "phase", title: "Design system v2", startDate: "2026-01-01", endDate: "2026-02-01", status: "not-started" },
+      { id: "a1", type: "annotation", title: "Board review", date: "2026-01-15", message: "Checkpoint" },
+    ],
     milestones: [
       milestone("m1", "lane-be", { laneRow: 1 }),
       milestone("m2", "lane-be", { laneRow: 2, date: "2026-02-01" }),
@@ -77,11 +82,22 @@ describe("buildOutlineTree", () => {
     expect(m1.selectable).toBe(true);
     expect(m1.selected).toBe(true);
     expect(m2.selected).toBe(false);
+  });
 
-    // A Program-band leaf (no laneId) is never selectable — see tree.ts's top doc.
+  it("wayframe#t33 — a Program-band 'phase'/'milestone' TopLevelItem leaf is now selectable (no laneId needed for selection); an 'annotation' leaf never is", () => {
+    const selected = new Set(["p1"]);
+    const [root] = buildOutlineTree(atlasProgram(), selected);
+
     const phase = findNode([root], "p1")!;
-    expect(phase.selectable).toBe(false);
-    expect(phase.selected).toBe(false);
+    expect(phase.selectable).toBe(true);
+    expect(phase.selected).toBe(true);
+    // laneAddressable stays false regardless — no laneId concept applies to a Program-band item, selectable or not.
+    expect(phase.laneAddressable).toBe(false);
+
+    const annotation = findNode([root], "a1")!;
+    expect(annotation.selectable).toBe(false);
+    expect(annotation.selected).toBe(false); // never true even if its id were (wrongly) in selectedIds — see buildTopLevelLeaf
+    expect(annotation.laneAddressable).toBe(false);
   });
 });
 
@@ -92,9 +108,9 @@ describe("descendantLeafIds", () => {
     expect(new Set(descendantLeafIds(laneBe))).toEqual(new Set(["m1", "m2"]));
   });
 
-  it("select-all on the Program root includes every lane-scoped leaf but never the Program-band phase", () => {
+  it("wayframe#t33 — select-all on the Program root includes every lane-scoped leaf AND the Program-band phase, but never the annotation", () => {
     const [root] = buildOutlineTree(atlasProgram(), new Set());
-    expect(new Set(descendantLeafIds(root))).toEqual(new Set(["m1", "m2", "m3"]));
+    expect(new Set(descendantLeafIds(root))).toEqual(new Set(["m1", "m2", "m3", "p1"]));
   });
 });
 

@@ -16,8 +16,9 @@ import { useState } from "react";
 import type { Program } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
 import { laneColorAt } from "@/components/timeline/lane-colors";
-import type { AcceptBaselineOp, PatchOp } from "@/lib/corrections/schema";
+import type { AcceptBaselineOp } from "@/lib/corrections/schema";
 import type { UseSelectionResult } from "@/components/timeline/use-selection";
+import type { BulkPatchOp } from "@/lib/bulk-edit/apply";
 import { buildOutlineTree, canReparentGroupOrLane, canReparentLeaf, descendantLeafIds, isLeafKind, type OutlineNode } from "@/lib/outline-tree/tree";
 
 export interface OutlineTreeProps {
@@ -31,8 +32,8 @@ export interface OutlineTreeProps {
   onSetGroupParentId: (groupId: string, newParentGroupId: string | undefined) => void;
   onHidden: (laneId: string, hidden: boolean) => void;
   onToggleGroupCollapsed: (groupId: string, collapsed: boolean) => void;
-  /** Leaf-item reparent (Task 2) — reuses bulkEdit's existing `laneReassignments` with a one-item array rather than a new op. */
-  onBulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void;
+  /** Leaf-item reparent (Task 2) — a one-item `laneId` field-patch op through fork 1's generic bulkEdit shape (wayframe#t33), rather than a new dedicated op. */
+  onBulkEdit: (bulkPatchOps: { op: BulkPatchOp; ids: string[] }[], deleteIds: string[], acceptBaselineOps: AcceptBaselineOp[]) => void;
   onClose: () => void;
 }
 
@@ -77,9 +78,9 @@ export function OutlineTree({ data, theme, selection, onMove, onMoveGroup, onAss
 
   function moveToLane(leafId: string, laneId: string) {
     // Simplest existing mechanism that already does the job (Task 2's own
-    // resolution) — a one-item laneReassignments array through bulkEdit,
+    // resolution) — a one-item `laneId` field-patch op through bulkEdit,
     // rather than a new dedicated op.
-    onBulkEdit([], [{ id: leafId, laneId }], []);
+    onBulkEdit([{ op: { field: "laneId", value: laneId }, ids: [leafId] }], [], []);
   }
 
   function renderNode(node: OutlineNode): React.ReactNode {

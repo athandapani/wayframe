@@ -914,4 +914,30 @@ describe("realtime reducer plumbing (wayframe t38)", () => {
     const next = reduce(state, { type: "dismissConflict", targetId: "m1" });
     expect(next.conflicts).toEqual([b]);
   });
+
+  it("wayframe#t33 — bulkEdit routes a mixed Milestone+TopLevelItem status patch, a delete, and an acceptBaseline through applyBulkPatchToProgram in one history entry", () => {
+    const data: Program = {
+      ...baseData(),
+      milestones: [
+        { ...baseData().milestones[0], originalDate: "2025-12-01" }, // m1 — has a baseline to accept
+        { id: "m2", laneId: "lane-1", title: "Milestone 2", date: "2026-01-02", status: "not-started", dependsOn: [], linksToTopLevelMilestone: null },
+      ],
+      topLevelItems: [{ id: "t1", type: "milestone", title: "Top milestone", date: "2026-01-03", status: "not-started" }],
+    };
+    const state: CorrectionBoxState = { ...initialState(), data };
+
+    const next = reduce(state, {
+      type: "bulkEdit",
+      bulkPatchOps: [{ op: { field: "status", value: "complete" }, ids: ["m1", "t1"] }],
+      deleteIds: ["m2"],
+      acceptBaselineOps: [{ scope: "one", targetId: "m1", reason: "bulk accept baseline" }],
+    });
+
+    expect(next.data.milestones.map((m) => m.id)).toEqual(["m1"]); // m2 deleted
+    expect(next.data.milestones[0].status).toBe("complete");
+    expect(next.data.milestones[0].originalDate).toBeUndefined(); // baseline accepted
+    expect((next.data.topLevelItems[0] as { status?: string }).status).toBe("complete");
+    expect(next.history).toHaveLength(1);
+    expect(next.history[0].data).toBe(state.data);
+  });
 });

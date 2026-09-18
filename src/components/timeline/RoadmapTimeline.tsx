@@ -2495,8 +2495,25 @@ export function RoadmapTimeline({
             // neighbour instead of the pill growing to make room.
             const labelChars = Math.floor((w - h) / (5.4 * metricsScale));
             const label = labelChars >= 4 ? wrapText(t.title, labelChars, 1)[0] : null;
+            // Selection (wayframe#t33) — TopLevelItems are now selectable
+            // (milestone/phase kinds), sharing the exact same selectedIds
+            // Set/onToggleSelect the canvas's Milestone markers already use.
+            const selected = selectedIds?.has(t.id);
             return (
-              <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
+              <g
+                key={t.id}
+                data-testid={`toplevel-glyph-${t.id}`}
+                className={selectionModeEnabled || onTopLevelItemClick ? "cursor-pointer" : undefined}
+                onClick={selectionModeEnabled ? () => onToggleSelect?.(t.id) : onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}
+              >
+                {/* Selected ring — an outset rect around the pill, same
+                    convention the in-lane duration pill's own critical/trace
+                    rings already use (below), just recolored/dashed to match
+                    MilestoneGlyph's point-marker selected ring exactly
+                    (theme.accent, dashed, 1.5 stroke). */}
+                {selected && (
+                  <rect x={px - 4} y={y - h / 2 - 4} width={w + 8} height={h + 8} rx={rx + 4} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />
+                )}
                 <rect
                   x={px}
                   y={y - h / 2}
@@ -2553,8 +2570,19 @@ export function RoadmapTimeline({
             const r = 10 * markerScale;
             const effectiveFontScale = fontScale * resolveFontScale(t, data);
             const titlePos = resolveTitleLabelPosition(t);
+            // Selection (wayframe#t33) — see the "phase" branch above for
+            // the shared reasoning; this variant already uses CushionMarker,
+            // so its selected ring is the exact same scaled-up-outline
+            // treatment MilestoneGlyph's own point-marker ring uses.
+            const selected = selectedIds?.has(t.id);
             return (
-              <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
+              <g
+                key={t.id}
+                data-testid={`toplevel-glyph-${t.id}`}
+                className={selectionModeEnabled || onTopLevelItemClick ? "cursor-pointer" : undefined}
+                onClick={selectionModeEnabled ? () => onToggleSelect?.(t.id) : onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}
+              >
+                {selected && <CushionMarker cx={cx} cy={y} r={r + 11} shape={shape} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
                 <CushionMarker cx={cx} cy={y} r={r} shape={shape} fill={theme.statusColor[t.status]} stroke={theme.markerHalo} strokeWidth={2} />
                 <text
                   x={titlePos === "left" ? cx - r - 6 : titlePos === "right" ? cx + r + 6 : cx}

@@ -25,6 +25,7 @@ import { applyCascade } from "@/lib/corrections/cascade";
 import type { ProgramConflict } from "@/lib/realtime/program-conflict";
 import { resolveBulkShiftOps } from "@/lib/corrections/bulk-shift";
 import { applyAcceptBaselineOps, applyAddMilestoneOps, applyAddTopLevelItemOps, applyAttachmentOps, applyDependencyOps, applyOps, applyTopLevelItemOps } from "@/lib/corrections/apply";
+import { applyBulkPatchToProgram, type BulkPatchOp } from "@/lib/bulk-edit/apply";
 import {
   addSwimlaneGroupOp,
   addSwimlaneOp,
@@ -212,7 +213,13 @@ export type CorrectionBoxAction =
   | { type: "clearMilestoneStyleOverride"; id: string; field: keyof StyleOverride }
   | { type: "setMilestoneLaneRow"; id: string; laneRow: number | undefined }
   | { type: "importMerge"; newLanes: { id: string; name: string }[]; adds: Milestone[]; updateOps: PatchOp[] }
-  | { type: "bulkEdit"; patchOps: PatchOp[]; laneReassignments: { id: string; laneId: string }[]; acceptBaselineOps: AcceptBaselineOp[] }
+  // Generalized mass-edit (wayframe#t33) — `bulkPatchOps` is the generic
+  // field-patch model (src/lib/bulk-edit/types.ts's `BulkPatchOp`, one entry
+  // per {field, id list} the selection toolbar built), routed through
+  // applyBulkPatchToProgram; `deleteIds`/`acceptBaselineOps` stay their own
+  // small fixed non-field primitives, same as the old laneReassignments/
+  // acceptBaselineOps split before it.
+  | { type: "bulkEdit"; bulkPatchOps: { op: BulkPatchOp; ids: string[] }[]; deleteIds: string[]; acceptBaselineOps: AcceptBaselineOp[] }
   // Realtime plumbing (wayframe t38) — see CorrectionBoxState.conflicts's doc
   // and each case's own comment in `reduce` below.
   | { type: "setFromRemote"; data: Program }
@@ -923,25 +930,19 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       };
     }
     case "bulkEdit": {
-      // Mass-edit — one atomic edit covering
-      // whichever combination of the three mutation kinds the selection
-      // toolbar built (shift-dates/set-status ride patchOps through the
-      // same cascade every date/field edit already goes through; lane
-      // reassignment and accept-baseline apply directly, same reasoning
-      // setLaneColorOp/applyAcceptBaselineOps already aren't PatchOps).
-      // Single history entry — Undo reverses the whole bulk action at once.
-      const cascaded = applyCascade(state.data.milestones, action.patchOps);
-      let milestones = applyOps(state.data.milestones, cascaded);
-      if (action.laneReassignments.length > 0) {
-        const laneByMilestoneId = new Map(action.laneReassignments.map((r) => [r.id, r.laneId]));
-        milestones = milestones.map((m) => (laneByMilestoneId.has(m.id) ? { ...m, laneId: laneByMilestoneId.get(m.id)! } : m));
-      }
-      if (action.acceptBaselineOps.length > 0) {
-        milestones = applyAcceptBaselineOps(milestones, action.acceptBaselineOps);
-      }
+      // Generalized mass-edit (wayframe#t33) — one atomic edit covering
+      // whichever combination of field patches, deletes, and accept-
+      // baselines the selection toolbar built. `applyBulkPatchToProgram`
+      // handles field patches + deletes (both Milestones and TopLevelItems);
+      // accept-baseline applies directly after, same reasoning
+      // applyAcceptBaselineOps already isn't a PatchOp. Single history
+      // entry — Undo reverses the whole bulk action at once, unchanged from
+      // before this generalization.
+      const patched = applyBulkPatchToProgram(state.data, action.bulkPatchOps, action.deleteIds);
+      const milestones = action.acceptBaselineOps.length > 0 ? applyAcceptBaselineOps(patched.milestones, action.acceptBaselineOps) : patched.milestones;
       return {
         ...state,
-        data: stampUpdated(state.data, { ...state.data, milestones }),
+        data: stampUpdated(state.data, { ...patched, milestones }),
         history: [...state.history, { data: state.data, portfolio: state.portfolio }],
         error: null,
       };
@@ -1147,8 +1148,8 @@ export interface UseCorrectionBoxResult {
   setMilestoneLaneRow: (id: string, laneRow: number | undefined) => void;
   /** Deterministic CSV/XLSX import merge — one atomic edit, see ImportDiffReview.tsx. */
   importMerge: (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => void;
-  /** Mass-edit — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/apply.ts. */
-  bulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void;
+  /** Generalized mass-edit (wayframe#t33) — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/{types,apply}.ts. */
+  bulkEdit: (bulkPatchOps: { op: BulkPatchOp; ids: string[] }[], deleteIds: string[], acceptBaselineOps: AcceptBaselineOp[]) => void;
   /** Offline-edit conflicts (wayframe t38) — see CorrectionBoxState.conflicts's doc. */
   conflicts: ProgramConflict[];
   /** Replaces `data` wholesale with a merged Yjs update — not a user edit, see the "setFromRemote" reducer case's doc. */
@@ -1459,8 +1460,8 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     [],
   );
   const bulkEdit = useCallback(
-    (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) =>
-      dispatch({ type: "bulkEdit", patchOps, laneReassignments, acceptBaselineOps }),
+    (bulkPatchOps: { op: BulkPatchOp; ids: string[] }[], deleteIds: string[], acceptBaselineOps: AcceptBaselineOp[]) =>
+      dispatch({ type: "bulkEdit", bulkPatchOps, deleteIds, acceptBaselineOps }),
     [],
   );
   const setFromRemote = useCallback((data: Program) => dispatch({ type: "setFromRemote", data }), []);

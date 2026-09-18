@@ -914,3 +914,54 @@ describe("connector-line rewrite (t25, wayframe#103)", () => {
     expect(d).toBe(`M${x1},${y} L${midX},${y} L${midX},${y} L${x2},${y}`);
   });
 });
+
+describe("TopLevelItem selection (wayframe#t33) — mass-edit's selectability now extends to milestone/phase TopLevelItems", () => {
+  it("routes a click through onToggleSelect instead of onTopLevelItemClick when selectionModeEnabled, for both the phase and milestone variants", () => {
+    const onToggleSelect = vi.fn();
+    const onTopLevelItemClick = vi.fn();
+    const { container } = render(
+      <RoadmapTimeline
+        data={sampleRoadmap}
+        today={new Date("2026-01-20T00:00:00Z")}
+        selectionModeEnabled
+        onToggleSelect={onToggleSelect}
+        onTopLevelItemClick={onTopLevelItemClick}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-1"]')!); // phase
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!); // milestone
+    expect(onToggleSelect).toHaveBeenCalledWith("top-1");
+    expect(onToggleSelect).toHaveBeenCalledWith("top-2");
+    expect(onTopLevelItemClick).not.toHaveBeenCalled();
+  });
+
+  it("falls back to onTopLevelItemClick when selection mode is off", () => {
+    const onTopLevelItemClick = vi.fn();
+    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} onTopLevelItemClick={onTopLevelItemClick} />);
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!);
+    expect(onTopLevelItemClick).toHaveBeenCalledTimes(1);
+    expect(onTopLevelItemClick.mock.calls[0][0]).toMatchObject({ id: "top-2" });
+  });
+
+  it("renders a dashed accent selection ring for a selected phase and a selected milestone TopLevelItem", () => {
+    const { container } = render(
+      <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} selectionModeEnabled selectedIds={new Set(["top-1", "top-2"])} />,
+    );
+    const phaseGroup = container.querySelector('[data-testid="toplevel-glyph-top-1"]')!;
+    expect(phaseGroup.querySelector('rect[stroke-dasharray="2 2"]')).not.toBeNull();
+    const milestoneGroup = container.querySelector('[data-testid="toplevel-glyph-top-2"]')!;
+    expect(milestoneGroup.querySelector('[stroke-dasharray="2 2"]')).not.toBeNull();
+  });
+
+  it("renders no selection ring when unselected, even in selection mode", () => {
+    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} selectionModeEnabled selectedIds={new Set()} />);
+    const phaseGroup = container.querySelector('[data-testid="toplevel-glyph-top-1"]')!;
+    expect(phaseGroup.querySelector('[stroke-dasharray="2 2"]')).toBeNull();
+  });
+
+  it("never wires an annotation TopLevelItem into selection — it renders no toplevel-glyph testid at all", () => {
+    const onToggleSelect = vi.fn();
+    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} selectionModeEnabled onToggleSelect={onToggleSelect} />);
+    expect(container.querySelector('[data-testid="toplevel-glyph-top-3"]')).toBeNull();
+  });
+});

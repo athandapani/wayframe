@@ -25,13 +25,9 @@ import { useState } from "react";
 import type {
   Attachment,
   LabelPosition,
-  MarkerShape,
   Milestone,
-  PhaseShape,
-  PhaseSize,
   RenderableMilestone,
   RenderableProgram,
-  Status,
   StyleOverride,
 } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
@@ -51,13 +47,15 @@ import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMileston
 import type { AttachmentOp, PatchOp } from "@/lib/corrections/schema";
 import type { TraceDirection } from "@/lib/critical-path/trace";
 import { addDays, formatDateShort } from "@/components/timeline/date-utils";
-
-const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
-const MARKER_SHAPES: MarkerShape[] = ["diamond", "star", "flag", "square", "rectangle", "circle"];
-/** wayframe's own default color-override swatch row — no existing shared palette in this codebase to reuse (checked CategoryManager.tsx), so this mirrors prototype/milestone-editor-redesign-102's own fixed six. */
-const COLOR_SWATCHES = ["#cf222e", "#b5791f", "#1a7f37", "#0969da", "#8250df", "#57606a"];
-/** 3x3 compass layout for title/date label position — corners are never valid LabelPosition values, so they render as inert filler cells (prototype's `pos-cell.na`). */
-const POSITION_LAYOUT: (LabelPosition | null)[] = [null, "top", null, "left", "inside", "right", null, "bottom", null];
+import { MarkerShapePicker } from "@/components/shared/field-editors/MarkerShapePicker";
+import { RangeSlider } from "@/components/shared/field-editors/RangeSlider";
+import { LabelPositionPicker } from "@/components/shared/field-editors/LabelPositionPicker";
+import { ColorSwatchPicker } from "@/components/shared/field-editors/ColorSwatchPicker";
+import { CheckboxField } from "@/components/shared/field-editors/CheckboxField";
+import { PhaseShapeSelect } from "@/components/shared/field-editors/PhaseShapeSelect";
+import { PhaseSizeSelect } from "@/components/shared/field-editors/PhaseSizeSelect";
+import { StatusSelect } from "@/components/shared/field-editors/StatusSelect";
+import { LaneRowSelect } from "@/components/shared/field-editors/LaneRowSelect";
 
 interface EdgeRef {
   id: string;
@@ -327,29 +325,7 @@ function AppearanceBody({
     const hasOverride = so?.[field] !== undefined;
     return (
       <div>
-        <span className="mb-1 block text-xs font-medium text-zinc-500">{label}</span>
-        <div className="grid w-fit grid-cols-3 gap-1">
-          {POSITION_LAYOUT.map((pos, i) =>
-            pos === null ? (
-              <div key={i} className="h-[26px] w-[26px]" />
-            ) : (
-              <button
-                key={i}
-                type="button"
-                title={pos}
-                aria-label={`${label}: ${pos}`}
-                onClick={() => onSetStyleOverride(milestone.id, { [field]: pos })}
-                className={`flex h-[26px] w-[26px] items-center justify-center rounded border text-[9px] font-semibold ${
-                  display === pos
-                    ? "border-emerald-500 bg-emerald-500 text-white"
-                    : "border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-600 dark:text-zinc-400"
-                }`}
-              >
-                {pos[0].toUpperCase()}
-              </button>
-            ),
-          )}
-        </div>
+        <LabelPositionPicker label={label} value={so?.[field]} resolvedValue={display} onChange={(pos) => onSetStyleOverride(milestone.id, { [field]: pos })} />
         <SourceTag source={hasOverride ? "override" : "default"} />
         {hasOverride && <ResetButton onClick={() => onClearStyleOverride(milestone.id, field)} />}
       </div>
@@ -366,37 +342,7 @@ function AppearanceBody({
       )}
       {/* Marker shape */}
       <div>
-        <span className="mb-1 block text-xs font-medium text-zinc-500">Marker shape</span>
-        <div className="flex flex-wrap gap-1.5">
-          {MARKER_SHAPES.map((shape) => {
-            // Highlights whichever shape is actually resolved and in effect
-            // (override or fallback), not just an explicit override — so the
-            // swatch row always shows "this is what's live," matching the
-            // preview rail rather than going blank when nothing's overridden.
-            const selected = markerShape === shape;
-            const isOverride = so?.markerShape === shape;
-            return (
-              <button
-                key={shape}
-                type="button"
-                title={shape}
-                aria-label={`Marker shape: ${shape}`}
-                onClick={() => onSetStyleOverride(milestone.id, { markerShape: shape })}
-                className={`flex h-9 w-9 items-center justify-center rounded-md border ${
-                  isOverride
-                    ? "border-violet-500 bg-violet-50 dark:bg-violet-950"
-                    : selected
-                      ? "border-zinc-400 bg-zinc-100 dark:bg-zinc-800"
-                      : "border-zinc-300 hover:border-zinc-400 dark:border-zinc-600"
-                }`}
-              >
-                <svg viewBox="0 0 24 24" className="h-5 w-5 overflow-visible">
-                  <CushionMarker cx={12} cy={12} r={8} shape={shape} fill="#57606a" stroke="none" strokeWidth={0} />
-                </svg>
-              </button>
-            );
-          })}
-        </div>
+        <MarkerShapePicker label="Marker shape" value={so?.markerShape} resolvedValue={markerShape} onChange={(shape) => onSetStyleOverride(milestone.id, { markerShape: shape })} />
         <SourceTag source={so?.markerShape !== undefined ? "override" : "default"} />
         {so?.markerShape !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "markerShape")}>Reset to default</ResetButton>}
       </div>
@@ -404,36 +350,19 @@ function AppearanceBody({
       {/* Marker scale + font scale */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <span className="mb-1 block text-xs font-medium text-zinc-500">Marker scale</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="range"
-              min={0.6}
-              max={2}
-              step={0.05}
-              value={markerScale}
-              onChange={(e) => onSetStyleOverride(milestone.id, { markerScale: parseFloat(e.target.value) })}
-              className="flex-1"
-            />
-            <span className="w-10 text-right font-mono text-[11px]">{markerScale.toFixed(2)}x</span>
-          </div>
+          <RangeSlider label="Marker scale" value={markerScale} onChange={(v) => onSetStyleOverride(milestone.id, { markerScale: v })} min={0.6} max={2} step={0.05} />
           <SourceTag source={so?.markerScale !== undefined ? "override" : "default"} />
           {so?.markerScale !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "markerScale")} />}
         </div>
         <div>
-          <span className="mb-1 block text-xs font-medium text-zinc-500">Font scale (composes w/ viewer scale)</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="range"
-              min={0.6}
-              max={2}
-              step={0.05}
-              value={fontScale}
-              onChange={(e) => onSetStyleOverride(milestone.id, { fontScale: parseFloat(e.target.value) })}
-              className="flex-1"
-            />
-            <span className="w-10 text-right font-mono text-[11px]">{fontScale.toFixed(2)}x</span>
-          </div>
+          <RangeSlider
+            label="Font scale (composes w/ viewer scale)"
+            value={fontScale}
+            onChange={(v) => onSetStyleOverride(milestone.id, { fontScale: v })}
+            min={0.6}
+            max={2}
+            step={0.05}
+          />
           <SourceTag source={so?.fontScale !== undefined ? "override" : "default"} />
           {so?.fontScale !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "fontScale")} />}
         </div>
@@ -447,35 +376,19 @@ function AppearanceBody({
 
       {/* Color */}
       <div>
-        <span className="mb-1 block text-xs font-medium text-zinc-500">Color override</span>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {COLOR_SWATCHES.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={`Color ${c}`}
-              onClick={() => onSetStyleOverride(milestone.id, { color: c })}
-              style={{ background: c }}
-              className={`h-5 w-5 rounded ${so?.color === c ? "outline outline-2 outline-offset-1 outline-emerald-500" : "border border-black/10"}`}
-            />
-          ))}
-          <span className="ml-1 h-5 w-5 rounded border border-black/10" style={{ background: resolvedFill }} title="Currently resolved color" />
-        </div>
+        <ColorSwatchPicker label="Color override" value={so?.color} resolvedValue={resolvedFill} onChange={(c) => onSetStyleOverride(milestone.id, { color: c })} />
         <SourceTag source={colorSource} />
         {so?.color !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "color")}>Clear override</ResetButton>}
       </div>
 
       {/* Hidden — false is a meaningful explicit override here, not "no override," so unchecking never gets conflated with reset. */}
       <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
+        <CheckboxField
           id={`hidden-${milestone.id}`}
           checked={hidden}
-          onChange={(e) => onSetStyleOverride(milestone.id, { hidden: e.target.checked })}
+          onChange={(checked) => onSetStyleOverride(milestone.id, { hidden: checked })}
+          label="Hide from chart (soft-hide, not deleted)"
         />
-        <label htmlFor={`hidden-${milestone.id}`} className="text-xs font-medium text-zinc-500">
-          Hide from chart (soft-hide, not deleted)
-        </label>
         {so?.hidden !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "hidden")}>Reset to default</ResetButton>}
       </div>
 
@@ -485,29 +398,12 @@ function AppearanceBody({
           <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">Phase-only (this item has an end date)</p>
           <div className="grid grid-cols-2 gap-4">
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-zinc-500">Phase shape</span>
-              <select
-                className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-600"
-                value={phaseShape}
-                onChange={(e) => onSetStyleOverride(milestone.id, { phaseShape: e.target.value as PhaseShape })}
-              >
-                <option value="pill">pill</option>
-                <option value="rectangle">rectangle</option>
-              </select>
+              <PhaseShapeSelect value={phaseShape} onChange={(shape) => onSetStyleOverride(milestone.id, { phaseShape: shape })} />
               <SourceTag source={so?.phaseShape !== undefined ? "override" : "default"} />
               {so?.phaseShape !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "phaseShape")} />}
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-zinc-500">Phase size</span>
-              <select
-                className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 text-xs dark:border-zinc-600"
-                value={phaseSize}
-                onChange={(e) => onSetStyleOverride(milestone.id, { phaseSize: e.target.value as PhaseSize })}
-              >
-                <option value="lean">lean</option>
-                <option value="normal">normal</option>
-                <option value="tall">tall</option>
-              </select>
+              <PhaseSizeSelect value={phaseSize} onChange={(size) => onSetStyleOverride(milestone.id, { phaseSize: size })} />
               <SourceTag source={so?.phaseSize !== undefined ? "override" : "default"} />
               {so?.phaseSize !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "phaseSize")} />}
             </label>
@@ -778,18 +674,7 @@ function ModalForm({
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">Status</span>
-                <select
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.status}
-                  onChange={(e) => setDraft({ ...draft, status: e.target.value as Milestone["status"] })}
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                <StatusSelect value={draft.status} onChange={(status) => setDraft({ ...draft, status })} />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-zinc-500">% complete</span>
@@ -831,21 +716,7 @@ function ModalForm({
               {draft.endDate && (
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-zinc-500">Lane row</span>
-                  <select
-                    className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                    value={String(milestone.laneRow ?? 1)}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      onSetLaneRow(milestone.id, v === "new" ? maxLaneRow + 1 : Number(v));
-                    }}
-                  >
-                    {Array.from({ length: maxLaneRow }, (_, i) => i + 1).map((row) => (
-                      <option key={row} value={row}>
-                        {row === 1 ? "Row 1 (home)" : `Row ${row}`}
-                      </option>
-                    ))}
-                    <option value="new">+ New row</option>
-                  </select>
+                  <LaneRowSelect value={milestone.laneRow ?? 1} maxRow={maxLaneRow} onChange={(row) => onSetLaneRow(milestone.id, row)} />
                 </label>
               )}
               <label className="col-span-2 block">

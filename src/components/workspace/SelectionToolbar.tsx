@@ -2,40 +2,78 @@
 
 // Floating toolbar for the rubber-band/checkbox multi-select system
 // (mass-edit) — shown whenever a selection is non-empty. Self-contained
-// like CorrectionBoxSwitcher: owns which bulk
-// action is being configured and the diff-preview accept/reject state,
-// exposes only the resolved commit outward via onBulkEdit.
+// like CorrectionBoxSwitcher: owns which bulk action is being configured
+// and the diff-preview accept/reject state, exposes only the resolved
+// commit outward via onBulkEdit.
+//
+// wayframe#t33 redesign: the old one-button-per-op row (Shift dates…/Set
+// status…/Move to lane…) is replaced by a single "Set property…" dropdown
+// over fork 1's generic `BulkPatchField` list, showing a field-appropriate
+// value editor once a field is chosen, then the SAME DiffBanner
+// accept/reject/apply flow this toolbar already had. Delete is new (there
+// was none before); Accept baseline is unchanged in behavior, now just also
+// flowing through the same DiffBanner plumbing for consistency.
+//
+// t33 fork 3: the field-dropdown + value-editor UI itself (what was this
+// file's own private `FieldValueEditor` + "available fields" filter) now
+// lives in `@/components/shared/BulkPatchFieldPicker` — extracted so the
+// cross-Program bulk-edit toolbar (the All-Programs page) can reuse it
+// instead of a third hand-written copy. This file's own single-Program
+// behavior is unchanged: same fields offered, same value editors, same
+// commit conventions — only the "where is this JSX defined" moved.
 import { useState } from "react";
-import type { Program, Status } from "@/components/timeline/types";
+import type { Milestone, Program, TopLevelItem } from "@/components/timeline/types";
 import type { UseSelectionResult } from "@/components/timeline/use-selection";
-import type { AcceptBaselineOp, PatchOp } from "@/lib/corrections/schema";
-import { buildBulkEditPreview, bulkAcceptBaseline, bulkSetLane, bulkSetStatus, bulkShiftDates, type BulkEditOp } from "@/lib/bulk-edit/apply";
-import { DiffBanner } from "@/components/shared/DiffBanner";
-import { ShiftDatePopover } from "./ShiftDatePopover";
+import type { AcceptBaselineOp } from "@/lib/corrections/schema";
+import { bulkAcceptBaseline, buildAcceptBaselinePreview, buildBulkPatchPreview, type BulkPatchOp } from "@/lib/bulk-edit/apply";
+import { DiffBanner, type DiffEntry } from "@/components/shared/DiffBanner";
+import { BulkPatchFieldPicker } from "@/components/shared/BulkPatchFieldPicker";
 
-const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
+const BUTTON_CLASS = "rounded-full border border-zinc-300 px-2.5 py-1 dark:border-zinc-600";
 
-type Picker = "shift" | "status" | "lane" | null;
+type PendingAction = { kind: "patch"; op: BulkPatchOp } | { kind: "delete" } | { kind: "acceptBaseline" };
 
-export function SelectionToolbar({ data, selection, onBulkEdit }: { data: Program; selection: UseSelectionResult; onBulkEdit: (patchOps: PatchOp[], laneReassignments: { id: string; laneId: string }[], acceptBaselineOps: AcceptBaselineOp[]) => void }) {
-  const [picker, setPicker] = useState<Picker>(null);
-  const [pendingOp, setPendingOp] = useState<BulkEditOp | null>(null);
+export function SelectionToolbar({
+  data,
+  selection,
+  onBulkEdit,
+}: {
+  data: Program;
+  selection: UseSelectionResult;
+  onBulkEdit: (bulkPatchOps: { op: BulkPatchOp; ids: string[] }[], deleteIds: string[], acceptBaselineOps: AcceptBaselineOp[]) => void;
+}) {
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [acceptedOverride, setAcceptedOverride] = useState<Set<string> | null>(null);
 
   const selectedIds = [...selection.selectedIds];
   if (selectedIds.length === 0) return null;
 
-  const entries = pendingOp ? buildBulkEditPreview(data.milestones, data.swimlanes, selectedIds, pendingOp) : [];
+  const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
+  const topLevelById = new Map(data.topLevelItems.map((t) => [t.id, t]));
+  const selectedItems: (Milestone | TopLevelItem)[] = selectedIds.map((id) => milestoneById.get(id) ?? topLevelById.get(id)).filter((item): item is Milestone | TopLevelItem => item !== undefined);
+
+  const entries: DiffEntry[] =
+    pendingAction?.kind === "patch"
+      ? buildBulkPatchPreview(data, [{ op: pendingAction.op, ids: selectedIds }], [])
+      : pendingAction?.kind === "delete"
+        ? buildBulkPatchPreview(data, [], selectedIds)
+        : pendingAction?.kind === "acceptBaseline"
+          ? buildAcceptBaselinePreview(data, selectedIds)
+          : [];
   const accepted = acceptedOverride ?? new Set(entries.map((e) => e.id));
 
-  function startOp(op: BulkEditOp) {
-    setPendingOp(op);
+  function commitField(op: BulkPatchOp) {
+    setPendingAction({ kind: "patch", op });
     setAcceptedOverride(null);
-    setPicker(null);
+  }
+
+  function startAction(action: PendingAction) {
+    setPendingAction(action);
+    setAcceptedOverride(null);
   }
 
   function discardPreview() {
-    setPendingOp(null);
+    setPendingAction(null);
     setAcceptedOverride(null);
   }
 
@@ -47,94 +85,58 @@ export function SelectionToolbar({ data, selection, onBulkEdit }: { data: Progra
   }
 
   function apply() {
-    if (!pendingOp) return;
+    if (!pendingAction) return;
     const ids = entries.filter((e) => accepted.has(e.id)).map((e) => e.id);
     if (ids.length === 0) return;
-    const patchOps = pendingOp.kind === "shift" ? bulkShiftDates(data.milestones, ids, pendingOp.deltaDays) : pendingOp.kind === "status" ? bulkSetStatus(ids, pendingOp.status) : [];
-    const laneReassignments = pendingOp.kind === "lane" ? bulkSetLane(ids, pendingOp.laneId) : [];
-    const acceptBaselineOps = pendingOp.kind === "acceptBaseline" ? bulkAcceptBaseline(data.milestones, ids) : [];
-    onBulkEdit(patchOps, laneReassignments, acceptBaselineOps);
+    if (pendingAction.kind === "patch") onBulkEdit([{ op: pendingAction.op, ids }], [], []);
+    else if (pendingAction.kind === "delete") onBulkEdit([], ids, []);
+    else onBulkEdit([], [], bulkAcceptBaseline(data.milestones, ids));
     discardPreview();
     selection.clear();
   }
 
-  const lanes = data.swimlanes.filter((l) => l.type === "lane");
-
   return (
     <div className="fixed bottom-24 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2">
-      {pendingOp && (
+      {pendingAction && (
         <DiffBanner
-          title={`Bulk edit — ${selectedIds.length} selected`}
+          title={
+            pendingAction.kind === "delete"
+              ? `Delete — ${selectedIds.length} selected`
+              : pendingAction.kind === "acceptBaseline"
+                ? `Accept baseline — ${selectedIds.length} selected`
+                : `Bulk edit — ${selectedIds.length} selected`
+          }
           entries={entries}
           accepted={accepted}
           onToggle={toggleAccept}
           onApply={apply}
           onDiscard={discardPreview}
+          applyLabel={pendingAction.kind === "delete" ? "Delete" : "Apply"}
         />
       )}
-      {!pendingOp && (
+      {!pendingAction && (
         <div
           style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
           className="flex flex-wrap items-center gap-2 rounded-full border px-3 py-2 text-xs shadow-2xl"
         >
           <span className="font-semibold">{selectedIds.length} selected</span>
-          {picker === "shift" ? (
-            <ShiftDatePopover onPreview={(deltaDays) => startOp({ kind: "shift", deltaDays })} onCancel={() => setPicker(null)} />
-          ) : (
-            <button onClick={() => setPicker("shift")} className="rounded-full border border-zinc-300 px-2.5 py-1 dark:border-zinc-600">
-              Shift dates…
-            </button>
-          )}
-          {picker === "status" ? (
-            <select
-              autoFocus
-              onChange={(e) => startOp({ kind: "status", status: e.target.value as Status })}
-              onBlur={() => setPicker(null)}
-              aria-label="Set status to"
-              defaultValue=""
-              className="rounded-full border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-            >
-              <option value="" disabled>
-                Set status…
-              </option>
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <button onClick={() => setPicker("status")} className="rounded-full border border-zinc-300 px-2.5 py-1 dark:border-zinc-600">
-              Set status…
-            </button>
-          )}
-          {picker === "lane" ? (
-            <select
-              autoFocus
-              onChange={(e) => startOp({ kind: "lane", laneId: e.target.value })}
-              onBlur={() => setPicker(null)}
-              aria-label="Move to lane"
-              defaultValue=""
-              className="rounded-full border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-            >
-              <option value="" disabled>
-                Move to lane…
-              </option>
-              {lanes.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <button onClick={() => setPicker("lane")} className="rounded-full border border-zinc-300 px-2.5 py-1 dark:border-zinc-600">
-              Move to lane…
-            </button>
-          )}
-          <button onClick={() => startOp({ kind: "acceptBaseline" })} className="rounded-full border border-zinc-300 px-2.5 py-1 dark:border-zinc-600">
+
+          <BulkPatchFieldPicker
+            selectedItems={selectedItems}
+            getLaneOptions={() => ({
+              lanes: data.swimlanes.filter((l) => l.type === "lane").map((l) => ({ id: l.id, name: l.name })),
+              maxLaneRow: Math.max(1, ...data.milestones.filter((m) => m.endDate).map((m) => m.laneRow ?? 1)),
+            })}
+            onCommit={commitField}
+          />
+
+          <button onClick={() => startAction({ kind: "acceptBaseline" })} className={BUTTON_CLASS}>
             Accept baseline
           </button>
-          <button onClick={selection.clear} className="rounded-full border border-zinc-300 px-2.5 py-1 dark:border-zinc-600">
+          <button onClick={() => startAction({ kind: "delete" })} className={BUTTON_CLASS + " text-red-600 dark:text-red-400"}>
+            Delete
+          </button>
+          <button onClick={selection.clear} className={BUTTON_CLASS}>
             Clear
           </button>
         </div>

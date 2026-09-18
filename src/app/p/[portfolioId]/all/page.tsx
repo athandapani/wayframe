@@ -22,6 +22,18 @@
 // POST .../programs/[programId]/reorder route) gated to owner/editor —
 // still no structural mutation *within* any one Program from this page,
 // matching t26's original "no mutation callbacks wired in" cut.
+//
+// wayframe t33 (fork 3) adds the first structural mutation *within*
+// Programs from this page: a "Select mode" toggle wires real
+// selectionModeEnabled/selectedIds/onToggleSelect/onMarqueeSelect into the
+// merged RoadmapTimeline canvas below (mirrors RoadmapWorkspace.tsx's own
+// selectMode/useSelection pattern), and CrossProgramSelectionToolbar
+// (src/components/workspace/CrossProgramSelectionToolbar.tsx) turns that
+// selection into a real cross-Program bulk edit via the new
+// POST .../programs/bulk-patch route — still gated to owner/editor like the
+// reorder mutation above it. The Outline section itself remains completely
+// untouched (still read-only, still not selectable — wrong data shape for
+// this, see buildMultiProgramOutlineTree's own doc).
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -35,6 +47,8 @@ import { ChartLegend } from "@/components/timeline/ChartLegend";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { buildMultiProgramOutlineTree, isLeafKind, type OutlineNode } from "@/lib/outline-tree/tree";
 import { PortfolioRollupBar } from "@/components/executive-view/PortfolioRollupBar";
+import { useSelection } from "@/components/timeline/use-selection";
+import { CrossProgramSelectionToolbar } from "@/components/workspace/CrossProgramSelectionToolbar";
 
 interface AllProgramsSuccess {
   role: "owner" | "editor" | "viewer";
@@ -135,6 +149,15 @@ export default function AllProgramsPage() {
   // inline text message near the failing button is the smallest thing that
   // works, not new UI infrastructure).
   const [reorderErrors, setReorderErrors] = useState<Record<string, string>>({});
+  // Cross-Program bulk edit (wayframe#t33, fork 3) — mirrors
+  // RoadmapWorkspace.tsx's own selectMode/useSelection pattern exactly,
+  // just at the merged-canvas level: `selection` holds namespaced ids
+  // (mergeProgramsForAllView already namespaces every Milestone/
+  // TopLevelItem id, so this "just works" with no extra namespacing code
+  // here). Gated behind `canReorderPrograms` below — a viewer shouldn't see
+  // an edit toolbar they have no permission to apply.
+  const selection = useSelection();
+  const [selectMode, setSelectMode] = useState(false);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -181,6 +204,20 @@ export default function AllProgramsPage() {
     } catch {
       setReorderErrors((prev) => ({ ...prev, [programId]: "Something went wrong reordering this Program." }));
     }
+  }
+
+  /**
+   * Refetch-after-success for the cross-Program bulk-edit toolbar — the
+   * exact same pattern `handleMoveProgram` already uses after a successful
+   * reorder. Deliberately does NOT locally re-derive/optimistically patch
+   * `result.data.programs` (see CrossProgramSelectionToolbar.tsx's own doc
+   * and the reorder route's own comment for why trusting a client-side
+   * recompute over the server's freshly-recomputed truth is the wrong
+   * tradeoff here).
+   */
+  async function refetchAfterBulkApply() {
+    const outcome = await fetchAllProgramsData(portfolioId);
+    setResult(outcome.ok ? { status: "success", data: outcome.data } : { status: "error", error: outcome.error });
   }
 
   if (status === "loading") return null;
@@ -244,11 +281,21 @@ export default function AllProgramsPage() {
       <>
         <AuthControls />
         <div className="relative mx-auto max-w-[1600px] p-8 pt-16" style={{ background: theme.ground }}>
-          <div className="mb-4 text-sm text-gray-600">
+          <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-gray-600">
             <Link href={`/p/${portfolioId}`} className="text-blue-600 hover:underline">
               &larr; Back to Portfolio
             </Link>
-            <span className="ml-2 font-semibold text-gray-800">All Programs</span>
+            <span className="font-semibold text-gray-800">All Programs</span>
+            {canReorderPrograms && (
+              <button
+                onClick={() => setSelectMode((v) => !v)}
+                aria-pressed={selectMode}
+                aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
+                className={"rounded-full border px-2.5 py-1 text-xs " + (selectMode ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-500")}
+              >
+                Select mode: {selectMode ? "On" : "Off"}
+              </button>
+            )}
           </div>
 
           <PortfolioRollupBar programs={result.data.programs} today={today} />
@@ -278,7 +325,24 @@ export default function AllProgramsPage() {
             )}
           </div>
 
-          <RoadmapTimeline data={dataWithLocalCollapse} today={today} theme={theme} onToggleGroupCollapsed={handleToggleGroupCollapsed} />
+          <RoadmapTimeline
+            data={dataWithLocalCollapse}
+            today={today}
+            theme={theme}
+            onToggleGroupCollapsed={handleToggleGroupCollapsed}
+            selectionModeEnabled={canReorderPrograms && selectMode}
+            selectedIds={selection.selectedIds}
+            onToggleSelect={selection.toggle}
+            onMarqueeSelect={selection.addAll}
+          />
+          {canReorderPrograms && selectMode && (
+            <CrossProgramSelectionToolbar
+              portfolioId={portfolioId}
+              programs={result.data.programs}
+              selection={selection}
+              onApplied={refetchAfterBulkApply}
+            />
+          )}
           {renderable.legendCategories && renderable.legendCategories.length > 0 && (
             <ChartLegend
               theme={theme}

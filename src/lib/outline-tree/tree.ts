@@ -18,19 +18,26 @@
 // `Milestone` (program.milestones) has a `laneId` and lives inside the
 // Lane -> Row structure; `TopLevelItem` (phase/annotation, and a
 // Program-band "milestone" variant) has NO laneId at all — it's a
-// Program-band item, structurally outside every Lane. Verified further:
-// RoadmapTimeline.tsx's `selectedIds`/`onToggleSelect` (the exact
-// use-selection.ts Set<string> this ticket says a tree click must share)
-// are wired ONLY to `data.milestones`, never to `data.topLevelItems` — so
-// a TopLevelItem has no real canvas-selection counterpart to toggle either.
-// This module therefore represents Program-band TopLevelItems as their own
-// leaf nodes directly under the Program node (a reasonable place for a
-// band that has no lane to live inside), but marks them `selectable: false`
-// and `laneAddressable: false` — never bridged into use-selection.ts's set,
-// and never offered a "move to a different lane" control (Task 4 omits
-// that control for them, matching how canReparentLeaf below always rejects
-// them). Only a real lane-scoped Milestone leaf is `selectable`/
-// `laneAddressable: true`.
+// Program-band item, structurally outside every Lane. This module
+// therefore represents Program-band TopLevelItems as their own leaf nodes
+// directly under the Program node (a reasonable place for a band that has
+// no lane to live inside), and marks them `laneAddressable: false`
+// unconditionally — never offered a "move to a different lane" control
+// (Task 4 omits that control for them, matching how canReparentLeaf below
+// always rejects them) — no laneId concept applies to a Program-band item,
+// selectable or not.
+//
+// UPDATED (wayframe#t33): a TopLevelItem leaf IS now `selectable` — for the
+// "milestone"/"phase" kinds, which both carry status and a StyleOverride
+// (bulk-editable via t33's generic field-patch model); an "annotation" leaf
+// stays `selectable: false`, since it has neither (see StyleOverride's own
+// doc and src/lib/bulk-edit/types.ts's applicability research). This
+// bridges into the exact same use-selection.ts `Set<string>` a lane-scoped
+// Milestone leaf already uses — RoadmapTimeline.tsx's `selectedIds`/
+// `onToggleSelect` are now wired to `data.topLevelItems` too (the
+// "milestone"/"phase" render branches), not just `data.milestones`, so a
+// TopLevelItem leaf selected here really does toggle the same canvas
+// selection ring a Milestone leaf's does.
 import type { Milestone, Portfolio, Program, Swimlane, SwimlaneGroup, TopLevelItem } from "@/components/timeline/types";
 
 export type OutlineNodeKind = "program" | "group" | "lane" | "row" | "milestone" | "phase" | "annotation";
@@ -47,7 +54,7 @@ export interface OutlineNode {
   collapsed?: boolean;
   /** Only meaningful when `selectable` is true. */
   selected?: boolean;
-  /** True only for a leaf projected from a lane-scoped Milestone (program.milestones) — the only leaf kind use-selection.ts's Set<string> actually covers in this codebase. See this file's top-of-module doc for why a Program-band TopLevelItem leaf is never selectable. */
+  /** True for a leaf projected from a lane-scoped Milestone, or from a "milestone"/"phase" TopLevelItem — every leaf kind use-selection.ts's Set<string> actually covers (wayframe#t33). False for an "annotation" leaf, which has no status/StyleOverride to bulk-edit. See this file's top-of-module doc. */
   selectable?: boolean;
   /** True only for a leaf projected from a lane-scoped Milestone — the only leaf kind that has a `laneId` to reassign (see canReparentLeaf). */
   laneAddressable?: boolean;
@@ -84,16 +91,17 @@ function buildMilestoneLeaf(m: Milestone, depth: number, selectedIds: ReadonlySe
   };
 }
 
-/** A Program-band TopLevelItem leaf — never selectable/lane-addressable, see this file's top-of-module doc. */
-function buildTopLevelLeaf(item: TopLevelItem, depth: number): OutlineNode {
+/** A Program-band TopLevelItem leaf — never lane-addressable (no laneId concept applies), and selectable only for "milestone"/"phase" kinds, not "annotation" (wayframe#t33 — see this file's top-of-module doc). */
+function buildTopLevelLeaf(item: TopLevelItem, depth: number, selectedIds: ReadonlySet<string>): OutlineNode {
+  const selectable = item.type !== "annotation";
   return {
     kind: item.type,
     id: item.id,
     label: labelOf(item),
     depth,
     children: [],
-    selected: false,
-    selectable: false,
+    selected: selectable && selectedIds.has(item.id),
+    selectable,
     laneAddressable: false,
   };
 }
@@ -170,8 +178,9 @@ function childrenOf(
  * TopLevelItems (also depth 1, appended after — see this file's top doc for
  * why they can't nest inside any Lane). `selectedIds` is the exact
  * `Set<string>` `use-selection.ts` already hands the canvas/SelectionToolbar
- * — every lane-scoped Milestone leaf's `selected` flag is read straight off
- * it, never a parallel selection concept.
+ * — every lane-scoped Milestone leaf's `selected` flag, and (wayframe#t33)
+ * every "milestone"/"phase" TopLevelItem leaf's, is read straight off it,
+ * never a parallel selection concept.
  */
 export function buildOutlineTree(program: Program, selectedIds: ReadonlySet<string>): OutlineNode[] {
   const groups = program.swimlaneGroups ?? [];
@@ -198,7 +207,7 @@ export function buildOutlineTree(program: Program, selectedIds: ReadonlySet<stri
       ? buildLaneNode(program, entry.lane, 1, selectedIds)
       : buildGroupNode(program, entry.group, 1, selectedIds, lanesByParent, groupsByParent),
   );
-  const topLevelLeaves = program.topLevelItems.map((item) => buildTopLevelLeaf(item, 1));
+  const topLevelLeaves = program.topLevelItems.map((item) => buildTopLevelLeaf(item, 1, selectedIds));
 
   const programNode: OutlineNode = {
     kind: "program",
@@ -229,7 +238,7 @@ export function buildMultiProgramOutlineTree(programs: readonly Program[], portf
   return [...programs].sort((a, b) => a.order - b.order).flatMap((program) => buildOutlineTree(program, emptySelection));
 }
 
-/** Bulk-adds every selectable descendant leaf's id — the tree's bridge into use-selection.ts's `addAll`, not a new selection primitive (mirrors the prototype's `selectAllInSubtree`/`descendantLeafIds`). A Program-band TopLevelItem leaf is walked but never included, since it's never `selectable` (see this file's top doc). */
+/** Bulk-adds every selectable descendant leaf's id — the tree's bridge into use-selection.ts's `addAll`, not a new selection primitive (mirrors the prototype's `selectAllInSubtree`/`descendantLeafIds`). A Program-band TopLevelItem leaf is walked and included when it's a "milestone"/"phase" kind (wayframe#t33); an "annotation" leaf is walked but never included, since it's never `selectable` (see this file's top doc). */
 export function descendantLeafIds(node: OutlineNode): string[] {
   const out: string[] = [];
   const walk = (n: OutlineNode) => {

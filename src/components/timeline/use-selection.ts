@@ -1,8 +1,12 @@
 "use client";
 
-// Multi-milestone selection (mass-edit) — viewer/
-// session state, not document content and not itself undo-tracked (only
-// the bulk edit it eventually produces is, via useCorrectionBox's own
+// Multi-select (mass-edit) — a plain, entity-agnostic id Set covering both
+// lane-scoped Milestones and Program-band TopLevelItems ("milestone"/
+// "phase" kinds, wayframe#t33 — see src/lib/outline-tree/tree.ts's
+// `buildTopLevelLeaf` and RoadmapTimeline.tsx's TopLevelItem click wiring
+// for the two places that now feed/consume this Set beyond Milestones).
+// Viewer/session state, not document content and not itself undo-tracked
+// (only the bulk edit it eventually produces is, via useCorrectionBox's own
 // history stack). Not persisted to localStorage either: unlike a display
 // preference, "which markers are selected right now" has no reason to
 // survive a reload.
