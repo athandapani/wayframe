@@ -7,60 +7,59 @@
 // Modal shape copied from SharePanel.tsx (fixed backdrop, --wf-* themed card,
 // role="dialog", ✕ close). The actual slide-order/data-assembly logic lives
 // in the DOM-free build-export-slides.ts so it's unit-testable without
-// mounting anything; this component only owns the UI and the off-screen
-// html2canvas capture.
-import { useEffect, useRef, useState } from "react";
+// mounting anything.
+//
+// Destination toggle (wayframe t30): both destinations now render the same
+// native-shape `Slide` IR (renderable-to-slide.ts + deck-ir.ts) instead of
+// the old html2canvas per-slide screenshot capture — deck-ir.ts's own header
+// comment named t30 as the ticket that would replace that path, and this is
+// it. "Download .pptx" compiles the IR locally via `compileToPptxOps` +
+// pptxgenjs (export-native-deck.ts); "Send to Google Slides" posts the same
+// IR to `/api/google/slides-export`, which compiles it server-side via
+// `compileToSlidesRequests` against the real Slides API (t30's Fork 3). The
+// old image-based `exportToDeck`/`export-to-deck.ts` is left in place,
+// unused, as a fallback — nobody has been able to visually confirm the
+// native renderer's actual on-slide appearance in a real browser this
+// session (see this project's standing claude-in-chrome-can't-reach-
+// localhost limitation), so reverting is a one-line change if it turns out
+// to look wrong.
+import { useEffect, useState } from "react";
 import type { Portfolio, Program, RenderableProgram } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
 import type { UseZoomWindowResult } from "@/components/timeline/use-zoom-window";
 import type { ExecutiveTimelineSummary } from "@/components/executive-view/timeline-summary";
-import type { CriticalPathStyle } from "@/components/timeline/use-critical-path-style";
-import type { TopBandStyle } from "@/components/timeline/use-top-band-style";
-import type { PeriodGridlineStyle } from "@/components/timeline/use-period-gridlines";
-import type { AxisTierConfig } from "@/components/timeline/axis-tiers";
-import type { LabelDensity } from "@/components/timeline/title-layout";
-import type { ConnectorStyle } from "@/components/timeline/use-connector-style";
-import type { ConnectorDash, ConnectorArrow } from "@/components/timeline/use-connector-line-style";
-import type { PillProgressStyle } from "@/components/timeline/use-pill-progress-style";
-import type { DateLabelPlacement } from "@/components/timeline/use-date-label-placement";
 import { buildExportSlides, type ExportSelection, type ExportSlideDescriptor } from "@/lib/export/build-export-slides";
-import { exportToDeck, type DeckSlideSource } from "@/lib/export/export-to-deck";
-import { RoadmapView, deckFileName, OFFSCREEN_CLASS } from "./RoadmapWorkspace";
+import { computeDomain } from "@/components/timeline/RoadmapTimeline";
+import { buildExecutiveSlideIR, buildSlideIR } from "@/lib/export/renderable-to-slide";
+import { exportNativeDeckFromSlides } from "@/lib/export/export-native-deck";
+import type { Slide } from "@/lib/export/deck-ir";
+import { openPlaceholderPopup, runConsentInPopup } from "@/lib/auth/slides-consent-popup";
+import { openDrivePicker, type PickedDriveFolder } from "@/lib/google/drive-picker";
+import { deckFileName } from "./RoadmapWorkspace";
+
+type ExportDestination = "pptx" | "slides";
 
 interface AllProgramsResponse {
   programs: Program[];
 }
 
 /**
- * Every viewer-preference prop that affects how a Program-mode slide renders
- * on screen — threaded straight through to the off-screen capture for every
- * slide so an exported deck matches what the user is actually looking at,
- * not some default appearance. Mirrors exactly what the old single-pair
- * off-screen capture in RoadmapWorkspace.tsx used to pass.
+ * The one viewer preference the native-shape IR translator (renderable-to-
+ * slide.ts) actually reads — everything else this bag used to carry
+ * (critical-path line style, connector dash/arrow, font family/scale, axis
+ * tiers, BLUF-open state, ...) only ever mattered to the old html2canvas
+ * DOM-capture path, which rendered the real on-screen `RoadmapView`/
+ * `RoadmapTimeline` component tree with those preferences applied. The IR
+ * translator doesn't render that component tree at all — it resolves
+ * marker/phase style straight from the document via style-resolution.ts's
+ * t19 ladder, so those viewer-only preferences (as opposed to document
+ * content) have nothing left to plug into. wayframe#t30 removed the ~20
+ * now-dead fields (and RoadmapWorkspace.tsx's now-dead pass-through of them)
+ * along with the DOM-capture path itself, rather than leaving them wired to
+ * nothing.
  */
 export interface ExportRenderPrefs {
-  blufOpen: boolean;
-  deltaAnnotationsEnabled: boolean;
-  showCriticalPath: boolean;
-  criticalPathStyle: CriticalPathStyle;
-  topBandStyle: TopBandStyle;
-  periodGridlineStyle: PeriodGridlineStyle;
-  axisTiers: AxisTierConfig;
-  axisYearColor: string;
-  labelDensity: LabelDensity;
-  soWhatFillColor: string | null;
-  soWhatFillTransparency: number;
-  fontScale: number;
-  fontFamily: string | undefined;
-  connectorStyle: ConnectorStyle;
-  connectorDash: ConnectorDash;
-  connectorArrow: ConnectorArrow;
-  todayOverlayEnabled: boolean;
-  pillProgressStyle: PillProgressStyle;
-  fitToScreen: boolean;
-  dateLabelPlacement: DateLabelPlacement;
   legendCategoryFillEnabled: boolean;
-  swimlaneOwnerVisible: boolean;
 }
 
 /** The checkbox/dropdown state this component owns directly — the two Program-id Sets are tracked separately (see individualIdsOverride/scenarioProgramIdsOverride below) so their "default to every known Program" behavior doesn't need a state-syncing effect. */
@@ -97,7 +96,6 @@ export function ExportDialog({
   currentProgram,
   currentRenderable,
   theme,
-  today,
   timelineSummary,
   zoom,
   renderPrefs,
@@ -108,7 +106,6 @@ export function ExportDialog({
   currentProgram: Program;
   currentRenderable: RenderableProgram;
   theme: Theme;
-  today: Date;
   timelineSummary: ExecutiveTimelineSummary | null;
   zoom: UseZoomWindowResult;
   renderPrefs: ExportRenderPrefs;
@@ -173,12 +170,171 @@ export function ExportDialog({
     setNewScenarioName("");
   }
 
+  const [destination, setDestination] = useState<ExportDestination>("pptx");
   const [exporting, setExporting] = useState(false);
-  const [exportSlides, setExportSlides] = useState<ExportSlideDescriptor[] | null>(null);
-  const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [exportStage, setExportStage] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [slidesResultUrl, setSlidesResultUrl] = useState<string | null>(null);
+  const [rememberedFolder, setRememberedFolder] = useState<PickedDriveFolder | null>(null);
+  const [forcePicker, setForcePicker] = useState(false);
+  // A resumable retry, set only when the automatic re-consent-and-retry after
+  // a mid-export `no_valid_token` couldn't open its popup (see
+  // `sendToGoogleSlides` below) — a fresh click on this button is a real user
+  // gesture, so it can open a popup even where the automatic attempt
+  // couldn't. Keeps the "no dead-end error state" promise even in that rare
+  // race, at the cost of the one extra click the gist otherwise avoids.
+  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null);
+
+  // Fetches the remembered Drive folder (t30's "last-picked folder, reused
+  // silently by default") once the user actually selects the Slides
+  // destination — no need to ask before then.
+  useEffect(() => {
+    if (destination !== "slides") return;
+    let cancelled = false;
+    fetch("/api/google/drive-folder")
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as { folder: PickedDriveFolder | null };
+        if (!cancelled) setRememberedFolder(body.folder ?? null);
+      })
+      .catch(() => {
+        // No remembered folder yet, or a transient network error — either
+        // way the Picker step below just runs as if nothing was remembered.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [destination]);
+
+  // Every program-mode slide falls back to ITS OWN content's domain when no
+  // zoom window is committed — mirrors RoadmapTimeline's own per-render
+  // `domainOverride ? ... : computeDomain(data)` fallback exactly (see its
+  // definition), since different slides (Combined vs. one Program vs. a
+  // Scenario-resolved Program) can have different natural date ranges. Only
+  // when a zoom window IS committed do all program-mode slides share it, for
+  // the same WYSIWYG-viewport reason t29's original comment already gave.
+  function domainForSlide(data: RenderableProgram): { domainMin: number; domainMax: number } {
+    if (zoom.active) return { domainMin: zoom.committedWindow.min, domainMax: zoom.committedWindow.max };
+    return computeDomain(data);
+  }
+
+  function buildSlideIRs(slides: ExportSlideDescriptor[]): Slide[] {
+    return slides.map((slide) =>
+      slide.mode === "executive"
+        ? buildExecutiveSlideIR({ renderable: slide.data, theme, summary: slide.timelineSummary ?? null, title: slide.label })
+        : buildSlideIR({ renderable: slide.data, theme, domain: domainForSlide(slide.data), legendCategoryFillEnabled: renderPrefs.legendCategoryFillEnabled, title: slide.label }),
+    );
+  }
+
+  /**
+   * The full t30 flow: valid-token check (re-consent via `placeholderPopup`
+   * if needed) → Picker only when no folder is remembered or the user asked
+   * to change it → POST the IR to `/api/google/slides-export`. `403
+   * {error:"no_valid_token"}` from that POST itself (the grant could die in
+   * the gap between the check above and the actual write) triggers one
+   * automatic re-consent-and-retry, per the gist's "no extra click" — unless
+   * that retry's own popup gets blocked, in which case `pendingRetry` hands
+   * the user one explicit "Reconnect" button instead of a silent dead end.
+   */
+  async function sendToGoogleSlides(slides: Slide[], fileName: string, placeholderPopup: Window | null) {
+    setExportStage("Checking Google access…");
+    const statusRes = await fetch("/api/google/slides-token-status");
+    const statusBody = (statusRes.ok ? await statusRes.json().catch(() => ({ ok: false })) : { ok: false }) as { ok: boolean };
+
+    if (!statusBody.ok) {
+      if (!placeholderPopup) {
+        setExportError("Enable popups for this site to send to Google Slides, then try again.");
+        return;
+      }
+      setExportStage("Connecting to Google…");
+      const granted = await runConsentInPopup(placeholderPopup);
+      if (!granted) {
+        setExportError("Google sign-in was cancelled.");
+        return;
+      }
+    } else {
+      placeholderPopup?.close();
+    }
+
+    let driveFolderId = rememberedFolder?.folderId;
+    if (!driveFolderId || forcePicker) {
+      setExportStage("Choose a destination folder…");
+      const tokenRes = await fetch("/api/google/access-token");
+      if (tokenRes.ok) {
+        const { accessToken } = (await tokenRes.json()) as { accessToken: string };
+        const picked = await openDrivePicker(accessToken);
+        if (picked) {
+          driveFolderId = picked.folderId;
+          setRememberedFolder(picked);
+          fetch("/api/google/drive-folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folderId: picked.folderId, folderName: picked.folderName }),
+          }).catch(() => {});
+        }
+        // A cancelled pick (or no Picker API key configured) just proceeds
+        // without a folder — the deck still lands in the user's My Drive root.
+      }
+      setForcePicker(false);
+    }
+
+    setExportStage("Creating deck…");
+    const postExport = () =>
+      fetch("/api/google/slides-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slides, fileName, driveFolderId }),
+      });
+
+    let res = await postExport();
+    if (res.status === 403) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (body.error === "no_valid_token") {
+        const retryPopup = openPlaceholderPopup();
+        if (!retryPopup) {
+          setExportError("Google access expired mid-export.");
+          setPendingRetry(() => () => {
+            const resumedPopup = openPlaceholderPopup();
+            if (!resumedPopup) return;
+            setExportError(null);
+            setExporting(true);
+            sendToGoogleSlides(slides, fileName, resumedPopup)
+              .catch((err) => setExportError(err instanceof Error ? err.message : "Export failed."))
+              .finally(() => {
+                setExporting(false);
+                setExportStage(null);
+              });
+          });
+          return;
+        }
+        setExportStage("Reconnecting to Google…");
+        const granted = await runConsentInPopup(retryPopup);
+        if (!granted) {
+          setExportError("Google sign-in was cancelled.");
+          return;
+        }
+        setExportStage("Creating deck…");
+        res = await postExport();
+      }
+    }
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+      setExportError(body.detail ?? body.error ?? "Export failed.");
+      return;
+    }
+
+    const body = (await res.json()) as { presentationUrl: string };
+    setSlidesResultUrl(body.presentationUrl);
+  }
 
   async function handleExportClick() {
     if (exporting || !hasAnySelection(selection)) return;
+    // Must happen synchronously, before any `await` below — most browsers
+    // only allow `window.open` while still inside the original click's user
+    // activation window (see slides-consent-popup.ts's own doc).
+    const placeholderPopup = destination === "slides" ? openPlaceholderPopup() : null;
+
     const fullSelection: ExportSelection = { ...selection, scenarioId: effectiveScenarioId, individualBaselineProgramIds, scenarioProgramProgramIds };
     const slides = buildExportSlides({
       portfolio,
@@ -188,29 +344,35 @@ export function ExportDialog({
       scenario: selectedScenario,
       selection: fullSelection,
     });
-    if (slides.length === 0) return;
+    if (slides.length === 0) {
+      placeholderPopup?.close();
+      return;
+    }
+
+    setExportError(null);
+    setSlidesResultUrl(null);
+    setPendingRetry(null);
     setExporting(true);
-    slideRefs.current = new Array(slides.length).fill(null);
-    setExportSlides(slides);
     try {
-      // Two rAFs so the just-mounted off-screen slides have actually painted
-      // before html2canvas captures them — same wait the old single-pair
-      // export used.
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      const sources: DeckSlideSource[] = slides.map((slide, i) => ({ label: slide.label, element: slideRefs.current[i]! })).filter((s) => s.element);
-      await exportToDeck(sources, computeFileName(currentProgram.programName, slides, fullSelection));
-      onClose();
+      const fileName = computeFileName(currentProgram.programName, slides, fullSelection);
+      const slideIR = buildSlideIRs(slides);
+
+      if (destination === "pptx") {
+        setExportStage("Creating deck…");
+        await exportNativeDeckFromSlides(slideIR, fileName);
+        onClose();
+        return;
+      }
+
+      await sendToGoogleSlides(slideIR, fileName, placeholderPopup);
+    } catch (err) {
+      placeholderPopup?.close();
+      setExportError(err instanceof Error ? err.message : "Export failed.");
     } finally {
       setExporting(false);
-      setExportSlides(null);
+      setExportStage(null);
     }
   }
-
-  // Every off-screen slide renders at the same current on-screen committed
-  // zoom domain (t29's gist: WYSIWYG viewport, never full document extent) —
-  // one shared value reused for every program-mode slide, not recomputed per
-  // Program/Combined-view.
-  const domainOverride = zoom.active ? zoom.committedWindow : undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -224,7 +386,7 @@ export function ExportDialog({
         <div className="flex items-start justify-between gap-4 border-b p-5" style={{ borderColor: "var(--wf-border)" }}>
           <div>
             <h1 className="text-base font-semibold">Export to Deck</h1>
-            <p className="text-xs opacity-60">Choose which slides to include — each section adds its own slide(s) to one .pptx.</p>
+            <p className="text-xs opacity-60">Choose which slides to include, then pick a destination below.</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="shrink-0 text-lg leading-none opacity-50 hover:opacity-100">
             ✕
@@ -327,73 +489,60 @@ export function ExportDialog({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t p-4" style={{ borderColor: "var(--wf-border)" }}>
-          <button
-            onClick={handleExportClick}
-            disabled={exporting || !hasAnySelection(selection)}
-            style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
-            className="rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-          >
-            {exporting ? "Exporting…" : "Export"}
-          </button>
+        <div className="space-y-3 border-t p-4" style={{ borderColor: "var(--wf-border)" }}>
+          {slidesResultUrl ? (
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <a href={slidesResultUrl} target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--wf-accent)" }}>
+                Open the new Google Slides deck
+              </a>
+              <button onClick={onClose} className="rounded-full px-3 py-1.5 text-xs font-medium" style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}>
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              <fieldset className="flex items-center gap-4 text-xs">
+                <legend className="sr-only">Destination</legend>
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" name="export-destination" checked={destination === "pptx"} onChange={() => setDestination("pptx")} />
+                  Download .pptx
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" name="export-destination" checked={destination === "slides"} onChange={() => setDestination("slides")} />
+                  Send to Google Slides
+                </label>
+                {destination === "slides" && rememberedFolder && !forcePicker && (
+                  <button onClick={() => setForcePicker(true)} className="opacity-70 hover:opacity-100">
+                    Change destination ({rememberedFolder.folderName})
+                  </button>
+                )}
+              </fieldset>
+
+              {exportError && (
+                <div className="flex items-center justify-between gap-3 text-xs" style={{ color: "#c8102e" }}>
+                  <span>{exportError}</span>
+                  {pendingRetry && (
+                    <button onClick={() => pendingRetry()} className="shrink-0 rounded-full border px-2 py-1 font-medium" style={{ borderColor: "var(--wf-border)" }}>
+                      Reconnect
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={handleExportClick}
+                  disabled={exporting || !hasAnySelection(selection)}
+                  style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
+                  className="rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+                >
+                  {exporting ? (exportStage ?? "Exporting…") : destination === "slides" ? "Send to Slides" : "Export"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
-
-      {/* Off-screen capture mount — one plain, non-interactive RoadmapView
-          per slide descriptor, every on-screen-only callback prop omitted
-          just like the old single-pair off-screen capture did, and every
-          viewer-preference prop (renderPrefs) threaded through so the
-          exported slides visually match the on-screen view. Every
-          program-mode slide shares the same domainOverride (the current
-          on-screen committed zoom window), fixing the old bug where the
-          off-screen render always showed the full document regardless of
-          the visible view's zoom. The executive-mode slide gets
-          `timelineSummary`, fixing the old bug where it silently never did. */}
-      {exportSlides && (
-        <div className={OFFSCREEN_CLASS} aria-hidden="true" inert>
-          {exportSlides.map((slide, i) => (
-            <div
-              key={i}
-              ref={(el) => {
-                slideRefs.current[i] = el;
-              }}
-            >
-              <RoadmapView
-                mode={slide.mode}
-                data={slide.data}
-                today={today}
-                theme={theme}
-                blufOpen={renderPrefs.blufOpen}
-                onBlufOpenChange={() => {}}
-                deltaAnnotationsEnabled={renderPrefs.deltaAnnotationsEnabled}
-                showCriticalPath={renderPrefs.showCriticalPath}
-                criticalPathStyle={renderPrefs.criticalPathStyle}
-                topBandStyle={renderPrefs.topBandStyle}
-                periodGridlineStyle={renderPrefs.periodGridlineStyle}
-                axisTiers={renderPrefs.axisTiers}
-                axisYearColor={renderPrefs.axisYearColor}
-                labelDensity={renderPrefs.labelDensity}
-                soWhatFillColor={renderPrefs.soWhatFillColor}
-                soWhatFillTransparency={renderPrefs.soWhatFillTransparency}
-                fontScale={renderPrefs.fontScale}
-                fontFamily={renderPrefs.fontFamily}
-                connectorStyle={renderPrefs.connectorStyle}
-                connectorDash={renderPrefs.connectorDash}
-                connectorArrow={renderPrefs.connectorArrow}
-                todayOverlayEnabled={renderPrefs.todayOverlayEnabled}
-                pillProgressStyle={renderPrefs.pillProgressStyle}
-                fitToScreen={renderPrefs.fitToScreen}
-                dateLabelPlacement={renderPrefs.dateLabelPlacement}
-                legendCategoryFillEnabled={renderPrefs.legendCategoryFillEnabled}
-                swimlaneOwnerVisible={renderPrefs.swimlaneOwnerVisible}
-                chartWidth={slide.mode === "program" ? 1600 : undefined}
-                domainOverride={slide.mode === "program" ? domainOverride : undefined}
-                timelineSummary={slide.mode === "executive" ? slide.timelineSummary : undefined}
-              />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

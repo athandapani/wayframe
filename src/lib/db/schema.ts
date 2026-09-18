@@ -85,6 +85,28 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (portfolio_id, email)
   )`,
   `CREATE INDEX IF NOT EXISTS portfolio_invites_email ON portfolio_invites (email)`,
+  // `google_oauth_tokens` (wayframe#t30): one row per signed-in identity
+  // (not per-Portfolio/Program — t12's schema only covers per-Program Yjs
+  // data), holding the incrementally-granted Slides/Drive refresh token so
+  // it's requested once and reused for every future export rather than
+  // re-prompting each time. `encrypted_refresh_token` is AES-GCM ciphertext
+  // (see token-crypto.ts) — never stored plain. `access_token`/
+  // `access_token_expires_at` are a short-lived cache refreshed on demand
+  // (google-tokens.ts's refreshAccessToken) so most export clicks don't need
+  // a round trip to Google's token endpoint at all. `drive_folder_id`/
+  // `drive_folder_name` are the "last-picked Drive folder, remembered per
+  // identity" the ticket's gist asks for — not sensitive, so they ride along
+  // in the same row rather than a second table.
+  `CREATE TABLE IF NOT EXISTS google_oauth_tokens (
+    identity TEXT PRIMARY KEY,
+    encrypted_refresh_token TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    access_token TEXT,
+    access_token_expires_at INTEGER,
+    drive_folder_id TEXT,
+    drive_folder_name TEXT,
+    updated_at TEXT NOT NULL
+  )`,
 ];
 
 // Memoized per-Client instance (not module-global) so tests pointing

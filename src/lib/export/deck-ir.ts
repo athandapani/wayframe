@@ -180,7 +180,7 @@ export function compileToPptxOps(slide: Slide): CompiledOp[] {
         const honored = shape.style === "straight";
         ops.push({
           call: "addShape",
-          args: ["line", { startPos: shape.from, endPos: shape.to, style: "straight" }],
+          args: ["line", { startPos: shape.from, endPos: shape.to, style: "straight", color: shape.color }],
           degraded: !honored,
           note: honored ? undefined : `requested "${shape.style}" — pptxgenjs has no bent/curved connector support (#t7), rewritten to straight`,
         });
@@ -231,7 +231,7 @@ export function compileToSlidesRequests(slide: Slide): CompiledOp[] {
       case "connector":
         reqs.push({
           call: "createLine",
-          args: [{ startConnection: shape.from, endConnection: shape.to, category: shape.style === "straight" ? "STRAIGHT" : shape.style === "elbow" ? "BENT" : "CURVED" }],
+          args: [{ startConnection: shape.from, endConnection: shape.to, category: shape.style === "straight" ? "STRAIGHT" : shape.style === "elbow" ? "BENT" : "CURVED", color: shape.color }],
           degraded: false,
         });
         break;

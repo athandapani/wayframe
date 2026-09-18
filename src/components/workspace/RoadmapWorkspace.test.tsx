@@ -3,14 +3,20 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "./RoadmapWorkspace";
-import { exportToDeck } from "@/lib/export/export-to-deck";
+import { exportNativeDeckFromSlides } from "@/lib/export/export-native-deck";
+import type { Slide, TextShape } from "@/lib/export/deck-ir";
 import { saveDocumentFile } from "@/lib/document-file/document-file";
 import { useProgramRoom, type UseProgramRoomResult } from "@/lib/realtime/use-program-room";
 import type { UseCorrectionBoxResult } from "@/components/correction-box/use-correction-box";
 
-vi.mock("@/lib/export/export-to-deck", () => ({
-  exportToDeck: vi.fn(() => Promise.resolve()),
+vi.mock("@/lib/export/export-native-deck", () => ({
+  exportNativeDeckFromSlides: vi.fn(() => Promise.resolve()),
 }));
+
+/** Every slide's very first shape is its title `text` (buildSlideIR/buildExecutiveSlideIR both push it first) — pulling the label back out of the IR is how these tests confirm slide order/identity now that the pptx path sends native shapes instead of {label, element} DOM sources. */
+function titleOf(slide: Slide): string {
+  return (slide[0] as TextShape).runs[0].text;
+}
 
 vi.mock("@/lib/document-file/document-file", async () => {
   const actual = await vi.importActual<typeof import("@/lib/document-file/document-file")>("@/lib/document-file/document-file");
@@ -181,7 +187,7 @@ describe("RoadmapWorkspace delta-annotation controls (t23, wayframe#96)", () => 
 describe("RoadmapWorkspace export to deck (t29)", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    vi.mocked(exportToDeck).mockClear();
+    vi.mocked(exportNativeDeckFromSlides).mockClear();
     // Local/unauthenticated mode has no real hosted Portfolio row for the
     // Export dialog's sibling-Programs fetch to read — it should degrade
     // gracefully to just the current Program rather than error.
@@ -214,12 +220,11 @@ describe("RoadmapWorkspace export to deck (t29)", () => {
 
     fireEvent.click(exportButton);
 
-    await waitFor(() => expect(exportToDeck).toHaveBeenCalledTimes(1));
-    const [sources, fileName] = vi.mocked(exportToDeck).mock.calls[0];
+    await waitFor(() => expect(exportNativeDeckFromSlides).toHaveBeenCalledTimes(1));
+    const [slides, fileName] = vi.mocked(exportNativeDeckFromSlides).mock.calls[0];
     // Fixed order: Executive, then Individual Programs (Baseline) — here just
     // the one Program the local-mode fallback knows about.
-    expect(sources.map((s) => s.label)).toEqual(["Executive", "Atlas Program"]);
-    expect(sources[0].element).not.toBe(sources[1].element);
+    expect(slides.map(titleOf)).toEqual(["Executive", "Atlas Program"]);
     // Exactly one Program-scoped section (Individual) resolving to exactly
     // one Program slide keeps the old single-Program-name convention.
     expect(fileName).toBe("atlas-program-deck.pptx");
@@ -237,8 +242,8 @@ describe("RoadmapWorkspace export to deck (t29)", () => {
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "Individual Programs (Baseline)" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Export" }));
 
-    await waitFor(() => expect(exportToDeck).toHaveBeenCalledTimes(1));
-    const [, fileName] = vi.mocked(exportToDeck).mock.calls[0];
+    await waitFor(() => expect(exportNativeDeckFromSlides).toHaveBeenCalledTimes(1));
+    const [, fileName] = vi.mocked(exportNativeDeckFromSlides).mock.calls[0];
     expect(fileName).toBe("portfolio-roadmap-deck.pptx");
   });
 });

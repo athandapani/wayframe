@@ -8,8 +8,11 @@ export interface DeckSlideSource {
   element: HTMLElement;
 }
 
-const SLIDE_WIDTH_IN = 13.333;
-const SLIDE_HEIGHT_IN = 7.5;
+// Exported (wayframe t30) so renderable-to-slide.ts/export-native-deck.ts's
+// native-shape deck path shares the exact same slide dimensions as this
+// image-based path — both destinations must agree on canvas size.
+export const SLIDE_WIDTH_IN = 13.333;
+export const SLIDE_HEIGHT_IN = 7.5;
 
 /**
  * RoadmapTimeline's root scrolls horizontally (its SVG is wider than the

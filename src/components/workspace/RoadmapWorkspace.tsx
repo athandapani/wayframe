@@ -1555,33 +1555,9 @@ export function RoadmapWorkspace({
           currentProgram={box.data}
           currentRenderable={renderable}
           theme={theme}
-          today={today}
           timelineSummary={timelineSummary.summary}
           zoom={zoom}
-          renderPrefs={{
-            blufOpen,
-            deltaAnnotationsEnabled: deltaAnnotations.enabled,
-            showCriticalPath: criticalPath.visible,
-            criticalPathStyle: criticalPathLine.style,
-            topBandStyle: topBand.style,
-            periodGridlineStyle: gridlines.style,
-            axisTiers: axisTiers.config,
-            axisYearColor: axisTiers.yearColor,
-            labelDensity: labels.density,
-            soWhatFillColor: soWhat.color,
-            soWhatFillTransparency: soWhat.transparency,
-            fontScale: fontScale.scale,
-            fontFamily: fontFamily.fontFamily,
-            connectorStyle: connectorStyle.style,
-            connectorDash: connectorLineStyle.dash,
-            connectorArrow: connectorLineStyle.arrow,
-            todayOverlayEnabled: todayOverlay.enabled,
-            pillProgressStyle: pillProgress.style,
-            fitToScreen: fitToScreen.enabled,
-            dateLabelPlacement: dateLabelPlacement.placement,
-            legendCategoryFillEnabled: legendCategoryStyle.enabled,
-            swimlaneOwnerVisible: swimlaneOwner.visible,
-          }}
+          renderPrefs={{ legendCategoryFillEnabled: legendCategoryStyle.enabled }}
           onAddScenario={box.addScenario}
           onClose={() => setExportDialogOpen(false)}
         />

@@ -1,11 +1,24 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeForRender, type Portfolio, type Program } from "@/components/timeline/types";
 import { defaultPortfolioTheme, resolvePortfolioTheme } from "@/components/timeline/theme";
 import { ExportDialog, type ExportRenderPrefs } from "./ExportDialog";
 
-vi.mock("@/lib/export/export-to-deck", () => ({
-  exportToDeck: vi.fn(() => Promise.resolve()),
+const exportNativeDeckFromSlides = vi.fn<(slides: unknown[], fileName: string) => Promise<void>>(() => Promise.resolve());
+vi.mock("@/lib/export/export-native-deck", () => ({
+  exportNativeDeckFromSlides: (...args: [unknown[], string]) => exportNativeDeckFromSlides(...args),
+}));
+
+const openPlaceholderPopup = vi.fn<() => Window | null>();
+const runConsentInPopup = vi.fn<(popup: Window) => Promise<boolean>>();
+vi.mock("@/lib/auth/slides-consent-popup", () => ({
+  openPlaceholderPopup: () => openPlaceholderPopup(),
+  runConsentInPopup: (popup: Window) => runConsentInPopup(popup),
+}));
+
+const openDrivePicker = vi.fn<(accessToken: string) => Promise<{ folderId: string; folderName: string } | null>>();
+vi.mock("@/lib/google/drive-picker", () => ({
+  openDrivePicker: (accessToken: string) => openDrivePicker(accessToken),
 }));
 
 function basePortfolio(overrides: Partial<Portfolio> = {}): Portfolio {
@@ -29,35 +42,27 @@ function baseProgram(id: string, name: string): Program {
 }
 
 function renderPrefs(): ExportRenderPrefs {
-  return {
-    blufOpen: true,
-    deltaAnnotationsEnabled: false,
-    showCriticalPath: false,
-    criticalPathStyle: "solid",
-    topBandStyle: "chip",
-    periodGridlineStyle: "off",
-    axisTiers: { key: "year", label: "Year only", tier2: "none", tier3: "none" },
-    axisYearColor: "#000000",
-    labelDensity: "all",
-    soWhatFillColor: null,
-    soWhatFillTransparency: 0,
-    fontScale: 1,
-    fontFamily: undefined,
-    connectorStyle: "elbow",
-    connectorDash: "solid",
-    connectorArrow: "standard",
-    todayOverlayEnabled: false,
-    pillProgressStyle: "off",
-    fitToScreen: false,
-    dateLabelPlacement: "below",
-    legendCategoryFillEnabled: false,
-    swimlaneOwnerVisible: false,
-  };
+  return { legendCategoryFillEnabled: false };
 }
 
-describe("ExportDialog (t29)", () => {
+/** A fake `fetch` that answers by URL substring — every route this dialog can call gets a default "not ok" response unless a specific handler is registered, so an un-mocked call fails loudly in a test rather than hanging. */
+function mockFetch(handlers: Record<string, () => Promise<Partial<Response>> | Partial<Response>>) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    for (const [substr, handler] of Object.entries(handlers)) {
+      if (url.includes(substr)) return handler();
+    }
+    return { ok: false } as Response;
+  }) as unknown as typeof fetch;
+}
+
+describe("ExportDialog (t29/t30)", () => {
   beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: false }) as unknown as Promise<Response>));
+    vi.stubGlobal("fetch", mockFetch({}));
+    openPlaceholderPopup.mockReset();
+    runConsentInPopup.mockReset();
+    openDrivePicker.mockReset();
+    exportNativeDeckFromSlides.mockClear();
   });
 
   afterEach(() => {
@@ -68,13 +73,13 @@ describe("ExportDialog (t29)", () => {
     const portfolio = basePortfolio();
     const program = baseProgram("p1", "Atlas Program");
     const theme = resolvePortfolioTheme(defaultPortfolioTheme);
-    return render(
+    const onClose = vi.fn();
+    const utils = render(
       <ExportDialog
         portfolio={portfolio}
         currentProgram={program}
         currentRenderable={mergeForRender(portfolio, program)}
         theme={theme}
-        today={new Date("2026-01-01")}
         timelineSummary={null}
         zoom={{
           fullDomain: { min: 0, max: 1 },
@@ -93,9 +98,10 @@ describe("ExportDialog (t29)", () => {
         }}
         renderPrefs={renderPrefs()}
         onAddScenario={vi.fn()}
-        onClose={vi.fn()}
+        onClose={onClose}
       />,
     );
+    return { ...utils, onClose };
   }
 
   it("renders all 5 sections with Export disabled until one is checked", () => {
@@ -127,5 +133,110 @@ describe("ExportDialog (t29)", () => {
     expect(screen.getByRole("checkbox", { name: "Scenario: Combined" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Scenario: Program view" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Scenario" })).toBeDisabled();
+  });
+
+  it("defaults to Download .pptx and calls the native pptx exporter, then closes", async () => {
+    const { onClose } = setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    expect(screen.getByRole("radio", { name: "Download .pptx" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(exportNativeDeckFromSlides).toHaveBeenCalledTimes(1));
+    const [slides] = exportNativeDeckFromSlides.mock.calls[0] as [unknown[], string];
+    expect(Array.isArray(slides)).toBe(true);
+    expect(onClose).toHaveBeenCalled();
+    expect(openPlaceholderPopup).not.toHaveBeenCalled();
+  });
+
+  it("Send to Google Slides — valid token, remembered folder — posts the IR and shows a success link without closing", async () => {
+    const fakePopup = { close: vi.fn() } as unknown as Window;
+    openPlaceholderPopup.mockReturnValue(fakePopup);
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/google/drive-folder": () => ({ ok: true, json: async () => ({ folder: { folderId: "f1", folderName: "Exports" } }) }),
+        "/api/google/slides-token-status": () => ({ ok: true, json: async () => ({ ok: true }) }),
+        "/api/google/slides-export": () => ({ ok: true, json: async () => ({ presentationUrl: "https://docs.google.com/presentation/d/abc/edit" }) }),
+      }),
+    );
+
+    const { onClose } = setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Send to Google Slides" }));
+    await waitFor(() => expect(screen.getByText(/Change destination/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Send to Slides" }));
+
+    await waitFor(() => expect(screen.getByRole("link", { name: /Open the new Google Slides deck/ })).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: /Open the new Google Slides deck/ })).toHaveAttribute("href", "https://docs.google.com/presentation/d/abc/edit");
+    expect(openDrivePicker).not.toHaveBeenCalled();
+    expect(fakePopup.close).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("Send to Google Slides — no valid token — re-consents via the popup and automatically resumes the export", async () => {
+    const fakePopup = { close: vi.fn() } as unknown as Window;
+    openPlaceholderPopup.mockReturnValue(fakePopup);
+    runConsentInPopup.mockResolvedValue(true);
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/google/drive-folder": () => ({ ok: true, json: async () => ({ folder: { folderId: "f1", folderName: "Exports" } }) }),
+        "/api/google/slides-token-status": () => ({ ok: true, json: async () => ({ ok: false }) }),
+        "/api/google/slides-export": () => ({ ok: true, json: async () => ({ presentationUrl: "https://docs.google.com/presentation/d/xyz/edit" }) }),
+      }),
+    );
+
+    setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Send to Google Slides" }));
+    await waitFor(() => expect(screen.getByText(/Change destination/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Send to Slides" }));
+
+    await waitFor(() => expect(runConsentInPopup).toHaveBeenCalledWith(fakePopup));
+    await waitFor(() => expect(screen.getByRole("link", { name: /Open the new Google Slides deck/ })).toBeInTheDocument());
+  });
+
+  it("Send to Google Slides — user cancels the re-consent popup — shows an error, not a silent hang", async () => {
+    openPlaceholderPopup.mockReturnValue({ close: vi.fn() } as unknown as Window);
+    runConsentInPopup.mockResolvedValue(false);
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/google/drive-folder": () => ({ ok: true, json: async () => ({ folder: null }) }),
+        "/api/google/slides-token-status": () => ({ ok: true, json: async () => ({ ok: false }) }),
+      }),
+    );
+
+    setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Send to Google Slides" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send to Slides" }));
+
+    await waitFor(() => expect(screen.getByText(/cancelled/i)).toBeInTheDocument());
+  });
+
+  it("Send to Google Slides — no remembered folder — opens the Drive Picker before exporting", async () => {
+    openPlaceholderPopup.mockReturnValue({ close: vi.fn() } as unknown as Window);
+    openDrivePicker.mockResolvedValue({ folderId: "picked-1", folderName: "Picked Folder" });
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/google/drive-folder": () => ({ ok: true, json: async () => ({ folder: null }) }),
+        "/api/google/slides-token-status": () => ({ ok: true, json: async () => ({ ok: true }) }),
+        "/api/google/access-token": () => ({ ok: true, json: async () => ({ accessToken: "tok" }) }),
+        "/api/google/slides-export": () => ({ ok: true, json: async () => ({ presentationUrl: "https://docs.google.com/presentation/d/new/edit" }) }),
+      }),
+    );
+
+    setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Send to Google Slides" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send to Slides" }));
+
+    await waitFor(() => expect(openDrivePicker).toHaveBeenCalledWith("tok"));
+    await waitFor(() => expect(screen.getByRole("link", { name: /Open the new Google Slides deck/ })).toBeInTheDocument());
   });
 });
