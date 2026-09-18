@@ -239,4 +239,44 @@ describe("ExportDialog (t29/t30)", () => {
     await waitFor(() => expect(openDrivePicker).toHaveBeenCalledWith("tok"));
     await waitFor(() => expect(screen.getByRole("link", { name: /Open the new Google Slides deck/ })).toBeInTheDocument());
   });
+
+  it("Save Snapshot — posts serialized selection (arrays, not Sets) and the built IR, then shows a success message", async () => {
+    let postedBody: { selection: { individualBaselineProgramIds: unknown; scenarioProgramProgramIds: unknown }; slides: unknown[] } | null = null;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/snapshots") && init?.body) {
+        postedBody = JSON.parse(String(init.body));
+        return { ok: true, json: async () => ({ snapshotId: "snap-1" }) } as Response;
+      }
+      return { ok: false } as Response;
+    });
+
+    const { onClose } = setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Save Snapshot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot" }));
+
+    await waitFor(() => expect(screen.getByText("Snapshot saved.")).toBeInTheDocument());
+    expect(postedBody).not.toBeNull();
+    expect(Array.isArray(postedBody!.selection.individualBaselineProgramIds)).toBe(true);
+    expect(Array.isArray(postedBody!.selection.scenarioProgramProgramIds)).toBe(true);
+    expect(Array.isArray(postedBody!.slides)).toBe(true);
+    expect(postedBody!.slides.length).toBeGreaterThan(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("Save Snapshot — non-ok response shows the error text instead of a silent failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/snapshots": () => ({ ok: false, json: async () => ({ error: "No edit access to this Portfolio." }) }),
+      }),
+    );
+
+    setup();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Save Snapshot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot" }));
+
+    await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
+  });
 });

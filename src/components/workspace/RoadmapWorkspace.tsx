@@ -58,6 +58,7 @@ import { useSwimlaneOwnerVisibility } from "@/components/timeline/use-swimlane-o
 import { useEditLock } from "./use-edit-lock";
 import { CategoryManager } from "./CategoryManager";
 import { SharePanel } from "./SharePanel";
+import { SnapshotsPanel } from "./SnapshotsPanel";
 import { useSavedViews, type ViewSnapshot } from "@/components/timeline/use-saved-views";
 import { useSelection } from "@/components/timeline/use-selection";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -505,6 +506,7 @@ export function RoadmapWorkspace({
   const [placement, setPlacement] = useState<{ laneId: string; shape: "milestone" | "phase" } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -790,6 +792,11 @@ export function RoadmapWorkspace({
             <OptionsMenuRow label="Export">
               <button onClick={() => setExportDialogOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
                 Export to Deck
+              </button>
+            </OptionsMenuRow>
+            <OptionsMenuRow label="Snapshots">
+              <button onClick={() => setSnapshotsOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                View Snapshots ›
               </button>
             </OptionsMenuRow>
             {canManageSharing && (
@@ -1562,6 +1569,7 @@ export function RoadmapWorkspace({
           onClose={() => setExportDialogOpen(false)}
         />
       )}
+      {snapshotsOpen && <SnapshotsPanel portfolioId={box.portfolio.id} onClose={() => setSnapshotsOpen(false)} />}
     </div>
   );
 }

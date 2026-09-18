@@ -19,7 +19,7 @@ A named alternate plan owned by the Portfolio (not by an individual Program), la
 _Avoid_: Variant, What-if (informal synonyms — Scenario is the canonical term)
 
 **Snapshot**:
-An immutable, timestamped freeze of an entire Portfolio — every Program, the Baseline, and every Scenario — taken after a team review. View-only forever; cannot be edited or re-baselined. Distinct from Baseline (the live, editable default Scenario) and from Scenario (a live, editable alternate plan) — a Snapshot freezes all of them at once.
+An immutable, timestamped freeze of a Deck IR (#t28) rendering of the plan — the same 5-checkbox section selection (#t29: Executive / Combined Programs / Individual Programs / Scenario Combined / Scenario Program) an export uses, captured with a fixed canonical viewer-preference style profile so two people snapshotting the same document at the same moment get byte-identical output. Stored as fully-resolved shapes/text/connectors (never a raw CRDT state vector or a baked rendered file), so it stays readable as the document schema moves on, with no migration-on-read step. View-only forever; cannot be edited or re-baselined. Distinct from Baseline (the live, editable default Scenario) and from Scenario (a live, editable alternate plan) — a Snapshot freezes whichever of them the creator's selection included, not automatically every Program/Scenario at once (#t31 corrected this from this glossary's earlier "always everything" wording).
 _Avoid_: Version, Backup (a Snapshot is a deliberate archival record, not an autosave)
 
 **Style Override**:

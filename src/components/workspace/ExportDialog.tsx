@@ -37,7 +37,7 @@ import { openPlaceholderPopup, runConsentInPopup } from "@/lib/auth/slides-conse
 import { openDrivePicker, type PickedDriveFolder } from "@/lib/google/drive-picker";
 import { deckFileName } from "./RoadmapWorkspace";
 
-type ExportDestination = "pptx" | "slides";
+type ExportDestination = "pptx" | "slides" | "snapshot";
 
 interface AllProgramsResponse {
   programs: Program[];
@@ -175,6 +175,7 @@ export function ExportDialog({
   const [exportStage, setExportStage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [slidesResultUrl, setSlidesResultUrl] = useState<string | null>(null);
+  const [snapshotSaved, setSnapshotSaved] = useState(false);
   const [rememberedFolder, setRememberedFolder] = useState<PickedDriveFolder | null>(null);
   const [forcePicker, setForcePicker] = useState(false);
   // A resumable retry, set only when the automatic re-consent-and-retry after
@@ -328,6 +329,32 @@ export function ExportDialog({
     setSlidesResultUrl(body.presentationUrl);
   }
 
+  /**
+   * wayframe#t31: persists the same IR the other two destinations already
+   * built to the hosted DB instead of delivering it externally. `selection`'s
+   * two `Set<string>` fields are converted to arrays first — `JSON.stringify`
+   * would otherwise silently flatten a `Set` to `{}` over the wire.
+   */
+  async function saveSnapshot(slides: Slide[], selection: ExportSelection) {
+    setExportStage("Saving Snapshot…");
+    const serializedSelection = {
+      ...selection,
+      individualBaselineProgramIds: [...selection.individualBaselineProgramIds],
+      scenarioProgramProgramIds: [...selection.scenarioProgramProgramIds],
+    };
+    const res = await fetch(`/api/portfolios/${portfolio.id}/snapshots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selection: serializedSelection, slides }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+      setExportError(body.detail ?? body.error ?? "Save failed.");
+      return;
+    }
+    setSnapshotSaved(true);
+  }
+
   async function handleExportClick() {
     if (exporting || !hasAnySelection(selection)) return;
     // Must happen synchronously, before any `await` below — most browsers
@@ -351,11 +378,18 @@ export function ExportDialog({
 
     setExportError(null);
     setSlidesResultUrl(null);
+    setSnapshotSaved(false);
     setPendingRetry(null);
     setExporting(true);
     try {
-      const fileName = computeFileName(currentProgram.programName, slides, fullSelection);
       const slideIR = buildSlideIRs(slides);
+
+      if (destination === "snapshot") {
+        await saveSnapshot(slideIR, fullSelection);
+        return;
+      }
+
+      const fileName = computeFileName(currentProgram.programName, slides, fullSelection);
 
       if (destination === "pptx") {
         setExportStage("Creating deck…");
@@ -499,6 +533,13 @@ export function ExportDialog({
                 Done
               </button>
             </div>
+          ) : snapshotSaved ? (
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span>Snapshot saved.</span>
+              <button onClick={onClose} className="rounded-full px-3 py-1.5 text-xs font-medium" style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}>
+                Done
+              </button>
+            </div>
           ) : (
             <>
               <fieldset className="flex items-center gap-4 text-xs">
@@ -510,6 +551,10 @@ export function ExportDialog({
                 <label className="flex items-center gap-1.5">
                   <input type="radio" name="export-destination" checked={destination === "slides"} onChange={() => setDestination("slides")} />
                   Send to Google Slides
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" name="export-destination" checked={destination === "snapshot"} onChange={() => setDestination("snapshot")} />
+                  Save Snapshot
                 </label>
                 {destination === "slides" && rememberedFolder && !forcePicker && (
                   <button onClick={() => setForcePicker(true)} className="opacity-70 hover:opacity-100">
@@ -536,7 +581,7 @@ export function ExportDialog({
                   style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
                   className="rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
                 >
-                  {exporting ? (exportStage ?? "Exporting…") : destination === "slides" ? "Send to Slides" : "Export"}
+                  {exporting ? (exportStage ?? "Exporting…") : destination === "slides" ? "Send to Slides" : destination === "snapshot" ? "Save Snapshot" : "Export"}
                 </button>
               </div>
             </>

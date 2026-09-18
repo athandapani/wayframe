@@ -107,6 +107,24 @@ const SCHEMA_STATEMENTS = [
     drive_folder_name TEXT,
     updated_at TEXT NOT NULL
   )`,
+  // `portfolio_snapshots` (wayframe#t31): a Portfolio-level archival record of
+  // a Deck IR (#t28) rendering — NOT to be confused with the pre-existing
+  // `programs.snapshot` column above, which is t12's per-Program Yjs binary
+  // state blob, a completely different concept. Each row here is one
+  // creator's "Save Snapshot" export-dialog action (#t29's same 5-checkbox
+  // section selection, #t30's destination toggle) — `selection`/`slides` are
+  // both JSON-serialized text, same convention as `portfolios.content`.
+  // Append-only/undeletable per #t11's existing ruling — see snapshots.ts,
+  // which deliberately has no update/delete function.
+  `CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id TEXT PRIMARY KEY,
+    portfolio_id TEXT NOT NULL,
+    creator_identity TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    selection TEXT NOT NULL,
+    slides TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_snapshots_portfolio_id ON portfolio_snapshots (portfolio_id)`,
 ];
 
 // Memoized per-Client instance (not module-global) so tests pointing
