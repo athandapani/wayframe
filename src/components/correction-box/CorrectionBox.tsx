@@ -255,6 +255,14 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
           Undo
         </button>
         <button
+          type="button"
+          onClick={box.redo}
+          disabled={box.futureLength === 0}
+          className="text-xs text-zinc-500 hover:text-zinc-800 disabled:opacity-30 dark:hover:text-zinc-200"
+        >
+          Redo
+        </button>
+        <button
           type="submit"
           disabled={box.loading}
           style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}

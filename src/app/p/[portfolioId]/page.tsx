@@ -59,13 +59,20 @@ export default function PortfolioLandingPage() {
   // nothing until checked" pattern (storageCheck.checked) — avoids an
   // SSR/first-client-paint mismatch, and avoids useSearchParams' Suspense
   // boundary requirement.
-  const [shareCheck, setShareCheck] = useState<{ checked: boolean; token: string | null }>({ checked: false, token: null });
+  const [shareCheck, setShareCheck] = useState<{ checked: boolean; token: string | null; programId: string | null }>({ checked: false, token: null, programId: null });
   useEffect(() => {
     let token: string | null = null;
+    let programId: string | null = null;
     try {
-      token = new URLSearchParams(window.location.search).get("share");
+      const search = new URLSearchParams(window.location.search);
+      token = search.get("share");
+      // A Portfolio's 2nd+ Program (wayframe UX-2026-09-18 §7) — the
+      // All-Programs page's per-Program "Open" links pass this so /view
+      // knows which Program to load instead of always defaulting to the
+      // first one. Omitted = today's unchanged default.
+      programId = search.get("programId");
     } finally {
-      setShareCheck({ checked: true, token });
+      setShareCheck({ checked: true, token, programId });
     }
   }, []);
 
@@ -114,7 +121,11 @@ export default function PortfolioLandingPage() {
       // the try/finally shape keeps this a "sync external state on mount /
       // dependency change" effect rather than a flagged cascading-render one.
     }
-    const url = shareCheck.token ? `/api/portfolios/${portfolioId}/view?shareToken=${encodeURIComponent(shareCheck.token)}` : `/api/portfolios/${portfolioId}/view`;
+    const query = new URLSearchParams();
+    if (shareCheck.token) query.set("shareToken", shareCheck.token);
+    if (shareCheck.programId) query.set("programId", shareCheck.programId);
+    const qs = query.toString();
+    const url = `/api/portfolios/${portfolioId}/view${qs ? `?${qs}` : ""}`;
     fetch(url)
       .then(async (res) => {
         const body = await res.json();
@@ -134,7 +145,7 @@ export default function PortfolioLandingPage() {
     return () => {
       cancelled = true;
     };
-  }, [shareCheck.checked, shareCheck.token, status, acceptInvitesDone, guestIdentity.checked, guestIdentity.identity, portfolioId]);
+  }, [shareCheck.checked, shareCheck.token, shareCheck.programId, status, acceptInvitesDone, guestIdentity.checked, guestIdentity.identity, portfolioId]);
 
   function handleGuestNameSubmit(name: string) {
     const identity: GuestIdentity = { name, guestId: `guest:${nanoid()}` };

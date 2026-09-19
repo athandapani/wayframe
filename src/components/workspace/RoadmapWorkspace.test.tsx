@@ -246,6 +246,33 @@ describe("RoadmapWorkspace export to deck (t29)", () => {
     const [, fileName] = vi.mocked(exportNativeDeckFromSlides).mock.calls[0];
     expect(fileName).toBe("portfolio-roadmap-deck.pptx");
   });
+
+  it("'Save Snapshot ›' (wayframe UX-2026-09-18 §8) opens the same Export dialog with 'Save Snapshot' pre-selected, one click closer than the Export row", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Snapshot ›" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot ›" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Export to Deck" });
+    expect(within(dialog).getByRole("radio", { name: "Save Snapshot" })).toBeChecked();
+  });
+
+  it("'Export to Deck' still defaults to 'Download .pptx' after a prior 'Save Snapshot ›' open — the pre-selection doesn't leak between opens", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+
+    openOptionsMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot ›" }));
+    fireEvent.click((await screen.findByRole("dialog", { name: "Export to Deck" })).querySelector('[aria-label="Close"]')!);
+
+    // The Options menu itself never closed (this app's OptionsMenu only
+    // dismisses on outside-pointerdown/Escape, and closing the export
+    // dialog triggers neither) — its "Export to Deck" button is still
+    // right there underneath where the dialog just was.
+    fireEvent.click(screen.getByRole("button", { name: "Export to Deck" }));
+    const dialog = await screen.findByRole("dialog", { name: "Export to Deck" });
+    expect(within(dialog).getByRole("radio", { name: "Download .pptx" })).toBeChecked();
+  });
 });
 
 describe("RoadmapWorkspace company logo upload (t40)", () => {

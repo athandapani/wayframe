@@ -14,6 +14,7 @@ import { useEffect, useReducer, useState } from "react";
 import type { Theme } from "./theme";
 import type { LegendCategory, Status } from "./types";
 import type { CriticalPathStyle } from "./use-critical-path-style";
+import { CategoryPopover } from "./CategoryPopover";
 
 const STORAGE_KEY = "wayframe:legend-open";
 
@@ -56,8 +57,28 @@ const NEW_CATEGORY_DEFAULT_COLOR = "#2563eb";
  * Clickable/keyboard-activatable like AxisTriangleButton's own pattern, to
  * toggle this category's hidden state (t22, a viewer preference — see
  * use-hidden-categories.ts).
+ *
+ * `onEdit` (wayframe UX-2026-09-18 §9) is a SEPARATE affordance, not an
+ * overload of the swatch's existing click — that click is the documented
+ * show/hide toggle with real `aria-pressed` semantics, and conflating the
+ * two would break it. Revealed as a small pencil on hover/focus of the
+ * whole group instead, so the swatch itself needs no visual change when
+ * `onEdit` is omitted (e.g. `all/page.tsx`'s read-only legend).
  */
-function CategorySwatch({ category, hidden, onToggle }: { category: LegendCategory; hidden: boolean; onToggle: () => void }) {
+function CategorySwatch({
+  category,
+  hidden,
+  onToggle,
+  onEdit,
+  popover,
+}: {
+  category: LegendCategory;
+  hidden: boolean;
+  onToggle: () => void;
+  onEdit?: () => void;
+  /** The open CategoryPopover, if this is the category currently being edited — rendered inside this swatch's own `relative` wrapper so its `absolute` positioning anchors here, not to some ancestor. */
+  popover?: React.ReactNode;
+}) {
   function onKeyDown(e: React.KeyboardEvent<HTMLSpanElement>) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -66,18 +87,32 @@ function CategorySwatch({ category, hidden, onToggle }: { category: LegendCatego
   }
 
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      aria-pressed={!hidden}
-      aria-label={`${category.name}${hidden ? " (hidden)" : ""}`}
-      onClick={onToggle}
-      onKeyDown={onKeyDown}
-      className="flex cursor-pointer items-center gap-1.5"
-      style={{ opacity: hidden ? 0.4 : 1 }}
-    >
-      <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: category.color }} />
-      <span style={{ textDecoration: hidden ? "line-through" : "none" }}>{category.name}</span>
+    <span className="group/cat relative flex items-center gap-1">
+      <span
+        role="button"
+        tabIndex={0}
+        aria-pressed={!hidden}
+        aria-label={`${category.name}${hidden ? " (hidden)" : ""}`}
+        onClick={onToggle}
+        onKeyDown={onKeyDown}
+        className="flex cursor-pointer items-center gap-1.5"
+        style={{ opacity: hidden ? 0.4 : 1 }}
+      >
+        <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: category.color }} />
+        <span style={{ textDecoration: hidden ? "line-through" : "none" }}>{category.name}</span>
+      </span>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Edit ${category.name}`}
+          title={`Edit ${category.name}`}
+          className="text-[10px] leading-none opacity-0 hover:!opacity-100 focus:opacity-100 group-hover/cat:opacity-50"
+        >
+          ✎
+        </button>
+      )}
+      {popover}
     </span>
   );
 }
@@ -109,6 +144,9 @@ export interface ChartLegendProps {
   onToggleCategory?: (id: string) => void;
   /** One-click category creation — calls straight into RoadmapWorkspace's box.addCategory, same handler CategoryManager.tsx's "Add a category" button uses. Omit to hide the add affordance (e.g. no document loaded yet). */
   onAddCategory?: (name: string, color: string) => void;
+  /** Fast-path per-category rename/recolor via CategoryPopover (wayframe UX-2026-09-18 §9) — both optional together; omitting either hides the pencil edit affordance entirely (e.g. `all/page.tsx`'s read-only legend never passes these). */
+  onRenameCategory?: (id: string, name: string) => void;
+  onRecolorCategory?: (id: string, color: string) => void;
 }
 
 export function ChartLegend({
@@ -122,9 +160,15 @@ export function ChartLegend({
   hiddenCategoryIds,
   onToggleCategory,
   onAddCategory,
+  onRenameCategory,
+  onRecolorCategory,
 }: ChartLegendProps) {
   const [open, setOpen] = useReducer((_: boolean, next: boolean) => next, true);
   const [hydrated, setHydrated] = useState(false);
+  // Which category's popover is open, if any — view-only UI state (same
+  // category as OptionsMenu's own `open`), never document content.
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const canEditCategories = onRenameCategory !== undefined && onRecolorCategory !== undefined;
 
   useEffect(() => {
     try {
@@ -184,7 +228,18 @@ export function ChartLegend({
           {showCategories && (
             <>
               {(categories ?? []).map((c) => (
-                <CategorySwatch key={c.id} category={c} hidden={hiddenCategoryIds?.has(c.id) ?? false} onToggle={() => onToggleCategory?.(c.id)} />
+                <CategorySwatch
+                  key={c.id}
+                  category={c}
+                  hidden={hiddenCategoryIds?.has(c.id) ?? false}
+                  onToggle={() => onToggleCategory?.(c.id)}
+                  onEdit={canEditCategories ? () => setEditingCategoryId(c.id) : undefined}
+                  popover={
+                    canEditCategories && editingCategoryId === c.id ? (
+                      <CategoryPopover category={c} onRename={onRenameCategory!} onRecolor={onRecolorCategory!} onClose={() => setEditingCategoryId(null)} />
+                    ) : undefined
+                  }
+                />
               ))}
               {onAddCategory && (
                 <button

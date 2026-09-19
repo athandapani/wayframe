@@ -92,6 +92,14 @@ describe("computeLaneRowModel", () => {
     const model = computeLaneRowModel([{ id: "a", start: 0, end: 5 }], BASE_OPTS);
     expect(model.naturalHeight).toBe(49);
   });
+
+  it("a lone item on Row 2 still reserves Row 1's floor, not just Row 2's own height", () => {
+    const model = computeLaneRowModel([{ id: "a", start: 0, end: 5, laneRow: 2 }], BASE_OPTS);
+    expect(model.rows.map((r) => r.row)).toEqual([1, 2]);
+    expect(model.rows[0].height).toBe(49); // synthesized empty Row 1, still floored
+    expect(model.rows[0].items).toHaveLength(0);
+    expect(model.naturalHeight).toBe(49 + 18 + ROW_GAP);
+  });
 });
 
 describe("computeFitToScreenRatio", () => {

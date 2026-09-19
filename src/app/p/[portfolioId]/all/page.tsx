@@ -36,7 +36,7 @@
 // this, see buildMultiProgramOutlineTree's own doc).
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { mergeForRender } from "@/components/timeline/types";
@@ -82,6 +82,7 @@ async function fetchAllProgramsData(portfolioId: string): Promise<FetchOutcome> 
 
 const KIND_LABEL: Record<OutlineNode["kind"], string> = {
   program: "prog",
+  "program-band": "band",
   group: "grp",
   lane: "lane",
   row: "row",
@@ -90,16 +91,19 @@ const KIND_LABEL: Record<OutlineNode["kind"], string> = {
   annotation: "note",
 };
 
-/** Read-only outline row — no reorder/reparent/hide/collapse/select controls on Group/Lane/leaf nodes at all (t26's own "no mutation callbacks wired in" cut, still true for everything except a Program root's own ▲/▼). */
+/** Read-only outline row — no reorder/reparent/hide/collapse/select controls on Group/Lane/leaf nodes at all (t26's own "no mutation callbacks wired in" cut, still true for everything except a Program root's own ▲/▼ and, since wayframe UX-2026-09-18 §7, its "Open" link). */
 function OutlineRow({
   node,
   isProgramRoot,
+  portfolioId,
   canReorderPrograms,
   onMoveProgram,
   reorderError,
 }: {
   node: OutlineNode;
   isProgramRoot: boolean;
+  /** Only needed for a Program root's own "Open" link — every other row is display-only. */
+  portfolioId: string;
   canReorderPrograms: boolean;
   onMoveProgram?: (programId: string, direction: "up" | "down") => void;
   reorderError?: string;
@@ -112,6 +116,16 @@ function OutlineRow({
         <span className={"min-w-0 flex-1 truncate" + (isLeaf ? " text-gray-800" : " font-medium text-gray-900")} style={{ textDecoration: node.hidden ? "line-through" : undefined }}>
           {node.label}
         </span>
+        {/* Open for editing (wayframe UX-2026-09-18 §7) — before this, a
+            Portfolio's 2nd+ Program could only ever be viewed here,
+            read-only/merged; this is the one place that can open it for
+            real editing at all, since /p/[portfolioId] previously had no
+            way to address anything but the first Program. */}
+        {isProgramRoot && (
+          <Link href={`/p/${portfolioId}?programId=${encodeURIComponent(node.id)}`} className="shrink-0 rounded border px-1.5 py-0.5 text-[11px] text-blue-600 hover:underline">
+            Open
+          </Link>
+        )}
         {isProgramRoot && canReorderPrograms && onMoveProgram && (
           <span className="flex shrink-0 gap-0.5">
             <button onClick={() => onMoveProgram(node.id, "up")} aria-label={`Move ${node.label} up`} className="rounded border px-1.5 py-0.5 text-[11px] text-gray-600 hover:text-gray-900">
@@ -127,7 +141,7 @@ function OutlineRow({
       {node.children.length > 0 && (
         <ul>
           {node.children.map((child) => (
-            <OutlineRow key={child.id} node={child} isProgramRoot={false} canReorderPrograms={canReorderPrograms} onMoveProgram={onMoveProgram} reorderError={undefined} />
+            <OutlineRow key={child.id} node={child} isProgramRoot={false} portfolioId={portfolioId} canReorderPrograms={canReorderPrograms} onMoveProgram={onMoveProgram} reorderError={undefined} />
           ))}
         </ul>
       )}
@@ -138,7 +152,8 @@ function OutlineRow({
 export default function AllProgramsPage() {
   const params = useParams<{ portfolioId: string }>();
   const portfolioId = params.portfolioId;
-  const { status } = useSession();
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [today] = useState(() => new Date());
 
   const [result, setResult] = useState<FetchState>({ status: "idle" });
@@ -158,6 +173,16 @@ export default function AllProgramsPage() {
   // an edit toolbar they have no permission to apply.
   const selection = useSelection();
   const [selectMode, setSelectMode] = useState(false);
+  // "+ New Program" (wayframe UX-2026-09-18 §7) — there was previously no
+  // blank/empty-Program creation path at all, only import-only ones buried
+  // in Options → Data → Import, none of them labeled "Program." Mirrors
+  // handleMoveProgram's own inline-error-state pattern; the small inline
+  // name form is this page's existing minimal-inline-UI convention (see
+  // the reorder error message right above it), not a new modal.
+  const [newProgramOpen, setNewProgramOpen] = useState(false);
+  const [newProgramName, setNewProgramName] = useState("");
+  const [creatingProgram, setCreatingProgram] = useState(false);
+  const [newProgramError, setNewProgramError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -203,6 +228,55 @@ export default function AllProgramsPage() {
       }
     } catch {
       setReorderErrors((prev) => ({ ...prev, [programId]: "Something went wrong reordering this Program." }));
+    }
+  }
+
+  /**
+   * "+ New Program" (wayframe UX-2026-09-18 §7) — reuses the existing
+   * extract route with an empty-but-schema-complete document rather than
+   * a new backend endpoint (its own doc comment already describes this as
+   * a legitimate bulk seed, the same pattern the AI-extraction "Add as a
+   * new Program" checkbox already uses). Every `Program` field the route's
+   * `...(programFields as unknown as Program)` spread does NOT get from
+   * the request body needs a real value here — that cast bypasses
+   * structural checking, so an omitted required field would land as a
+   * literal `undefined` a downstream reader (BlufCallout, etc.) isn't
+   * guarded against, not a caught error.
+   */
+  async function handleCreateProgram(name: string) {
+    setCreatingProgram(true);
+    setNewProgramError(null);
+    try {
+      const res = await fetch(`/api/portfolios/${portfolioId}/programs/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document: {
+            programName: name,
+            generatedAt: new Date().toISOString(),
+            owner: session?.user?.name ?? session?.user?.email ?? "",
+            bluf: { statement: "", bullets: [] },
+            actionItems: [],
+            swimlanes: [],
+            topLevelItems: [],
+            milestones: [],
+          },
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setNewProgramError(body?.error ?? `Couldn't create this Program (${res.status}).`);
+        return;
+      }
+      // Straight into editing the new (empty) Program — the whole point of
+      // this button was "I can't find where to add one," so landing them
+      // on an empty merged view they'd have to hunt an Open link inside is
+      // the same discoverability problem one layer down.
+      router.push(`/p/${portfolioId}?programId=${encodeURIComponent(body.programId)}`);
+    } catch {
+      setNewProgramError("Something went wrong creating this Program.");
+    } finally {
+      setCreatingProgram(false);
     }
   }
 
@@ -296,6 +370,53 @@ export default function AllProgramsPage() {
                 Select mode: {selectMode ? "On" : "Off"}
               </button>
             )}
+            {canReorderPrograms && !newProgramOpen && (
+              <button
+                onClick={() => setNewProgramOpen(true)}
+                className="rounded-full border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:text-gray-900"
+              >
+                + New Program
+              </button>
+            )}
+            {canReorderPrograms && newProgramOpen && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (newProgramName.trim()) handleCreateProgram(newProgramName.trim());
+                }}
+                className="flex items-center gap-1.5"
+              >
+                <input
+                  autoFocus
+                  value={newProgramName}
+                  onChange={(e) => setNewProgramName(e.target.value)}
+                  placeholder="Program name"
+                  aria-label="New Program name"
+                  disabled={creatingProgram}
+                  className="rounded border border-gray-300 px-2 py-1 text-xs disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={creatingProgram || !newProgramName.trim()}
+                  className="rounded-full border border-blue-500 bg-blue-50 px-2.5 py-1 text-xs text-blue-700 disabled:opacity-50"
+                >
+                  {creatingProgram ? "Creating…" : "Create"}
+                </button>
+                <button
+                  type="button"
+                  disabled={creatingProgram}
+                  onClick={() => {
+                    setNewProgramOpen(false);
+                    setNewProgramName("");
+                    setNewProgramError(null);
+                  }}
+                  className="text-xs text-gray-500 hover:text-gray-800 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </form>
+            )}
+            {newProgramError && <span className="text-xs text-red-600">{newProgramError}</span>}
           </div>
 
           <PortfolioRollupBar programs={result.data.programs} today={today} />
@@ -316,6 +437,7 @@ export default function AllProgramsPage() {
                     key={root.id}
                     node={root}
                     isProgramRoot={true}
+                    portfolioId={portfolioId}
                     canReorderPrograms={canReorderPrograms}
                     onMoveProgram={handleMoveProgram}
                     reorderError={reorderErrors[root.id]}

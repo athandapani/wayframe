@@ -39,6 +39,7 @@ export interface OutlineTreeProps {
 
 const KIND_LABEL: Record<OutlineNode["kind"], string> = {
   program: "prog",
+  "program-band": "band",
   group: "grp",
   lane: "lane",
   row: "row",
@@ -84,7 +85,7 @@ export function OutlineTree({ data, theme, selection, onMove, onMoveGroup, onAss
   }
 
   function renderNode(node: OutlineNode): React.ReactNode {
-    const isContainer = node.kind === "program" || node.kind === "group" || node.kind === "lane";
+    const isContainer = node.kind === "program" || node.kind === "program-band" || node.kind === "group" || node.kind === "lane";
     const isLeaf = isLeafKind(node.kind);
     const isExpanded = !collapsedIds.has(node.id);
     const hasChildren = node.children.length > 0;

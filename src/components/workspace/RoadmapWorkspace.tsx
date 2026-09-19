@@ -41,7 +41,7 @@ import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
 import { useOptionsSections } from "./use-options-sections";
 import { NewDocumentBanner } from "./NewDocumentBanner";
-import { ExportDialog } from "./ExportDialog";
+import { ExportDialog, type ExportDestination } from "./ExportDialog";
 import { saveDocumentFile, parseDocumentFile } from "@/lib/document-file/document-file";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 import { useTimelineSummary } from "@/components/executive-view/use-timeline-summary";
@@ -298,7 +298,15 @@ export function RoadmapView({
     );
     return (
       <div className="relative mx-auto max-w-[1600px] p-8 pt-16" style={{ background: theme.ground }}>
-        {zoom && <ZoomControls state={zoom} />}
+        {/* Below `lg` the top toolbar's compact zoom cluster hides (not
+            enough width for the icon cluster, per the toolbar-contention
+            budget), so this full block variant is that breakpoint's
+            fallback, not a duplicate — wayframe UX-2026-09-18 §3. */}
+        {zoom && (
+          <div className="lg:hidden">
+            <ZoomControls state={zoom} />
+          </div>
+        )}
         {zoom ? <ZoomPreviewFrame state={zoom}>{chart}</ZoomPreviewFrame> : chart}
         {legend}
         <BlufCallout
@@ -324,6 +332,11 @@ function pillToggle(active: boolean) {
   return "rounded-full border px-2.5 py-1 text-xs " + (active ? "" : "opacity-55");
 }
 
+/** Square icon-button variant of pillToggle (wayframe UX-2026-09-18 §3/§4/§5) — the top toolbar's Select mode/Outline/Swimlanes buttons need a compact, symbol-only affordance, not a labeled pill (see the toolbar-contention budget math these were designed against). */
+function iconToggle(active: boolean) {
+  return "flex h-7 w-7 items-center justify-center rounded-full border text-sm " + (active ? "" : "opacity-55");
+}
+
 // Absolute, not relative (wayframe#40/#49) — a relative "2h ago" label goes
 // stale the moment it's painted without a ticking re-render, which nothing
 // here does.
@@ -334,13 +347,13 @@ function formatLastUpdated(iso: string): string {
   return `Updated ${datePart} ${timePart}`;
 }
 
-/** Top-right, left of the Options-menu hamburger (top-4 right-4) and clear of BlufCallout (top-16 right-4). */
+/** A plain inline child of the top toolbar's right-hand cluster (wayframe UX-2026-09-18 §3) — no longer self-positions via `fixed`, so it composes with its siblings (PresenceAvatars, the Options hamburger) in one flex row instead of each hand-offsetting from the viewport edge. */
 function LastUpdatedBadge({ lastUpdatedAt }: { lastUpdatedAt?: string }) {
   if (!lastUpdatedAt) return null;
   return (
-    <div className="fixed top-4 right-16 z-50 text-xs font-semibold" style={{ color: "#e11d48" }}>
+    <span className="text-xs font-semibold whitespace-nowrap" style={{ color: "#e11d48" }}>
       {formatLastUpdated(lastUpdatedAt)}
-    </div>
+    </span>
   );
 }
 
@@ -507,6 +520,8 @@ export function RoadmapWorkspace({
   const [importOpen, setImportOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  /** "Save Snapshot ›" (wayframe UX-2026-09-18 §8) — opens the same ExportDialog the Export row already does, just pre-selected onto the "snapshot" destination, so creating one is one click closer than picking it off the dialog's own 3-way radio by hand. `undefined` (the Export row's own path) leaves ExportDialog's default ("pptx") untouched. */
+  const [exportInitialDestination, setExportInitialDestination] = useState<ExportDestination | undefined>(undefined);
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -670,14 +685,6 @@ export function RoadmapWorkspace({
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
           <ModeToggle mode={mode} onChange={setMode} />
         </div>
-        {/* Live-room presence (wayframe t38) — a natural neighbor of the
-            header logo/help chrome above; PresenceAvatars itself renders
-            nothing when there are no remote peers (no realtime prop, or a
-            connected room with nobody else in it), so no extra conditional
-            is needed here. */}
-        <div className="fixed top-4 right-28 z-50">
-          <PresenceAvatars peers={room.peers} />
-        </div>
         {/* Debounced offline badge (wayframe t38) — bottom-right, clear of
             the correction bar's bottom-center real estate and every other
             fixed notice this component renders (see ConnectionStatusBadge's
@@ -737,8 +744,53 @@ export function RoadmapWorkspace({
           </div>
         )}
         {!box.data.lastUpdatedAt && box.historyLength === 0 && !placement && !trace && <NewDocumentBanner theme={theme} />}
-        {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
-        <div className="fixed top-4 right-4 z-50">
+        {/* Unified top-right toolbar cluster (wayframe UX-2026-09-18 §3/§4/§5
+            — designed and landed as one pass since all three compete for the
+            same strip, see this ticket's own "toolbar contention" note).
+            Replaces five independently hand-offset `fixed` islands with one
+            flex row: compact zoom (program mode, >=lg only — the block
+            variant below the chart is this cluster's <lg fallback) | Select
+            mode / Outline / Swimlanes icon buttons (promoted out of Options
+            → Layout, §4/§5 Part A) | Updated badge | presence avatars |
+            Options hamburger. */}
+        <div className="fixed top-3 right-4 z-50 flex flex-wrap items-center justify-end gap-2" style={{ maxWidth: "calc(100vw - 2rem)" }}>
+          {mode === "program" && zoom && (
+            <div className="hidden lg:block">
+              <ZoomControls state={zoom} variant="compact" />
+            </div>
+          )}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() =>
+                setSelectMode((v) => {
+                  // Clearing stale selection on mode-off (wayframe UX-2026-09-18
+                  // §4) — selection itself no longer depends on this mode being
+                  // on (Cmd/Ctrl-click and the Outline tree both drive it
+                  // independently now), but turning the mode off still reads as
+                  // "done selecting," so leftover selected ids from either path
+                  // shouldn't linger silently.
+                  if (v) selection.clear();
+                  return !v;
+                })
+              }
+              disabled={isViewMode}
+              aria-pressed={selectMode}
+              aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
+              title="Select mode"
+              style={PILL_STYLE}
+              className={iconToggle(selectMode) + " disabled:opacity-40"}
+            >
+              ⬚
+            </button>
+            <button onClick={() => setOutlineOpen(true)} aria-label="Open outline" title="Outline" style={PILL_STYLE} className={iconToggle(true)}>
+              ▤
+            </button>
+            <button onClick={() => setLanesOpen(true)} aria-label="Add / edit lanes" title="Swimlanes" style={PILL_STYLE} className={iconToggle(true)}>
+              ▦
+            </button>
+          </div>
+          {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
+          <PresenceAvatars peers={room.peers} />
           <OptionsMenu>
             <OptionsMenuRow label="Help">
               <button onClick={() => setHelpOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
@@ -790,14 +842,33 @@ export function RoadmapWorkspace({
               )}
             </OptionsMenuRow>
             <OptionsMenuRow label="Export">
-              <button onClick={() => setExportDialogOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+              <button
+                onClick={() => {
+                  setExportInitialDestination(undefined);
+                  setExportDialogOpen(true);
+                }}
+                style={PILL_STYLE}
+                className={pillToggle(true)}
+              >
                 Export to Deck
               </button>
             </OptionsMenuRow>
             <OptionsMenuRow label="Snapshots">
-              <button onClick={() => setSnapshotsOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                View Snapshots ›
-              </button>
+              <span className="flex items-center gap-1.5">
+                <button onClick={() => setSnapshotsOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                  View Snapshots ›
+                </button>
+                <button
+                  onClick={() => {
+                    setExportInitialDestination("snapshot");
+                    setExportDialogOpen(true);
+                  }}
+                  style={PILL_STYLE}
+                  className={pillToggle(true)}
+                >
+                  Save Snapshot ›
+                </button>
+              </span>
             </OptionsMenuRow>
             {canManageSharing && (
               <OptionsMenuRow label="Sharing">
@@ -1327,16 +1398,10 @@ export function RoadmapWorkspace({
               </OptionsMenuRow>
             </OptionsMenuSection>
             <OptionsMenuSection id="layout" label="Layout" open={sections.isOpen("layout")} onToggle={() => sections.toggle("layout")}>
-              <OptionsMenuRow label="Swimlanes">
-                <button onClick={() => setLanesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  Add / edit lanes
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Outline">
-                <button onClick={() => setOutlineOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  Open outline
-                </button>
-              </OptionsMenuRow>
+              {/* Swimlanes / Outline / Select mode promoted to the top
+                  toolbar's icon cluster (wayframe UX-2026-09-18 §4/§5) —
+                  removed here rather than duplicated, per that ticket's own
+                  "Select mode... buried in options" complaint. */}
               <OptionsMenuRow label="Swimlane owners">
                 <button
                   onClick={() => swimlaneOwner.setVisible(!swimlaneOwner.visible)}
@@ -1370,17 +1435,6 @@ export function RoadmapWorkspace({
                   style={PILL_STYLE} className={pillToggle(isViewMode)}
                 >
                   {isViewMode ? "View only" : "Editable"}
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Select mode">
-                <button
-                  onClick={() => setSelectMode((v) => !v)}
-                  disabled={isViewMode}
-                  aria-pressed={selectMode}
-                  aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(selectMode) + " disabled:opacity-40"}
-                >
-                  {selectMode ? "On" : "Off"}
                 </button>
               </OptionsMenuRow>
             </OptionsMenuSection>
@@ -1471,6 +1525,8 @@ export function RoadmapWorkspace({
                 hiddenCategoryIds={hiddenCategories.hiddenIds}
                 onToggleCategory={hiddenCategories.toggle}
                 onAddCategory={box.addCategory}
+                onRenameCategory={box.renameCategory}
+                onRecolorCategory={box.recolorCategory}
               />
             }
             onTopLevelItemClick={(t) => setSelectedTopLevelItemId(t.id)}
@@ -1479,7 +1535,11 @@ export function RoadmapWorkspace({
         </div>
       </div>
       <CorrectionBoxSwitcher box={box} mode={correctionMode} onNeedsEditor={handleNeedsEditor} />
-      {selectMode && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
+      {/* Tree-driven and modifier-click-driven selection both surface the
+          mass-edit toolbar now (wayframe UX-2026-09-18 §4) — gated on
+          "something is actually selected," not on Select mode being armed
+          (that mode only gates the lane-background marquee drag now). */}
+      {selection.selectedIds.size > 0 && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
       <MilestoneEditorModal
         data={renderable}
         theme={theme}
@@ -1502,9 +1562,14 @@ export function RoadmapWorkspace({
       />
       <TopLevelItemEditorModal
         item={selectedTopLevelItem}
+        data={renderable}
+        theme={theme}
+        legendCategoryFillEnabled={legendCategoryStyle.enabled}
         onSave={box.editTopLevelItem}
         onClose={() => setSelectedTopLevelItemId(null)}
         onDelete={handleDeleteTopLevelItem}
+        onSetStyleOverride={box.setTopLevelItemStyleOverride}
+        onClearStyleOverride={box.clearTopLevelItemStyleOverride}
       />
       {importOpen && <ImportPanel data={box.data} onExtracted={box.loadDocument} onMerge={box.importMerge} onClose={() => setImportOpen(false)} />}
       {helpOpen && <HelpPanel theme={theme} onClose={() => setHelpOpen(false)} />}
@@ -1567,9 +1632,20 @@ export function RoadmapWorkspace({
           renderPrefs={{ legendCategoryFillEnabled: legendCategoryStyle.enabled }}
           onAddScenario={box.addScenario}
           onClose={() => setExportDialogOpen(false)}
+          initialDestination={exportInitialDestination}
         />
       )}
-      {snapshotsOpen && <SnapshotsPanel portfolioId={box.portfolio.id} onClose={() => setSnapshotsOpen(false)} />}
+      {snapshotsOpen && (
+        <SnapshotsPanel
+          portfolioId={box.portfolio.id}
+          onClose={() => setSnapshotsOpen(false)}
+          onCreate={() => {
+            setSnapshotsOpen(false);
+            setExportInitialDestination("snapshot");
+            setExportDialogOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 }

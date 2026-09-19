@@ -71,6 +71,24 @@ describe("SnapshotsPanel (t31)", () => {
     render(<SnapshotsPanel portfolioId="p1" onClose={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText("No Snapshots saved yet.")).toBeInTheDocument());
+    // No onCreate passed here — the fast-path button must not appear unprompted.
+    expect(screen.queryByRole("button", { name: "Save Snapshot ›" })).not.toBeInTheDocument();
+  });
+
+  it("wayframe UX-2026-09-18 §8 — the empty state's 'Save Snapshot ›' button calls onCreate when provided", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/portfolios/p1/snapshots": () => ({ ok: true, json: async () => ({ snapshots: [] }) }),
+      }),
+    );
+    const onCreate = vi.fn();
+
+    render(<SnapshotsPanel portfolioId="p1" onClose={vi.fn()} onCreate={onCreate} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Snapshot ›" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot ›" }));
+    expect(onCreate).toHaveBeenCalledTimes(1);
   });
 
   it("Download .pptx fetches the single snapshot then recompiles it via exportNativeDeckFromSlides", async () => {

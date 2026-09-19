@@ -47,15 +47,9 @@ import { buildMilestoneEditOps, milestoneToEditableFields, type EditableMileston
 import type { AttachmentOp, PatchOp } from "@/lib/corrections/schema";
 import type { TraceDirection } from "@/lib/critical-path/trace";
 import { addDays, formatDateShort } from "@/components/timeline/date-utils";
-import { MarkerShapePicker } from "@/components/shared/field-editors/MarkerShapePicker";
-import { RangeSlider } from "@/components/shared/field-editors/RangeSlider";
-import { LabelPositionPicker } from "@/components/shared/field-editors/LabelPositionPicker";
-import { ColorSwatchPicker } from "@/components/shared/field-editors/ColorSwatchPicker";
-import { CheckboxField } from "@/components/shared/field-editors/CheckboxField";
-import { PhaseShapeSelect } from "@/components/shared/field-editors/PhaseShapeSelect";
-import { PhaseSizeSelect } from "@/components/shared/field-editors/PhaseSizeSelect";
 import { StatusSelect } from "@/components/shared/field-editors/StatusSelect";
 import { LaneRowSelect } from "@/components/shared/field-editors/LaneRowSelect";
+import { AppearanceBody, LANE_PILL_CAPABILITIES, POINT_CAPABILITIES, Section, overrideCount } from "./AppearanceEditor";
 
 interface EdgeRef {
   id: string;
@@ -202,217 +196,16 @@ function AttachmentEditor({
   );
 }
 
-/** Number of set keys in a styleOverride — the Appearance section's badge count. `hidden: false` is a meaningful explicit set, same as any other key, so it counts too (mirrors clearMilestoneStyleOverride's own "override count reads accurately" doc). */
-function overrideCount(styleOverride?: StyleOverride): number {
-  if (!styleOverride) return 0;
-  return Object.values(styleOverride).filter((v) => v !== undefined).length;
-}
-
 /** Highest Lane Row currently used by any same-lane duration-pill sibling (including this item itself, so its own current row is always a valid select option) — rows 1..max are offered, plus one "+ New row" (max + 1), per lane-rows.ts's bucketRows doc: "start at 2, grow as needed." */
 function computeMaxLaneRow(data: RenderableProgram, milestone: RenderableMilestone): number {
   const rows = data.milestones.filter((m) => m.laneId === milestone.laneId && m.endDate).map((m) => m.laneRow ?? 1);
-  return Math.max(1, ...rows);
+  // Floor at this item's own current row explicitly — `data.milestones`
+  // may be a snapshot that doesn't reflect this item's own in-progress
+  // edit, and an item sitting on a high row must never lose its own
+  // dropdown option just because its siblings moved off of it.
+  return Math.max(1, milestone.laneRow ?? 1, ...rows);
 }
 
-/**
- * Collapsible section shell (t34) — real React/Tailwind rebuild of the
- * prototype's vanilla-DOM `collapsibleSection`: uppercase small-caps
- * header, badge pill, chevron that rotates open. Content always renders
- * open (no Section wrapper); only Appearance/Relationships use this, both
- * defaulting closed.
- */
-function Section({
-  title,
-  badgeText,
-  badgeActive,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  badgeText: string;
-  badgeActive: boolean;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="mt-4 overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-700">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between bg-zinc-50 px-3 py-2 text-left dark:bg-zinc-800/60"
-      >
-        <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-700 dark:text-zinc-200">{title}</span>
-        <span className="flex items-center gap-2">
-          <span
-            className={
-              badgeActive
-                ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
-                : "rounded-full border border-zinc-300 px-2 py-0.5 text-[10px] font-semibold text-zinc-400 dark:border-zinc-600"
-            }
-          >
-            {badgeText}
-          </span>
-          <span className={`text-[11px] text-zinc-400 transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
-        </span>
-      </button>
-      {open && <div className="space-y-3 p-3">{children}</div>}
-    </div>
-  );
-}
-
-/** Small "override / theme-program default" caption under an Appearance control — t34's answer to "the preview shouldn't lie about what's really active." */
-function SourceTag({ source, children }: { source: "override" | "category" | "default"; children?: React.ReactNode }) {
-  const color = source === "override" ? "text-violet-600 dark:text-violet-400 font-semibold" : source === "category" ? "text-amber-600 dark:text-amber-400 font-semibold" : "text-zinc-400";
-  const label = children ?? (source === "override" ? "your override" : source === "category" ? "from category color" : "theme/program default");
-  return <p className={`mt-1 text-[10px] ${color}`}>{label}</p>;
-}
-
-function ResetButton({ onClick, children = "Reset" }: { onClick: () => void; children?: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mt-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[10px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
-    >
-      {children}
-    </button>
-  );
-}
-
-/**
- * Appearance section body — the 8 StyleOverride fields (wayframe#t19's
- * locked property set) plus the phase-only sub-group. Every control shows
- * its live resolved value via style-resolution.ts's real ladder functions
- * (never re-derived here) and a source tag naming which rung actually won,
- * so this can never drift from what RoadmapTimeline.tsx would draw.
- */
-function AppearanceBody({
-  milestone,
-  data,
-  theme,
-  legendCategoryFillEnabled,
-  hasEndDate,
-  onSetStyleOverride,
-  onClearStyleOverride,
-}: {
-  milestone: RenderableMilestone;
-  data: RenderableProgram;
-  theme: Theme;
-  legendCategoryFillEnabled: boolean;
-  hasEndDate: boolean;
-  onSetStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
-  onClearStyleOverride: (id: string, field: keyof StyleOverride) => void;
-}) {
-  const so = milestone.styleOverride;
-  const category = legendCategoryFillEnabled ? data.legendCategories?.find((c) => c.id === milestone.categoryId) : undefined;
-
-  const markerShape = resolveMarkerShape(milestone, data, theme);
-  const markerScale = resolveMarkerScale(milestone, data, theme);
-  const fontScale = resolveFontScale(milestone, data);
-  const titlePos = resolveTitleLabelPosition(milestone);
-  const datePos = resolveDateLabelPosition(milestone);
-  const hidden = resolveHidden(milestone, data);
-  const { fill: resolvedFill } = resolveMarkerColor(milestone, theme, data, category);
-  const phaseShape = resolvePhaseShape(milestone, data, theme);
-  const phaseSize = resolvePhaseSize(milestone, data, theme);
-
-  const colorSource: "override" | "category" | "default" = so?.color ? "override" : category ? "category" : "default";
-
-  function positionField(label: string, field: "titleLabelPosition" | "dateLabelPosition", resolved: LabelPosition | undefined) {
-    const display = resolved ?? (field === "titleLabelPosition" ? "top" : "bottom");
-    const hasOverride = so?.[field] !== undefined;
-    return (
-      <div>
-        <LabelPositionPicker label={label} value={so?.[field]} resolvedValue={display} onChange={(pos) => onSetStyleOverride(milestone.id, { [field]: pos })} />
-        <SourceTag source={hasOverride ? "override" : "default"} />
-        {hasOverride && <ResetButton onClick={() => onClearStyleOverride(milestone.id, field)} />}
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {hasEndDate && (
-        <p className="rounded border border-dashed border-amber-300 bg-amber-50 px-2 py-1.5 text-[10.5px] text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300">
-          This is a duration-pill milestone: marker shape/scale, font scale, label position, color, and hidden don&apos;t yet affect a pill&apos;s on-chart
-          appearance — only Phase shape/size (below) do.
-        </p>
-      )}
-      {/* Marker shape */}
-      <div>
-        <MarkerShapePicker label="Marker shape" value={so?.markerShape} resolvedValue={markerShape} onChange={(shape) => onSetStyleOverride(milestone.id, { markerShape: shape })} />
-        <SourceTag source={so?.markerShape !== undefined ? "override" : "default"} />
-        {so?.markerShape !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "markerShape")}>Reset to default</ResetButton>}
-      </div>
-
-      {/* Marker scale + font scale */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <RangeSlider label="Marker scale" value={markerScale} onChange={(v) => onSetStyleOverride(milestone.id, { markerScale: v })} min={0.6} max={2} step={0.05} />
-          <SourceTag source={so?.markerScale !== undefined ? "override" : "default"} />
-          {so?.markerScale !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "markerScale")} />}
-        </div>
-        <div>
-          <RangeSlider
-            label="Font scale (composes w/ viewer scale)"
-            value={fontScale}
-            onChange={(v) => onSetStyleOverride(milestone.id, { fontScale: v })}
-            min={0.6}
-            max={2}
-            step={0.05}
-          />
-          <SourceTag source={so?.fontScale !== undefined ? "override" : "default"} />
-          {so?.fontScale !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "fontScale")} />}
-        </div>
-      </div>
-
-      {/* Title / date label position */}
-      <div className="grid grid-cols-2 gap-4">
-        {positionField("Title label position", "titleLabelPosition", titlePos)}
-        {positionField("Date label position", "dateLabelPosition", datePos)}
-      </div>
-
-      {/* Color */}
-      <div>
-        <ColorSwatchPicker label="Color override" value={so?.color} resolvedValue={resolvedFill} onChange={(c) => onSetStyleOverride(milestone.id, { color: c })} />
-        <SourceTag source={colorSource} />
-        {so?.color !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "color")}>Clear override</ResetButton>}
-      </div>
-
-      {/* Hidden — false is a meaningful explicit override here, not "no override," so unchecking never gets conflated with reset. */}
-      <div className="flex items-center gap-2">
-        <CheckboxField
-          id={`hidden-${milestone.id}`}
-          checked={hidden}
-          onChange={(checked) => onSetStyleOverride(milestone.id, { hidden: checked })}
-          label="Hide from chart (soft-hide, not deleted)"
-        />
-        {so?.hidden !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "hidden")}>Reset to default</ResetButton>}
-      </div>
-
-      {/* Phase-only sub-group — only rendered once an end date is set, per t19's own doc: phaseShape/phaseSize are only meaningful on a duration-pill milestone. */}
-      {hasEndDate && (
-        <div className="border-t border-dashed border-zinc-300 pt-3 dark:border-zinc-600">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">Phase-only (this item has an end date)</p>
-          <div className="grid grid-cols-2 gap-4">
-            <label className="block">
-              <PhaseShapeSelect value={phaseShape} onChange={(shape) => onSetStyleOverride(milestone.id, { phaseShape: shape })} />
-              <SourceTag source={so?.phaseShape !== undefined ? "override" : "default"} />
-              {so?.phaseShape !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "phaseShape")} />}
-            </label>
-            <label className="block">
-              <PhaseSizeSelect value={phaseSize} onChange={(size) => onSetStyleOverride(milestone.id, { phaseSize: size })} />
-              <SourceTag source={so?.phaseSize !== undefined ? "override" : "default"} />
-              {so?.phaseSize !== undefined && <ResetButton onClick={() => onClearStyleOverride(milestone.id, "phaseSize")} />}
-            </label>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
 
 const LABEL_POS_OFFSET: Record<LabelPosition, { dx: number; dy: number; anchor: "start" | "middle" | "end" }> = {
   inside: { dx: 0, dy: 0, anchor: "middle" },
@@ -753,11 +546,11 @@ function ModalForm({
 
             <Section title="Appearance" badgeText={appearanceOverrides > 0 ? `${appearanceOverrides} override${appearanceOverrides === 1 ? "" : "s"}` : "default"} badgeActive={appearanceOverrides > 0}>
               <AppearanceBody
-                milestone={milestone}
+                item={milestone}
                 data={data}
                 theme={theme}
                 legendCategoryFillEnabled={legendCategoryFillEnabled}
-                hasEndDate={Boolean(draft.endDate)}
+                capabilities={draft.endDate ? LANE_PILL_CAPABILITIES : POINT_CAPABILITIES}
                 onSetStyleOverride={onSetStyleOverride}
                 onClearStyleOverride={onClearStyleOverride}
               />

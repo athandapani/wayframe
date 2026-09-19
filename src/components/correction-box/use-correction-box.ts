@@ -120,6 +120,17 @@ export interface CorrectionBoxState {
   /** The current Program's Portfolio (wayframe t11) — schemaVersion/companyLogo/legendCategories live here now, not on `data`. Today's app only ever edits one Program at a time, so this is the one Portfolio that Program belongs to, not a list. */
   portfolio: Portfolio;
   history: DocumentSnapshot[];
+  /**
+   * Redo stack (wayframe UX-2026-09-18 §6) — the mirror image of `history`:
+   * Undo pops `history` and pushes the pre-undo state here; Redo pops this
+   * and pushes the pre-redo state back onto `history`. Cleared on any real
+   * edit (see `reduce`'s own wrapper doc below) so redoing after a fresh
+   * edit can never re-apply a now-stale whole-document snapshot over it.
+   * Same unbounded-whole-document-snapshot cost `history` already has —
+   * acceptable for now (see `history`'s own doc / this ticket's own risk
+   * note), doubling that footprint.
+   */
+  future: DocumentSnapshot[];
   pending: PendingPatch | null;
   error: string | null;
   loading: boolean;
@@ -146,6 +157,7 @@ export type CorrectionBoxAction =
     }
   | { type: "discard" }
   | { type: "undo" }
+  | { type: "redo" }
   | { type: "resolveAmbiguous"; targetId: string }
   | { type: "editMilestone"; ops: PatchOp[] }
   | { type: "acceptBaseline"; id: string }
@@ -211,6 +223,12 @@ export type CorrectionBoxAction =
   | { type: "setMilestoneCategory"; id: string; categoryId: string | null }
   | { type: "setMilestoneStyleOverride"; id: string; patch: Partial<StyleOverride> }
   | { type: "clearMilestoneStyleOverride"; id: string; field: keyof StyleOverride }
+  // PROGRAM-band mirror of the two actions above (wayframe UX-2026-09-18 §2)
+  // — annotation has no styleOverride field at all (see TopLevelItem's own
+  // union in types.ts), so both actions are a no-op there, same guard
+  // bulk-edit/apply.ts's own TopLevelItem style-patch pass already uses.
+  | { type: "setTopLevelItemStyleOverride"; id: string; patch: Partial<StyleOverride> }
+  | { type: "clearTopLevelItemStyleOverride"; id: string; field: keyof StyleOverride }
   | { type: "setMilestoneLaneRow"; id: string; laneRow: number | undefined }
   | { type: "importMerge"; newLanes: { id: string; name: string }[]; adds: Milestone[]; updateOps: PatchOp[] }
   // Generalized mass-edit (wayframe#t33) — `bulkPatchOps` is the generic
@@ -286,9 +304,12 @@ function bumpChangedRevs<T extends { id: string; rev?: number }>(previous: reado
  * prototype (src/lib/corrections/../prototype-patch-logic.ts's `reduce`) —
  * a single reducer avoids the fragile "setState inside another setState's
  * updater" pattern an earlier version of this hook used, which silently
- * dropped undo's effect. Exported for direct unit testing.
+ * dropped undo's effect. Wrapped by the exported `reduce` below (which
+ * owns clearing `future` on a real edit) — this inner function only needs
+ * to get its own case's `history`/`future` transition right, not police
+ * every other case's.
  */
-export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): CorrectionBoxState {
+function reduceInner(state: CorrectionBoxState, action: CorrectionBoxAction): CorrectionBoxState {
   switch (action.type) {
     case "requestStarted":
       return { ...state, loading: true, error: null };
@@ -362,7 +383,33 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         return { ...state, error: "Nothing to undo" };
       }
       const previous = state.history[state.history.length - 1];
-      return { ...state, data: previous.data, portfolio: previous.portfolio, history: state.history.slice(0, -1), pending: null, error: null };
+      return {
+        ...state,
+        data: previous.data,
+        portfolio: previous.portfolio,
+        history: state.history.slice(0, -1),
+        // The mirror image of a real edit's `history.push` — the state
+        // Undo is about to leave behind becomes Redo's next target,
+        // instead of being discarded (wayframe UX-2026-09-18 §6).
+        future: [...state.future, { data: state.data, portfolio: state.portfolio }],
+        pending: null,
+        error: null,
+      };
+    }
+    case "redo": {
+      if (state.future.length === 0) {
+        return { ...state, error: "Nothing to redo" };
+      }
+      const next = state.future[state.future.length - 1];
+      return {
+        ...state,
+        data: next.data,
+        portfolio: next.portfolio,
+        future: state.future.slice(0, -1),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        pending: null,
+        error: null,
+      };
     }
     case "editMilestone": {
       // Manual editing (wayframe#18's resolution): instant-save, not a
@@ -897,6 +944,35 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
         error: null,
       };
     }
+    case "setTopLevelItemStyleOverride": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, {
+          ...state.data,
+          topLevelItems: state.data.topLevelItems.map((t) =>
+            t.id === action.id && t.type !== "annotation" ? { ...t, styleOverride: { ...t.styleOverride, ...action.patch } } : t,
+          ),
+        }),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
+    case "clearTopLevelItemStyleOverride": {
+      return {
+        ...state,
+        data: stampUpdated(state.data, {
+          ...state.data,
+          topLevelItems: state.data.topLevelItems.map((t) => {
+            if (t.id !== action.id || t.type === "annotation" || !t.styleOverride) return t;
+            const next = { ...t.styleOverride };
+            delete next[action.field];
+            return { ...t, styleOverride: Object.keys(next).length > 0 ? next : undefined };
+          }),
+        }),
+        history: [...state.history, { data: state.data, portfolio: state.portfolio }],
+        error: null,
+      };
+    }
     case "setMilestoneLaneRow": {
       return {
         ...state,
@@ -1035,8 +1111,12 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
       // untouched here on purpose: this fires on every merged remote update,
       // while conflicts are only added at the specific "just
       // reconnected, check pending offline edits" moment (see
-      // "addConflicts").
-      return { ...state, data: action.data, pending: null, error: null };
+      // "addConflicts"). `future` IS explicitly cleared, unlike `history` —
+      // it doesn't push onto `history` so the generic "did history grow"
+      // clear in `reduce`'s wrapper never fires for it, but redoing after a
+      // remote edit landed would otherwise re-apply a stale whole-document
+      // snapshot over that collaborator's change (wayframe UX-2026-09-18 §6).
+      return { ...state, data: action.data, pending: null, error: null, future: [] };
     }
     case "addConflicts": {
       // Persistent, dismiss-only (wayframe t38's gist): re-detecting the same
@@ -1055,6 +1135,27 @@ export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): 
   }
 }
 
+/**
+ * All state transitions in one place — see `reduceInner`'s own doc for the
+ * cases themselves. This thin wrapper owns exactly one cross-cutting rule
+ * (wayframe UX-2026-09-18 §6): clear the redo stack (`future`) whenever a
+ * REAL EDIT lands, without having to touch every one of `reduceInner`'s ~40
+ * mutating cases individually. "Real edit" = history grew (every mutating
+ * case already does `history: [...state.history, snapshot]`; every
+ * non-edit case — `hydrated`, `snapshotRollups`, `requestStarted`, … —
+ * deliberately doesn't) — EXCEPT `redo` itself, which also grows `history`
+ * by exactly one (the mirror image of `undo`) but must not wipe out the
+ * rest of the stack it's still mid-popping from; `undo`/`redo` both
+ * already compute their own correct `future` inside `reduceInner`, so this
+ * wrapper leaves both untouched.
+ */
+export function reduce(state: CorrectionBoxState, action: CorrectionBoxAction): CorrectionBoxState {
+  const next = reduceInner(state, action);
+  if (action.type === "undo" || action.type === "redo") return next;
+  if (next.history.length > state.history.length) return { ...next, future: [] };
+  return next;
+}
+
 /** Ids of newly-applied entities that had no resolved date and need the editor opened for them (wayframe#59 splits this by kind — a milestone add and a PROGRAM-band add open different modals). */
 export interface AppliedIds {
   milestoneIds: string[];
@@ -1069,11 +1170,15 @@ export interface UseCorrectionBoxResult {
   error: string | null;
   loading: boolean;
   historyLength: number;
+  /** Redo stack depth (wayframe UX-2026-09-18 §6) — drives the Redo button's disabled state, mirroring historyLength's role for Undo. */
+  futureLength: number;
   submit: (text: string) => Promise<void>;
   /** Applies the pending patch's ops/adds/etc. Returns the ids of any added milestones/top-level items that had no resolved date, so the caller can open the right editor for them (mirrors addMilestone's manual "create empty, open for editing" behavior). */
   apply: () => AppliedIds;
   discard: () => void;
   undo: () => void;
+  /** Re-applies the last undone edit (wayframe UX-2026-09-18 §6) — a no-op (sets `error`) when `futureLength` is 0. */
+  redo: () => void;
   /** Turns one of the pending patch's ambiguous candidates into a real op — the clarifying-question answer. */
   resolveAmbiguous: (targetId: string) => void;
   editMilestone: (ops: PatchOp[]) => void;
@@ -1144,6 +1249,10 @@ export interface UseCorrectionBoxResult {
   setMilestoneStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
   /** Resets one styleOverride field back to "inherit from the ladder" (t34) — removes the key entirely, not just sets it undefined, so an override count reads accurately. */
   clearMilestoneStyleOverride: (id: string, field: keyof StyleOverride) => void;
+  /** PROGRAM-band mirror of setMilestoneStyleOverride, for TopLevelItemEditorModal's own Appearance section (wayframe UX-2026-09-18 §2). No-op on an annotation id. */
+  setTopLevelItemStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
+  /** PROGRAM-band mirror of clearMilestoneStyleOverride. No-op on an annotation id. */
+  clearTopLevelItemStyleOverride: (id: string, field: keyof StyleOverride) => void;
   /** Explicit Lane Row assignment (t20/t34) — `undefined` clears back to the implicit Row 1 default. */
   setMilestoneLaneRow: (id: string, laneRow: number | undefined) => void;
   /** Deterministic CSV/XLSX import merge — one atomic edit, see ImportDiffReview.tsx. */
@@ -1188,6 +1297,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
       data,
       portfolio,
       history: [],
+      future: [],
       pending: null,
       error: null,
       loading: false,
@@ -1384,6 +1494,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   }, [state.pending, today]);
   const discard = useCallback(() => dispatch({ type: "discard" }), []);
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
+  const redo = useCallback(() => dispatch({ type: "redo" }), []);
   const resolveAmbiguous = useCallback((targetId: string) => dispatch({ type: "resolveAmbiguous", targetId }), []);
   const editMilestone = useCallback((ops: PatchOp[]) => dispatch({ type: "editMilestone", ops }), []);
   const acceptBaseline = useCallback((id: string) => dispatch({ type: "acceptBaseline", id }), []);
@@ -1454,6 +1565,8 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const setMilestoneCategory = useCallback((id: string, categoryId: string | null) => dispatch({ type: "setMilestoneCategory", id, categoryId }), []);
   const setMilestoneStyleOverride = useCallback((id: string, patch: Partial<StyleOverride>) => dispatch({ type: "setMilestoneStyleOverride", id, patch }), []);
   const clearMilestoneStyleOverride = useCallback((id: string, field: keyof StyleOverride) => dispatch({ type: "clearMilestoneStyleOverride", id, field }), []);
+  const setTopLevelItemStyleOverride = useCallback((id: string, patch: Partial<StyleOverride>) => dispatch({ type: "setTopLevelItemStyleOverride", id, patch }), []);
+  const clearTopLevelItemStyleOverride = useCallback((id: string, field: keyof StyleOverride) => dispatch({ type: "clearTopLevelItemStyleOverride", id, field }), []);
   const setMilestoneLaneRow = useCallback((id: string, laneRow: number | undefined) => dispatch({ type: "setMilestoneLaneRow", id, laneRow }), []);
   const importMerge = useCallback(
     (newLanes: { id: string; name: string }[], adds: Milestone[], updateOps: PatchOp[]) => dispatch({ type: "importMerge", newLanes, adds, updateOps }),
@@ -1475,10 +1588,12 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     error: state.error,
     loading: state.loading,
     historyLength: state.history.length,
+    futureLength: state.future.length,
     submit,
     apply,
     discard,
     undo,
+    redo,
     resolveAmbiguous,
     editMilestone,
     acceptBaseline,
@@ -1527,6 +1642,8 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     setMilestoneCategory,
     setMilestoneStyleOverride,
     clearMilestoneStyleOverride,
+    setTopLevelItemStyleOverride,
+    clearTopLevelItemStyleOverride,
     setMilestoneLaneRow,
     importMerge,
     bulkEdit,

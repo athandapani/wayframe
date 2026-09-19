@@ -235,8 +235,15 @@ export function buildSlideIR(input: BuildSlideIRInput): Slide {
     void stroke; // IR GeometricShape carries fill only, not a separate stroke — the on-screen halo ring has no IR equivalent (documented degradation).
   }
 
-  // PROGRAM band: phase / milestone / annotation TopLevelItems.
+  // PROGRAM band: phase / milestone / annotation TopLevelItems. `hidden`
+  // and `color` now flow through the same ladder for a TopLevelItem
+  // phase/milestone as they do for a lane milestone above (wayframe
+  // UX-2026-09-18 §2) — RoadmapTimeline.tsx's own Program-band render was
+  // the same gap, now closed there too, so the export stays in sync with
+  // the real chart. (annotation has no styleOverride field at all — see
+  // TopLevelItem's own union in types.ts — so it's untouched here.)
   for (const item of renderable.topLevelItems) {
+    if (item.type !== "annotation" && resolveHidden(item, program)) continue;
     if (item.type === "phase") {
       const size = resolvePhaseSize(item, program, theme);
       const heightIn = (PILL_PHASE_HEIGHT[size] / SLIDE_PX_PER_IN) * 2.2;
@@ -249,14 +256,15 @@ export function buildSlideIR(input: BuildSlideIRInput): Slide {
         y: bandCenterIn - heightIn / 2,
         w: Math.max(0.05, Math.abs(x2 - x1)),
         h: heightIn,
-        fill: theme.statusColor[item.status], // No color ladder for phases (t19's own scope note) — plain status color.
+        fill: item.styleOverride?.color ?? theme.statusColor[item.status], // styleOverride.color wins outright, same rung resolveMarkerColor's rung 1 uses — mirrors RoadmapTimeline.tsx's Program-band phase fill.
       });
       shapes.push(textShape(nextId("phase-label"), Math.min(x1, x2), bandCenterIn - heightIn / 2 - LABEL_HEIGHT_IN - 0.02, Math.max(0.6, Math.abs(x2 - x1)), LABEL_HEIGHT_IN, item.title, { sizePt: 8, color: theme.ink }));
     } else if (item.type === "milestone") {
       const shapeKind = markerIrKind(resolveMarkerShape(item, program, theme));
       const scale = resolveMarkerScale(item, program, theme);
-      // No color ladder for a TopLevelItem milestone either (t19's own scope note: "no categoryId/identity-color concept exists for either") — plain status color, not resolveMarkerColor's full ladder.
-      emitPointMarker(nextId("top-milestone"), item.date, shapeKind, scale, theme.statusColor[item.status], theme.markerHalo, bandCenterIn, item.title);
+      // Full color ladder (no category rung — a TopLevelItem has no categoryId), mirroring RoadmapTimeline.tsx's Program-band milestone fill.
+      const { fill } = resolveMarkerColor(item, theme, program);
+      emitPointMarker(nextId("top-milestone"), item.date, shapeKind, scale, fill, theme.markerHalo, bandCenterIn, item.title);
     } else {
       shapes.push(textShape(nextId("annotation"), xOf(item.date) - LABEL_WIDTH_IN / 2, bandTopIn, LABEL_WIDTH_IN, LABEL_HEIGHT_IN, item.title, { sizePt: 8, italic: true, color: theme.inkMuted }));
     }

@@ -21,7 +21,7 @@ export interface Peer {
 export function PresenceAvatars({ peers, following, onSelect }: { peers: Peer[]; following?: string | null; onSelect?: (id: string) => void }) {
   if (peers.length === 0) return null;
   return (
-    <div className="mb-3 flex items-center gap-2 text-xs" style={{ color: "var(--wf-ink)" }}>
+    <div className="flex items-center gap-2 text-xs" style={{ color: "var(--wf-ink)" }}>
       <span className="font-semibold opacity-60">Online:</span>
       {peers.map((p) => (
         <button

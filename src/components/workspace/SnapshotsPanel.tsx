@@ -43,7 +43,16 @@ export function summarizeSelection(selection: PortfolioSnapshotSummary["selectio
   return labels.length > 0 ? labels.join(", ") : "No sections";
 }
 
-export function SnapshotsPanel({ portfolioId, onClose }: { portfolioId: string; onClose: () => void }) {
+export function SnapshotsPanel({
+  portfolioId,
+  onClose,
+  onCreate,
+}: {
+  portfolioId: string;
+  onClose: () => void;
+  /** "Save Snapshot ›" affordance on the empty state (wayframe UX-2026-09-18 §8) — this panel itself stays read-only (Snapshots are append-only per #t11), so creating one closes this panel and reopens ExportDialog pre-set to the "snapshot" destination instead of adding a mutation here. Optional: a caller with nowhere to route this yet just gets the plain "No Snapshots saved yet." message unchanged. */
+  onCreate?: () => void;
+}) {
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
   const [downloadErrors, setDownloadErrors] = useState<Record<string, string>>({});
@@ -115,7 +124,18 @@ export function SnapshotsPanel({ portfolioId, onClose }: { portfolioId: string; 
         {state.status === "ready" && (
           <div className="p-5">
             {state.snapshots.length === 0 ? (
-              <p className="text-xs opacity-60">No Snapshots saved yet.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs opacity-60">No Snapshots saved yet.</p>
+                {onCreate && (
+                  <button
+                    onClick={onCreate}
+                    style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+                    className="rounded-full border px-2.5 py-1 text-[11px] opacity-80 hover:opacity-100"
+                  >
+                    Save Snapshot ›
+                  </button>
+                )}
+              </div>
             ) : (
               <ul className="divide-y" style={{ borderColor: "var(--wf-border)" }}>
                 {state.snapshots.map((s) => (

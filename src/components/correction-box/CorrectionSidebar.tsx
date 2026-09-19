@@ -69,13 +69,22 @@ export function CorrectionSidebar({ box, onNeedsEditor }: { box: UseCorrectionBo
     <aside className="flex w-96 shrink-0 flex-col border-l border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
       <div className="flex items-center justify-between border-b border-zinc-200 p-3 dark:border-zinc-700">
         <h2 className="text-sm font-semibold">Corrections</h2>
-        <button
-          onClick={box.undo}
-          disabled={box.historyLength === 0}
-          className="text-xs text-zinc-500 hover:text-zinc-800 disabled:opacity-30 dark:hover:text-zinc-200"
-        >
-          Undo last ({box.historyLength})
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={box.undo}
+            disabled={box.historyLength === 0}
+            className="text-xs text-zinc-500 hover:text-zinc-800 disabled:opacity-30 dark:hover:text-zinc-200"
+          >
+            Undo last ({box.historyLength})
+          </button>
+          <button
+            onClick={box.redo}
+            disabled={box.futureLength === 0}
+            className="text-xs text-zinc-500 hover:text-zinc-800 disabled:opacity-30 dark:hover:text-zinc-200"
+          >
+            Redo ({box.futureLength})
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-3">

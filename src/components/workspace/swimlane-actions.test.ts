@@ -39,7 +39,7 @@ function baseData(): Program {
   };
 }
 
-const state = (): CorrectionBoxState => ({ data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] });
+const state = (): CorrectionBoxState => ({ data: baseData(), portfolio: basePortfolio(), history: [], future: [], pending: null, error: null, loading: false, conflicts: [] });
 
 /** Swimlane Groups (t21) — g1's members are lane-x(0)/lane-y(1); lane-a is ungrouped; top-level order: lane-a(0), g1(1). */
 function groupedData(): Program {
@@ -54,7 +54,7 @@ function groupedData(): Program {
   };
 }
 
-const groupedState = (): CorrectionBoxState => ({ data: groupedData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] });
+const groupedState = (): CorrectionBoxState => ({ data: groupedData(), portfolio: basePortfolio(), history: [], future: [], pending: null, error: null, loading: false, conflicts: [] });
 
 describe("swimlane actions", () => {
   it("appends a new lane after the last row", () => {

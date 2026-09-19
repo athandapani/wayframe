@@ -7,8 +7,10 @@ vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
 }));
 
+const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ portfolioId: "portfolio-1" }),
+  useRouter: () => ({ push: pushMock }),
 }));
 
 // AuthControls pulls in a real sign-in/out button tied to next-auth — this
@@ -61,9 +63,10 @@ function allProgramsResponse(role: "owner" | "editor" | "viewer") {
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  useSessionMock.mockReturnValue({ status: "authenticated" });
+  useSessionMock.mockReturnValue({ status: "authenticated", data: { user: { name: "Test User", email: "test@example.com" } } });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
+  pushMock.mockReset();
 });
 
 afterEach(() => {
@@ -144,5 +147,58 @@ describe("AllProgramsPage — cross-Program bulk edit (wayframe#t33 fork 3)", ()
 
     // Selection is cleared and the toolbar disappears once nothing is selected.
     await waitFor(() => expect(screen.queryByText(/selected across/)).not.toBeInTheDocument());
+  });
+});
+
+describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
+  it("shows a '+ New Program' button for an editor, and an 'Open' link on each Program in the Outline", async () => {
+    await renderPage("editor");
+    expect(screen.getByRole("button", { name: "+ New Program" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Outline/ }));
+    const openLinks = screen.getAllByRole("link", { name: "Open" });
+    expect(openLinks).toHaveLength(2);
+    expect(openLinks[0]).toHaveAttribute("href", "/p/portfolio-1?programId=program-A");
+    expect(openLinks[1]).toHaveAttribute("href", "/p/portfolio-1?programId=program-B");
+  });
+
+  it("hides '+ New Program' for a viewer", async () => {
+    await renderPage("viewer");
+    expect(screen.queryByRole("button", { name: "+ New Program" })).not.toBeInTheDocument();
+  });
+
+  it("creating a Program POSTs a schema-complete empty document to the extract route and navigates to it", async () => {
+    await renderPage("editor");
+
+    fireEvent.click(screen.getByRole("button", { name: "+ New Program" }));
+    fireEvent.change(screen.getByLabelText("New Program name"), { target: { value: "Q3 Launch" } });
+
+    fetchMock.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ programId: "program-new-1" }) });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/p/portfolio-1?programId=program-new-1"));
+
+    const extractCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/programs/extract"));
+    expect(extractCall).toBeDefined();
+    const [, init] = extractCall!;
+    const body = JSON.parse(init.body as string);
+    expect(body.document.programName).toBe("Q3 Launch");
+    expect(body.document.owner).toBe("Test User");
+    // Every Program field the extract route's spread doesn't otherwise supply must be real, not omitted.
+    expect(body.document).toMatchObject({ bluf: { statement: "", bullets: [] }, actionItems: [], swimlanes: [], topLevelItems: [], milestones: [] });
+    expect(typeof body.document.generatedAt).toBe("string");
+  });
+
+  it("shows an inline error and does not navigate when the extract route fails", async () => {
+    await renderPage("editor");
+
+    fireEvent.click(screen.getByRole("button", { name: "+ New Program" }));
+    fireEvent.change(screen.getByLabelText("New Program name"), { target: { value: "Q3 Launch" } });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, json: () => Promise.resolve({ error: "No edit access to this Portfolio." }) });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });

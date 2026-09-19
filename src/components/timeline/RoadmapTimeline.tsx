@@ -59,6 +59,39 @@ import type { DateLabelPlacement } from "./use-date-label-placement";
 import { computeFitToScreenRatio, computeLaneRowModel, ROW_GAP, type LaneRowModel, type RowItem } from "@/lib/layout/lane-rows";
 import { useRowVirtualization } from "./use-row-virtualization";
 
+/**
+ * Cmd/Ctrl-click adds an item to selection even when Select mode is off; a
+ * plain click keeps its normal action (open the editor, etc.) UNLESS Select
+ * mode is explicitly armed, in which case a plain click still toggles
+ * selection too — this is additive, not a replacement, over the old
+ * selectionModeEnabled-only gate: the All-Programs cross-Program bulk-edit
+ * page (`all/page.tsx`) has its own always-visible Select-mode toggle and
+ * relies on a plain click selecting once it's on, and that keeps working
+ * unchanged. What's new (wayframe UX-2026-09-18 §4) is that RoadmapWorkspace
+ * no longer needs its own Select mode armed at all for the modifier-click
+ * path — Cmd/Ctrl-click works regardless, so selection no longer requires
+ * first hunting down a mode toggle. `selectionModeEnabled` still separately
+ * gates the lane-background marquee drag (a drag genuinely needs an armed
+ * mode so it doesn't fight click-to-place) — unrelated to this function.
+ * `preventDefault` on the modifier click is cheap insurance against a stray
+ * browser default (e.g. some browsers treat Cmd+click on certain elements
+ * as "open in new tab"; irrelevant for an SVG `<g>` but harmless to guard).
+ */
+function selectableClick<T extends { id: string }>(
+  item: T,
+  e: React.MouseEvent<SVGGElement>,
+  selectionModeEnabled: boolean | undefined,
+  onToggleSelect: ((id: string) => void) | undefined,
+  onClick: ((item: T, e: React.MouseEvent<SVGGElement>) => void) | undefined,
+) {
+  if (selectionModeEnabled || e.metaKey || e.ctrlKey) {
+    e.preventDefault();
+    onToggleSelect?.(item.id);
+  } else {
+    onClick?.(item, e);
+  }
+}
+
 const MARGIN = { top: 20, right: 40, bottom: 20, left: 220 };
 /**
  * Taller than it was: markers now carry wrapped real titles on two tiers
@@ -1595,7 +1628,13 @@ export function RoadmapTimeline({
       row1Floor: LANE_ROW1_FLOOR * boxScale * densityFactor,
     });
     laneRowModelByLaneId.set(lane.id, model);
-    naturalHeightByLaneId.set(lane.id, Math.max(markerFloor, model.naturalHeight));
+    // markerFloor only ever needs to cover Row 1's own clearance — a second
+    // (or later) Lane Row is opt-in space the document explicitly created,
+    // so it must always add height on top, never get swallowed by the flat
+    // point-marker floor (which knows nothing about Lane Rows).
+    const rowGapPx = ROW_GAP * boxScale;
+    const extraRowsHeight = model.rows.slice(1).reduce((sum, r) => sum + r.height + rowGapPx, 0);
+    naturalHeightByLaneId.set(lane.id, Math.max(markerFloor, model.rows[0].height) + extraRowsHeight);
   }
 
   const totalNaturalHeight = [...naturalHeightByLaneId.values()].reduce((sum, h) => sum + h, 0);
@@ -1642,16 +1681,22 @@ export function RoadmapTimeline({
     const model = laneRowModelByLaneId.get(laneId);
     if (!model) return 0;
     const rowGapPx = ROW_GAP * boxScale;
-    const totalBandHeight = model.rows.reduce((sum, r) => sum + r.slotHeights.reduce((a, b) => a + b, 0), 0) + Math.max(0, model.rows.length - 1) * rowGapPx;
+    // Band height per row is the row's own floored `height` (matching what
+    // naturalHeightByLaneId reserves for it above), not the raw sum of
+    // `slotHeights` — an empty-but-floored Row 1 (see lane-rows.ts) still
+    // needs to occupy its floor's worth of vertical space here, or a lone
+    // Row-2 pill draws at the same y a lone Row-1 pill would.
+    const totalBandHeight = model.rows.reduce((sum, r) => sum + r.height, 0) + Math.max(0, model.rows.length - 1) * rowGapPx;
     let rowTop = -totalBandHeight / 2;
     for (const row of model.rows) {
       const subRow = row.subRowById.get(milestoneId);
       if (subRow !== undefined) {
-        let slotTop = rowTop;
+        const contentHeight = row.slotHeights.reduce((a, b) => a + b, 0);
+        let slotTop = rowTop + (row.height - contentHeight) / 2;
         for (let r = 0; r < subRow; r++) slotTop += row.slotHeights[r];
         return slotTop + row.slotHeights[subRow] / 2;
       }
-      rowTop += row.slotHeights.reduce((a, b) => a + b, 0) + rowGapPx;
+      rowTop += row.height + rowGapPx;
     }
     return 0;
   }
@@ -2563,6 +2608,13 @@ export function RoadmapTimeline({
             // neighbour instead of the pill growing to make room.
             const labelChars = Math.floor((w - h) / (5.4 * metricsScale));
             const label = labelChars >= 4 ? wrapText(t.title, labelChars, 1)[0] : null;
+            // Color override (wayframe UX-2026-09-18 §2) — a raw
+            // styleOverride.color wins outright, same "full stop" rung
+            // resolveMarkerColor's own rung 1 uses; a Program-band phase's
+            // translucent-wash-plus-matching-stroke treatment is otherwise
+            // unchanged, so this only swaps which color that wash uses, not
+            // the wash itself.
+            const phaseColor = t.styleOverride?.color ?? theme.statusColor[t.status];
             // Selection (wayframe#t33) — TopLevelItems are now selectable
             // (milestone/phase kinds), sharing the exact same selectedIds
             // Set/onToggleSelect the canvas's Milestone markers already use.
@@ -2571,8 +2623,8 @@ export function RoadmapTimeline({
               <g
                 key={t.id}
                 data-testid={`toplevel-glyph-${t.id}`}
-                className={selectionModeEnabled || onTopLevelItemClick ? "cursor-pointer" : undefined}
-                onClick={selectionModeEnabled ? () => onToggleSelect?.(t.id) : onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}
+                className={onToggleSelect || onTopLevelItemClick ? "cursor-pointer" : undefined}
+                onClick={(e) => selectableClick(t, e, selectionModeEnabled, onToggleSelect, onTopLevelItemClick)}
               >
                 {/* Selected ring — an outset rect around the pill, same
                     convention the in-lane duration pill's own critical/trace
@@ -2588,9 +2640,9 @@ export function RoadmapTimeline({
                   width={w}
                   height={h}
                   rx={rx}
-                  fill={theme.statusColor[t.status]}
+                  fill={phaseColor}
                   fillOpacity={0.35}
-                  stroke={theme.statusColor[t.status]}
+                  stroke={phaseColor}
                 />
                 {label && (
                   <text x={px + h / 2} y={y + 4} fontSize={11 * effectiveFontScale} fontWeight={600}>
@@ -2638,6 +2690,12 @@ export function RoadmapTimeline({
             const r = 10 * markerScale;
             const effectiveFontScale = fontScale * resolveFontScale(t, data);
             const titlePos = resolveTitleLabelPosition(t);
+            // Color override (wayframe UX-2026-09-18 §2) — a TopLevelItem
+            // has no category to identity-tint from (no `categoryId` field),
+            // so this runs the same ladder a lane point marker uses minus
+            // that one rung: styleOverride.color wins outright, else the
+            // not-started-hollow-vs-status-ramp treatment applies unchanged.
+            const paint = resolveMarkerColor(t, theme, data);
             // Selection (wayframe#t33) — see the "phase" branch above for
             // the shared reasoning; this variant already uses CushionMarker,
             // so its selected ring is the exact same scaled-up-outline
@@ -2647,11 +2705,11 @@ export function RoadmapTimeline({
               <g
                 key={t.id}
                 data-testid={`toplevel-glyph-${t.id}`}
-                className={selectionModeEnabled || onTopLevelItemClick ? "cursor-pointer" : undefined}
-                onClick={selectionModeEnabled ? () => onToggleSelect?.(t.id) : onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}
+                className={onToggleSelect || onTopLevelItemClick ? "cursor-pointer" : undefined}
+                onClick={(e) => selectableClick(t, e, selectionModeEnabled, onToggleSelect, onTopLevelItemClick)}
               >
                 {selected && <CushionMarker cx={cx} cy={y} r={r + 11} shape={shape} fill="none" stroke={theme.accent} strokeWidth={1.5} strokeDasharray="2 2" />}
-                <CushionMarker cx={cx} cy={y} r={r} shape={shape} fill={theme.statusColor[t.status]} stroke={theme.markerHalo} strokeWidth={2} />
+                <CushionMarker cx={cx} cy={y} r={r} shape={shape} fill={paint.fill} stroke={paint.stroke} strokeWidth={paint.strokeWidth} />
                 <text
                   x={titlePos === "left" ? cx - r - 6 : titlePos === "right" ? cx + r + 6 : cx}
                   y={titlePos === "top" ? y - r - 6 : titlePos === "bottom" ? y + r + 14 : titlePos === "inside" ? y + 3 : titlePos === "left" || titlePos === "right" ? y + 3 : y - 18}
@@ -3002,7 +3060,7 @@ export function RoadmapTimeline({
 
         {/* in-lane duration pills — milestones with endDate set (wayframe#15), colored with the lane's header shade rather than status since they're a lane-scoped span, not a status marker */}
         {data.milestones
-          .filter((m) => m.endDate && laneRenderable(m.laneId))
+          .filter((m) => m.endDate && laneRenderable(m.laneId) && !resolveHidden(m, data))
           .map((m) => {
             const phaseSize = resolvePhaseSize(m, data, theme);
             const phaseShape = resolvePhaseShape(m, data, theme);
@@ -3134,7 +3192,7 @@ export function RoadmapTimeline({
                   program={data}
                   primary={primaryPlacement.get(m.id) ?? null}
                   date={datePlacement.get(m.id) ?? { text: formatDateShort(m.date), tier: 0 }}
-                  onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
+                  onClick={(mm, e) => selectableClick(mm, e, selectionModeEnabled, onToggleSelect, onMilestoneClick)}
                   deltaGhosts={deltaGhostPlacement.get(m.id)?.placed ?? []}
                   deltaGhostOverflow={deltaGhostPlacement.get(m.id)?.overflowCount ?? 0}
                   resolveX={x}
@@ -3257,7 +3315,7 @@ export function RoadmapTimeline({
                   cy={laneY(m.laneId)}
                   theme={theme}
                   program={data}
-                  onClick={selectionModeEnabled ? (mm) => onToggleSelect?.(mm.id) : onMilestoneClick}
+                  onClick={(mm, e) => selectableClick(mm, e, selectionModeEnabled, onToggleSelect, onMilestoneClick)}
                   selected={selectedIds?.has(m.id)}
                   remoteColor={remoteSelections?.[m.id]}
                   showCriticalPath={showCriticalPath}

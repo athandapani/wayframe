@@ -11,11 +11,14 @@ import { stackIntervals, type Interval } from "./stack-intervals";
  *
  * Row 1 is a lane's always-present home row, so it keeps a floor — but a
  * content-derived one (LANE_ROW1_FLOOR, see its own doc), not RoadmapTimeline
- * .tsx's old flat, content-blind `LANE_HEIGHT=132`. Rows 2+ are opt-in space
- * the caller explicitly created for this content, so they get no floor at
- * all: cost is exactly what's stacked into them, and a row disappears the
- * moment it's empty again (bucketRows only ever emits rows something is
- * actually assigned to).
+ * .tsx's old flat, content-blind `LANE_HEIGHT=132`. That floor holds even
+ * when Row 1 is currently empty (everything moved to row 2+) —
+ * `computeLaneRowModel` synthesizes an empty Row 1 to reserve it. Rows 2+
+ * are opt-in space the caller explicitly created for this content, so they
+ * get no floor at all: cost is exactly what's stacked into them, and *those*
+ * rows disappear the moment they're empty again (bucketRows only ever emits
+ * rows something is actually assigned to; row 1 is the one exception,
+ * synthesized back in by computeLaneRowModel when absent).
  *
  * Deliberately generic over what an item's own per-sub-row height floor
  * (`sizeFloor`) means — this module has no idea what a "phase size" is,
@@ -98,6 +101,14 @@ export function computeRowHeight(rowNumber: number, items: readonly RowItem[], o
 export function computeLaneRowModel(items: readonly RowItem[], opts: RowHeightOptions): LaneRowModel {
   const buckets = bucketRows(items);
   const rows = buckets.map(({ row, items: rowItems }) => computeRowHeight(row, rowItems, opts));
+  // Row 1 is a lane's always-present home row (see this module's own doc):
+  // its row1Floor reservation must hold even when everything currently
+  // assigned to the lane has moved to row 2+, so an empty Row 1 still gets
+  // a synthetic, empty-`items` entry rather than vanishing along with its
+  // floor.
+  if (rows.length > 0 && rows[0].row !== 1) {
+    rows.unshift(computeRowHeight(1, [], opts));
+  }
   const naturalHeight = rows.reduce((sum, r) => sum + r.height, 0) + Math.max(0, rows.length - 1) * ROW_GAP;
   return { rows, naturalHeight };
 }

@@ -37,7 +37,7 @@ import { openPlaceholderPopup, runConsentInPopup } from "@/lib/auth/slides-conse
 import { openDrivePicker, type PickedDriveFolder } from "@/lib/google/drive-picker";
 import { deckFileName } from "./RoadmapWorkspace";
 
-type ExportDestination = "pptx" | "slides" | "snapshot";
+export type ExportDestination = "pptx" | "slides" | "snapshot";
 
 interface AllProgramsResponse {
   programs: Program[];
@@ -101,6 +101,7 @@ export function ExportDialog({
   renderPrefs,
   onAddScenario,
   onClose,
+  initialDestination,
 }: {
   portfolio: Portfolio;
   currentProgram: Program;
@@ -111,6 +112,8 @@ export function ExportDialog({
   renderPrefs: ExportRenderPrefs;
   onAddScenario: (name: string) => void;
   onClose: () => void;
+  /** Opens the dialog with this destination pre-selected (wayframe UX-2026-09-18 §8) — "Save Snapshot ›" next to "View Snapshots ›" opens straight onto the section-picker with "snapshot" already chosen, one click closer than picking it off the 3-way radio by hand. Defaults to "pptx", same as before this prop existed. */
+  initialDestination?: ExportDestination;
 }) {
   // Sibling Programs for the Combined/Individual sections — a one-shot fetch
   // of the same route the t26 /all page uses. Falls back to just the current
@@ -170,7 +173,7 @@ export function ExportDialog({
     setNewScenarioName("");
   }
 
-  const [destination, setDestination] = useState<ExportDestination>("pptx");
+  const [destination, setDestination] = useState<ExportDestination>(initialDestination ?? "pptx");
   const [exporting, setExporting] = useState(false);
   const [exportStage, setExportStage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);

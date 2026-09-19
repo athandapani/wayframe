@@ -53,7 +53,7 @@ function findNode(nodes: OutlineNode[], id: string): OutlineNode | undefined {
 }
 
 describe("buildOutlineTree", () => {
-  it("builds Program -> Group -> Lane -> Row -> leaf, with Program-band items appended under the Program", () => {
+  it("builds Program -> Group -> Lane -> Row -> leaf, with Program-band items under a Program-band container that sorts FIRST under the Program (wayframe UX-2026-09-18 §5 — used to sort last, below the fold)", () => {
     const [root] = buildOutlineTree(atlasProgram(), new Set());
     expect(root.kind).toBe("program");
     expect(root.id).toBe("atlas");
@@ -68,10 +68,14 @@ describe("buildOutlineTree", () => {
     expect(laneDesign.kind).toBe("lane");
     expect(laneDesign.depth).toBe(1); // ungrouped lane sits directly under the Program, same depth as g-core
 
-    // Program-band phase has no lane to live inside — appears directly under the Program root.
+    // Program-band container is the Program's FIRST child, not appended last.
+    expect(root.children[0].kind).toBe("program-band");
+    expect(root.children.slice(1).some((c) => c.kind === "program-band")).toBe(false);
+
+    // Program-band phase has no lane to live inside — nested one level inside the container.
     const phase = findNode([root], "p1")!;
     expect(phase.kind).toBe("phase");
-    expect(phase.depth).toBe(1);
+    expect(phase.depth).toBe(2);
   });
 
   it("scenario 1 — clicking a leaf toggles its selected flag, reading straight off the shared selectedIds set", () => {
@@ -98,6 +102,20 @@ describe("buildOutlineTree", () => {
     expect(annotation.selectable).toBe(false);
     expect(annotation.selected).toBe(false); // never true even if its id were (wrongly) in selectedIds — see buildTopLevelLeaf
     expect(annotation.laneAddressable).toBe(false);
+  });
+
+  it("wayframe UX-2026-09-18 §5 — a lane-scoped duration-pill milestone (endDate set) gets a 'phase' leaf kind, not 'milestone', with a date-range label suffix", () => {
+    const withLanePhase: Program = { ...atlasProgram(), milestones: [milestone("m1", "lane-be", { endDate: "2026-03-01" }), milestone("m2", "lane-be")] };
+    const [root] = buildOutlineTree(withLanePhase, new Set());
+
+    const lanePhase = findNode([root], "m1")!;
+    expect(lanePhase.kind).toBe("phase");
+    expect(lanePhase.label).toBe("m1 (2026-01-01 → 2026-03-01)");
+    expect(lanePhase.laneAddressable).toBe(true); // still a real lane-scoped Milestone, unlike a Program-band phase
+
+    const lanePointMilestone = findNode([root], "m2")!;
+    expect(lanePointMilestone.kind).toBe("milestone");
+    expect(lanePointMilestone.label).toBe("m2");
   });
 });
 

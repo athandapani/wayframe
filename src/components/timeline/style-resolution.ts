@@ -18,7 +18,7 @@
 //     `undefined` means "existing tiered collision-avoidance layout,
 //     unchanged" — a document-wide default position would fight that
 //     system, and the gist doesn't ask for one.
-import type { LabelPosition, LegendCategory, MarkerShape, Milestone, PhaseShape, PhaseSize, Program, StyleOverride } from "./types";
+import type { LabelPosition, LegendCategory, MarkerShape, PhaseShape, PhaseSize, Program, Status, StyleOverride } from "./types";
 import type { Theme } from "./theme";
 
 /** First non-`undefined` value, in argument order — the mechanical core of every ladder below. */
@@ -95,7 +95,12 @@ export function resolvePhaseSize(item: StyledItem, program: Program, theme: Them
  *      The not-started hollow-fill special case applies across all three of
  *      these, exactly as it did in the old 2-rung function.
  */
-export function resolveMarkerColor(m: Milestone, theme: Theme, program: Program, category?: LegendCategory): { fill: string; stroke: string; strokeWidth: number } {
+export function resolveMarkerColor(
+  m: StyledItem & { status: Status },
+  theme: Theme,
+  program: Program,
+  category?: LegendCategory,
+): { fill: string; stroke: string; strokeWidth: number } {
   if (m.styleOverride?.color) {
     return { fill: m.styleOverride.color, stroke: theme.markerHalo, strokeWidth: 1.5 };
   }

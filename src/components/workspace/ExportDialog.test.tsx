@@ -69,7 +69,7 @@ describe("ExportDialog (t29/t30)", () => {
     vi.unstubAllGlobals();
   });
 
-  function setup() {
+  function setup(overrides: { initialDestination?: "pptx" | "slides" | "snapshot" } = {}) {
     const portfolio = basePortfolio();
     const program = baseProgram("p1", "Atlas Program");
     const theme = resolvePortfolioTheme(defaultPortfolioTheme);
@@ -99,6 +99,7 @@ describe("ExportDialog (t29/t30)", () => {
         renderPrefs={renderPrefs()}
         onAddScenario={vi.fn()}
         onClose={onClose}
+        initialDestination={overrides.initialDestination}
       />,
     );
     return { ...utils, onClose };
@@ -147,6 +148,17 @@ describe("ExportDialog (t29/t30)", () => {
     expect(Array.isArray(slides)).toBe(true);
     expect(onClose).toHaveBeenCalled();
     expect(openPlaceholderPopup).not.toHaveBeenCalled();
+  });
+
+  it("initialDestination='snapshot' (wayframe UX-2026-09-18 §8's 'Save Snapshot ›' button) opens straight onto the Save Snapshot radio, pre-selected", () => {
+    setup({ initialDestination: "snapshot" });
+    expect(screen.getByRole("radio", { name: "Save Snapshot" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Download .pptx" })).not.toBeChecked();
+  });
+
+  it("initialDestination omitted still defaults to Download .pptx, unchanged (the Export row's own path)", () => {
+    setup();
+    expect(screen.getByRole("radio", { name: "Download .pptx" })).toBeChecked();
   });
 
   it("Send to Google Slides — valid token, remembered folder — posts the IR and shows a success link without closing", async () => {

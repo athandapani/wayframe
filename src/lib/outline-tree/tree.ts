@@ -40,7 +40,7 @@
 // selection ring a Milestone leaf's does.
 import type { Milestone, Portfolio, Program, Swimlane, SwimlaneGroup, TopLevelItem } from "@/components/timeline/types";
 
-export type OutlineNodeKind = "program" | "group" | "lane" | "row" | "milestone" | "phase" | "annotation";
+export type OutlineNodeKind = "program" | "group" | "lane" | "row" | "milestone" | "phase" | "annotation" | "program-band";
 
 export interface OutlineNode {
   kind: OutlineNodeKind;
@@ -78,11 +78,21 @@ function labelOf(item: TopLevelItem): string {
   return item.title;
 }
 
+/**
+ * A lane-scoped Milestone leaf — `kind` reflects the SAME `endDate`
+ * distinction the chart itself renders on (a filled-in `endDate` draws as a
+ * duration pill, not a point marker; see Milestone.endDate's own doc in
+ * types.ts), not a separate leaf type. Fixes wayframe UX-2026-09-18 §5's
+ * one real gap: this leaf used to hardcode `kind: "milestone"` regardless,
+ * so every lane phase read as a MILE badge in the tree even though it's a
+ * PHASE on the actual chart.
+ */
 function buildMilestoneLeaf(m: Milestone, depth: number, selectedIds: ReadonlySet<string>): OutlineNode {
+  const isPhase = Boolean(m.endDate);
   return {
-    kind: "milestone",
+    kind: isPhase ? "phase" : "milestone",
     id: m.id,
-    label: m.title,
+    label: isPhase ? `${m.title} (${m.date} → ${m.endDate})` : m.title,
     depth,
     children: [],
     selected: selectedIds.has(m.id),
@@ -207,14 +217,37 @@ export function buildOutlineTree(program: Program, selectedIds: ReadonlySet<stri
       ? buildLaneNode(program, entry.lane, 1, selectedIds)
       : buildGroupNode(program, entry.group, 1, selectedIds, lanesByParent, groupsByParent),
   );
-  const topLevelLeaves = program.topLevelItems.map((item) => buildTopLevelLeaf(item, 1, selectedIds));
+  // PROGRAM band container (wayframe UX-2026-09-18 §5) — these leaves
+  // rendered fine before (tree.ts:210/217, unchanged logic), just LAST,
+  // after every lane x row in the tree; in a real document that's dozens of
+  // rows below the fold of the Outline panel's own scroll area, reading as
+  // "phases/milestones/annotations aren't in the tree at all" even though
+  // they were. Wrapping them in their own labeled, non-selectable container
+  // and placing it FIRST fixes that without changing what's actually
+  // selectable (the container itself never is — only its milestone/phase
+  // children, same rule as every other container node). No new persisted
+  // field: Program has no `collapsed` concept (t26 deliberately left it
+  // that way — see canToggleCollapsed's own doc), so this container's
+  // expand/collapse is purely OutlineTree.tsx's existing generic
+  // local-UI-state chevron, same as any node with children.
+  const topLevelLeaves = program.topLevelItems.map((item) => buildTopLevelLeaf(item, 2, selectedIds));
+  const programBandNode: OutlineNode | null =
+    topLevelLeaves.length > 0
+      ? {
+          kind: "program-band",
+          id: `${program.id}::program-band`,
+          label: "Program band",
+          depth: 1,
+          children: topLevelLeaves,
+        }
+      : null;
 
   const programNode: OutlineNode = {
     kind: "program",
     id: program.id,
     label: program.programName,
     depth: 0,
-    children: [...topChildren, ...topLevelLeaves],
+    children: programBandNode ? [programBandNode, ...topChildren] : topChildren,
   };
   return [programNode];
 }

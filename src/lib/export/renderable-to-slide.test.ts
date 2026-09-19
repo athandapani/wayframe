@@ -103,6 +103,38 @@ describe("buildSlideIR", () => {
     expect(bluf).toBeDefined();
     expect(bluf!.runs[0].text).toBe("Bold plan & timeline");
   });
+
+  it("a hidden TopLevelItem phase/milestone is omitted from the slide (regression: styleOverride.hidden was never checked for the PROGRAM band)", () => {
+    const hidden = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-1" || t.id === "top-2" ? { ...t, styleOverride: { hidden: true } } : t)),
+    };
+    const slide = buildSlideIR(baseInput({ renderable: hidden }));
+    expect(slide.some((s) => s.id.startsWith("phase-"))).toBe(false);
+    expect(slide.some((s) => s.id.startsWith("top-milestone-"))).toBe(false);
+  });
+
+  it("a TopLevelItem phase's styleOverride.color wins outright over its status color (wayframe UX-2026-09-18 §2)", () => {
+    const colored = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-1" ? { ...t, styleOverride: { color: "#ff00ff" } } : t)),
+    };
+    const slide = buildSlideIR(baseInput({ renderable: colored }));
+    const phase = slide.find((s) => s.id.startsWith("phase-")) as GeometricShape | undefined;
+    expect(phase).toBeDefined();
+    expect(phase!.fill).toBe("#ff00ff");
+  });
+
+  it("a TopLevelItem milestone's styleOverride.color wins outright over its status color (wayframe UX-2026-09-18 §2)", () => {
+    const colored = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-2" ? { ...t, styleOverride: { color: "#00ffcc" } } : t)),
+    };
+    const slide = buildSlideIR(baseInput({ renderable: colored }));
+    const marker = slide.find((s) => s.id.startsWith("top-milestone-")) as GeometricShape | undefined;
+    expect(marker).toBeDefined();
+    expect(marker!.fill).toBe("#00ffcc");
+  });
 });
 
 describe("buildExecutiveSlideIR", () => {

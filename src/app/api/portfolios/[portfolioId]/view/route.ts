@@ -54,7 +54,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
     return NextResponse.json({ error: "This Portfolio has no Program yet." }, { status: 404 });
   }
 
-  const program = decodeProgramSnapshot(snapshots[0].snapshot);
+  // Optional ?programId= (wayframe UX-2026-09-18 §7) — a Portfolio's 2nd+
+  // Program used to be unopenable for editing at all: this route always
+  // read `snapshots[0]`, hardcoded, and `/p/[portfolioId]` had no
+  // programId segment to pass one through. Falls back to `snapshots[0]`
+  // when omitted, so every existing caller (the landing page's default
+  // "open this Portfolio" link) keeps working byte-for-byte unchanged.
+  const requestedProgramId = req.nextUrl.searchParams.get("programId");
+  const row = requestedProgramId ? snapshots.find((s) => s.id === requestedProgramId) : snapshots[0];
+  if (!row) {
+    return NextResponse.json({ error: `No Program "${requestedProgramId}" in this Portfolio.` }, { status: 404 });
+  }
+
+  const program = decodeProgramSnapshot(row.snapshot);
   if (!program) {
     return NextResponse.json({ error: "This Portfolio's Program data is unreadable." }, { status: 500 });
   }

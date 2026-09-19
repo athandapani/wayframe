@@ -9,8 +9,10 @@
 // as MilestoneEditorModal for a consistent editing surface, and the same
 // instant-save behavior (#18).
 import { useState } from "react";
-import type { Status, TopLevelItem } from "@/components/timeline/types";
+import type { RenderableProgram, Status, StyleOverride, TopLevelItem } from "@/components/timeline/types";
+import type { Theme } from "@/components/timeline/theme";
 import type { TopLevelItemPatch } from "@/components/correction-box/use-correction-box";
+import { AppearanceBody, Section, TOP_LEVEL_MILESTONE_CAPABILITIES, TOP_LEVEL_PHASE_CAPABILITIES, overrideCount } from "./AppearanceEditor";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
@@ -50,16 +52,27 @@ function toPatch(t: EditableTopLevelItem, draft: Draft): TopLevelItemPatch {
 
 function ModalForm({
   item,
+  data,
+  theme,
+  legendCategoryFillEnabled,
   onSave,
   onClose,
   onDelete,
+  onSetStyleOverride,
+  onClearStyleOverride,
 }: {
   item: EditableTopLevelItem;
+  data: RenderableProgram;
+  theme: Theme;
+  legendCategoryFillEnabled: boolean;
   onSave: (id: string, patch: TopLevelItemPatch) => void;
   onClose: () => void;
   onDelete: (id: string) => void;
+  onSetStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
+  onClearStyleOverride: (id: string, field: keyof StyleOverride) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(item));
+  const appearanceOverrides = overrideCount(item.type === "annotation" ? undefined : item.styleOverride);
 
   function handleSave() {
     onSave(item.id, toPatch(item, draft));
@@ -189,6 +202,26 @@ function ModalForm({
           )}
         </div>
 
+        {/* Appearance (wayframe UX-2026-09-18 §2) — annotation has no
+            styleOverride field at all (see TopLevelItem's own union in
+            types.ts), so it gets no Appearance section, same as it gets no
+            Status field above. */}
+        {item.type !== "annotation" && (
+          <div className="px-4 pb-4">
+            <Section title="Appearance" badgeText={appearanceOverrides > 0 ? `${appearanceOverrides} override${appearanceOverrides === 1 ? "" : "s"}` : "default"} badgeActive={appearanceOverrides > 0}>
+              <AppearanceBody
+                item={item}
+                data={data}
+                theme={theme}
+                legendCategoryFillEnabled={legendCategoryFillEnabled}
+                capabilities={item.type === "phase" ? TOP_LEVEL_PHASE_CAPABILITIES : TOP_LEVEL_MILESTONE_CAPABILITIES}
+                onSetStyleOverride={onSetStyleOverride}
+                onClearStyleOverride={onClearStyleOverride}
+              />
+            </Section>
+          </div>
+        )}
+
         <div className="flex items-center justify-between border-t border-zinc-200 p-4 dark:border-zinc-700">
           {/* No confirm dialog — same instant, undoable delete as
               MilestoneEditorModal (wayframe#38 item 3 / #58): a mistake is
@@ -218,15 +251,38 @@ function ModalForm({
 
 export function TopLevelItemEditorModal({
   item,
+  data,
+  theme,
+  legendCategoryFillEnabled,
   onSave,
   onClose,
   onDelete,
+  onSetStyleOverride,
+  onClearStyleOverride,
 }: {
   item: EditableTopLevelItem | null;
+  data: RenderableProgram;
+  theme: Theme;
+  legendCategoryFillEnabled: boolean;
   onSave: (id: string, patch: TopLevelItemPatch) => void;
   onClose: () => void;
   onDelete: (id: string) => void;
+  onSetStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
+  onClearStyleOverride: (id: string, field: keyof StyleOverride) => void;
 }) {
   if (!item) return null;
-  return <ModalForm key={item.id} item={item} onSave={onSave} onClose={onClose} onDelete={onDelete} />;
+  return (
+    <ModalForm
+      key={item.id}
+      item={item}
+      data={data}
+      theme={theme}
+      legendCategoryFillEnabled={legendCategoryFillEnabled}
+      onSave={onSave}
+      onClose={onClose}
+      onDelete={onDelete}
+      onSetStyleOverride={onSetStyleOverride}
+      onClearStyleOverride={onClearStyleOverride}
+    />
+  );
 }

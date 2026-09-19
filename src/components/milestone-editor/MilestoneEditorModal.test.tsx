@@ -61,19 +61,22 @@ describe("MilestoneEditorModal (t34 redesign)", () => {
     expect(onSetStyleOverride).toHaveBeenCalledWith(milestone.id, { markerShape: "star" });
   });
 
-  it("only shows the phase-only Appearance sub-group when the milestone has an end date", () => {
+  it("shows only the fields the real chart actually reads for each kind: point gets marker controls (no phase shape/size), a duration pill gets only phase shape/size + hidden (wayframe UX-2026-09-18 §2 — no more render-plus-warn)", () => {
     // Two fully separate mounts (not a rerender of the same instance) — the
     // modal's draft state is seeded once from `milestone` at mount time, so
     // "does this milestone have an end date" needs a fresh ModalForm per
     // milestone, exactly like opening the editor on a different item would.
     const first = renderModal();
     fireEvent.click(screen.getByRole("button", { name: /Appearance/ }));
-    expect(screen.queryByText(/Phase-only/)).not.toBeInTheDocument();
+    expect(screen.getByText("Marker shape")).toBeInTheDocument();
+    expect(screen.queryByText("Phase shape")).not.toBeInTheDocument();
     first.unmount();
 
     renderModal({ milestone: pillMilestone });
     fireEvent.click(screen.getByRole("button", { name: /Appearance/ }));
-    expect(screen.getByText(/Phase-only/)).toBeInTheDocument();
+    expect(screen.queryByText("Marker shape")).not.toBeInTheDocument();
+    expect(screen.getByText("Phase shape")).toBeInTheDocument();
+    expect(screen.getByText("Hide from chart (soft-hide, not deleted)")).toBeInTheDocument();
   });
 
   it("shows the Lane row field only for a duration-pill milestone (endDate set)", () => {

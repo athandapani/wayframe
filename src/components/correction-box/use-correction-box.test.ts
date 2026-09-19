@@ -36,7 +36,7 @@ function baseData(): Program {
 }
 
 function initialState(): CorrectionBoxState {
-  return { data: baseData(), portfolio: basePortfolio(), history: [], pending: null, error: null, loading: false, conflicts: [] };
+  return { data: baseData(), portfolio: basePortfolio(), history: [], future: [], pending: null, error: null, loading: false, conflicts: [] };
 }
 
 describe("correction box reducer", () => {
@@ -56,7 +56,7 @@ describe("correction box reducer", () => {
   it("undo restores the previous snapshot and pops history — this is the bug a browser test caught", () => {
     const original = baseData();
     const corrected: Program = { ...original, milestones: [{ ...original.milestones[0], status: "complete" }] };
-    const state: CorrectionBoxState = { data: corrected, portfolio: basePortfolio(), history: [{ data: original, portfolio: basePortfolio() }], pending: null, error: null, loading: false, conflicts: [] };
+    const state: CorrectionBoxState = { data: corrected, portfolio: basePortfolio(), history: [{ data: original, portfolio: basePortfolio() }], future: [], pending: null, error: null, loading: false, conflicts: [] };
 
     const next = reduce(state, { type: "undo" });
     expect(next.data).toBe(original);
@@ -135,6 +135,86 @@ describe("correction box reducer", () => {
     expect(next.history).toHaveLength(0);
     expect(next.pending).toBeNull();
     expect(next.error).toBeNull();
+  });
+});
+
+describe("redo (wayframe UX-2026-09-18 §6)", () => {
+  it("is a no-op with an error when future is empty", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "redo" });
+    expect(next.data).toBe(state.data);
+    expect(next.error).toBe("Nothing to redo");
+  });
+
+  it("undo then redo round-trips back to the edited state, moving the snapshot between history and future", () => {
+    let state = initialState();
+    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    const afterEdit = state.data;
+    expect(afterEdit.milestones[0].status).toBe("at-risk");
+
+    const undone = reduce(state, { type: "undo" });
+    expect(undone.data.milestones[0].status).toBe("not-started");
+    expect(undone.history).toHaveLength(0);
+    expect(undone.future).toHaveLength(1);
+
+    const redone = reduce(undone, { type: "redo" });
+    expect(redone.data).toBe(afterEdit);
+    expect(redone.data.milestones[0].status).toBe("at-risk");
+    expect(redone.history).toHaveLength(1);
+    expect(redone.future).toHaveLength(0);
+  });
+
+  it("a fresh edit clears the redo stack — redoing after a new edit must never re-apply a stale snapshot over it", () => {
+    let state = initialState();
+    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    state = reduce(state, { type: "undo" });
+    expect(state.future).toHaveLength(1);
+
+    // A different real edit lands instead of a redo.
+    state = { ...state, pending: { inputText: "p2", ops: [{ targetId: "m1", field: "status", newValue: "delayed", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    expect(state.data.milestones[0].status).toBe("delayed");
+    expect(state.future).toHaveLength(0);
+
+    const next = reduce(state, { type: "redo" });
+    expect(next.error).toBe("Nothing to redo");
+  });
+
+  it("setFromRemote clears the redo stack even though it never touches history — a stale snapshot must never overwrite a collaborator's remote edit", () => {
+    let state = initialState();
+    state = { ...state, pending: { inputText: "p1", ops: [{ targetId: "m1", field: "status", newValue: "at-risk", reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+    state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    state = reduce(state, { type: "undo" });
+    expect(state.future).toHaveLength(1);
+
+    const remoteData = { ...baseData(), milestones: [{ ...baseData().milestones[0], status: "complete" as const }] };
+    state = reduce(state, { type: "setFromRemote", data: remoteData });
+    expect(state.future).toHaveLength(0);
+  });
+
+  it("undo does not clear future, and redo does not clear future for the rest of the stack — only a real edit does", () => {
+    let state = initialState();
+    for (const value of ["at-risk", "delayed", "complete"] as const) {
+      state = { ...state, pending: { inputText: value, ops: [{ targetId: "m1", field: "status", newValue: value, reason: "r" }], skipped: [], adds: [], deletes: [], swimlaneOps: [], topLevelItemOps: [], addTopLevelItems: [], dependencyOps: [], attachmentOps: [], acceptBaselineOps: [], blufOp: null, documentOp: null, ambiguous: null } };
+      state = reduce(state, { type: "apply", adds: [], resolvedSwimlaneOps: [], resolvedTopLevelAdds: [] });
+    }
+    expect(state.history).toHaveLength(3);
+
+    state = reduce(state, { type: "undo" });
+    state = reduce(state, { type: "undo" });
+    expect(state.future).toHaveLength(2);
+    expect(state.data.milestones[0].status).toBe("at-risk");
+
+    // Redoing once should leave the OTHER queued redo intact, not wipe it.
+    state = reduce(state, { type: "redo" });
+    expect(state.data.milestones[0].status).toBe("delayed");
+    expect(state.future).toHaveLength(1);
+
+    state = reduce(state, { type: "redo" });
+    expect(state.data.milestones[0].status).toBe("complete");
+    expect(state.future).toHaveLength(0);
   });
 });
 

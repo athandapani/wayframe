@@ -443,6 +443,63 @@ describe("style-override resolution ladder rendering (wayframe#t19)", () => {
   });
 });
 
+describe("style overrides on Program-band TopLevelItems (wayframe UX-2026-09-18 §2 — color/hidden previously never reached the PROGRAM band render at all)", () => {
+  it("hides a TopLevelItem phase glyph when styleOverride.hidden is true", () => {
+    const hidden: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-1" ? { ...t, styleOverride: { hidden: true } } : t)),
+    };
+    const { container } = render(<RoadmapTimeline data={hidden} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(container.querySelector('[data-testid="toplevel-glyph-top-1"]')).toBeNull();
+  });
+
+  it("hides a TopLevelItem milestone glyph when styleOverride.hidden is true", () => {
+    const hidden: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-2" ? { ...t, styleOverride: { hidden: true } } : t)),
+    };
+    const { container } = render(<RoadmapTimeline data={hidden} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(container.querySelector('[data-testid="toplevel-glyph-top-2"]')).toBeNull();
+  });
+
+  it("a TopLevelItem phase's styleOverride.color wins outright over the status-color wash", () => {
+    const colored: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-1" ? { ...t, styleOverride: { color: "#ff00ff" } } : t)),
+    };
+    const { container } = render(<RoadmapTimeline data={colored} today={new Date("2026-01-20T00:00:00Z")} />);
+    const glyph = container.querySelector('[data-testid="toplevel-glyph-top-1"] rect');
+    expect(glyph).not.toBeNull();
+    expect(glyph!.getAttribute("fill")).toBe("#ff00ff");
+  });
+
+  it("a TopLevelItem milestone's styleOverride.color wins outright over the status color", () => {
+    const colored: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-2" ? { ...t, styleOverride: { color: "#00ffcc" } } : t)),
+    };
+    const { container } = render(<RoadmapTimeline data={colored} today={new Date("2026-01-20T00:00:00Z")} />);
+    const glyph = container.querySelector('[data-testid="toplevel-glyph-top-2"] path, [data-testid="toplevel-glyph-top-2"] rect, [data-testid="toplevel-glyph-top-2"] circle');
+    expect(glyph).not.toBeNull();
+    expect(glyph!.getAttribute("fill")).toBe("#00ffcc");
+  });
+});
+
+describe("in-lane duration pill hidden (wayframe UX-2026-09-18 §2 regression — resolveHidden was never checked for a pill, so 'Hide from chart' silently no-opped)", () => {
+  it("omits a duration-pill milestone from the chart when styleOverride.hidden is true", () => {
+    const withPill: RenderableProgram["milestones"] = [
+      ...sampleRoadmap.milestones,
+      { id: "p1", laneId: "lane-a", title: "Design", date: "2026-01-10", endDate: "2026-02-10", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+    ];
+    const { container: shown } = render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: withPill }} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(shown.querySelector('[data-testid="pill-p1"]')).not.toBeNull();
+
+    const hiddenPill = withPill.map((m) => (m.id === "p1" ? { ...m, styleOverride: { hidden: true } } : m));
+    const { container: hidden } = render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: hiddenPill }} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(hidden.querySelector('[data-testid="pill-p1"]')).toBeNull();
+  });
+});
+
 describe("in-lane duration pill phaseSize/phaseShape rendering (t34 regression — a styleOverride used to silently reserve layout space without ever changing the drawn pill)", () => {
   const basePill: RenderableProgram["milestones"][number] = {
     id: "ph1",
@@ -596,6 +653,53 @@ describe("Lane Rows & vertical allocation (wayframe#94/t20)", () => {
   it("renders without throwing when fitToScreen is on", () => {
     render(<RoadmapTimeline data={{ ...sampleRoadmap, milestones: overlappingPills }} today={new Date("2026-01-20T00:00:00Z")} fitToScreen />);
     expect(screen.getByTestId("roadmap-timeline")).toBeInTheDocument();
+  });
+
+  function svgHeight(container: HTMLElement): number {
+    const svg = container.querySelector('[data-testid="roadmap-timeline"] svg');
+    expect(svg).not.toBeNull();
+    return Number(svg!.getAttribute("height"));
+  }
+
+  it("moving the only pill in a lane to Row 2 grows the chart's SVG height, never shrinks it (regression: previously shrank 49->18px)", () => {
+    const singlePill: RenderableProgram["milestones"] = [
+      ...sampleRoadmap.milestones,
+      { id: "p1", laneId: "lane-a", title: "Design", date: "2026-01-10", endDate: "2026-02-10", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+    ];
+    const { container: baseline } = render(
+      <RoadmapTimeline data={{ ...sampleRoadmap, milestones: singlePill }} today={new Date("2026-01-20T00:00:00Z")} />,
+    );
+    const baselineHeight = svgHeight(baseline);
+
+    const movedToRow2 = singlePill.map((m) => (m.id === "p1" ? { ...m, laneRow: 2 } : m));
+    const { container: moved } = render(
+      <RoadmapTimeline data={{ ...sampleRoadmap, milestones: movedToRow2 }} today={new Date("2026-01-20T00:00:00Z")} />,
+    );
+    const movedHeight = svgHeight(moved);
+
+    expect(movedHeight).toBeGreaterThan(baselineHeight);
+  });
+
+  it("adding a second Lane Row never shrinks the chart, even when the lane also has point markers (regression: markerFloor previously swallowed the extra row entirely)", () => {
+    const withPointMarkerAndPill: RenderableProgram["milestones"] = [
+      ...sampleRoadmap.milestones, // sampleRoadmap already has point milestones on lane-a
+      { id: "p1", laneId: "lane-a", title: "Design", date: "2026-01-10", endDate: "2026-02-10", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+    ];
+    const { container: baseline } = render(
+      <RoadmapTimeline data={{ ...sampleRoadmap, milestones: withPointMarkerAndPill }} today={new Date("2026-01-20T00:00:00Z")} />,
+    );
+    const baselineHeight = svgHeight(baseline);
+
+    const withSecondRow = [
+      ...withPointMarkerAndPill,
+      { id: "p2", laneId: "lane-a", title: "Build", date: "2026-01-10", endDate: "2026-02-10", status: "on-track" as const, dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false, laneRow: 2 },
+    ];
+    const { container: grown } = render(
+      <RoadmapTimeline data={{ ...sampleRoadmap, milestones: withSecondRow }} today={new Date("2026-01-20T00:00:00Z")} />,
+    );
+    const grownHeight = svgHeight(grown);
+
+    expect(grownHeight).toBeGreaterThan(baselineHeight);
   });
 });
 
@@ -971,7 +1075,28 @@ describe("connector-line rewrite (t25, wayframe#103)", () => {
 });
 
 describe("TopLevelItem selection (wayframe#t33) — mass-edit's selectability now extends to milestone/phase TopLevelItems", () => {
-  it("routes a click through onToggleSelect instead of onTopLevelItemClick when selectionModeEnabled, for both the phase and milestone variants", () => {
+  it("routes a Cmd/Ctrl-click through onToggleSelect instead of onTopLevelItemClick, for both the phase and milestone variants, with no Select mode required (wayframe UX-2026-09-18 §4)", () => {
+    const onToggleSelect = vi.fn();
+    const onTopLevelItemClick = vi.fn();
+    const { container } = render(
+      <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} onToggleSelect={onToggleSelect} onTopLevelItemClick={onTopLevelItemClick} />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-1"]')!, { metaKey: true }); // phase
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!, { ctrlKey: true }); // milestone
+    expect(onToggleSelect).toHaveBeenCalledWith("top-1");
+    expect(onToggleSelect).toHaveBeenCalledWith("top-2");
+    expect(onTopLevelItemClick).not.toHaveBeenCalled();
+  });
+
+  it("a plain click (no modifier) still calls onTopLevelItemClick when Select mode is off — modifier-click is additive, not a replacement (wayframe UX-2026-09-18 §4)", () => {
+    const onTopLevelItemClick = vi.fn();
+    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} onTopLevelItemClick={onTopLevelItemClick} />);
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!);
+    expect(onTopLevelItemClick).toHaveBeenCalledTimes(1);
+    expect(onTopLevelItemClick.mock.calls[0][0]).toMatchObject({ id: "top-2" });
+  });
+
+  it("a plain click still toggles selection when Select mode IS explicitly armed — unchanged behavior the All-Programs bulk-edit page relies on (wayframe#t33), Cmd/Ctrl-click is an additional path, not a replacement", () => {
     const onToggleSelect = vi.fn();
     const onTopLevelItemClick = vi.fn();
     const { container } = render(
@@ -983,19 +1108,9 @@ describe("TopLevelItem selection (wayframe#t33) — mass-edit's selectability no
         onTopLevelItemClick={onTopLevelItemClick}
       />,
     );
-    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-1"]')!); // phase
-    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!); // milestone
-    expect(onToggleSelect).toHaveBeenCalledWith("top-1");
+    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!);
     expect(onToggleSelect).toHaveBeenCalledWith("top-2");
     expect(onTopLevelItemClick).not.toHaveBeenCalled();
-  });
-
-  it("falls back to onTopLevelItemClick when selection mode is off", () => {
-    const onTopLevelItemClick = vi.fn();
-    const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} onTopLevelItemClick={onTopLevelItemClick} />);
-    fireEvent.click(container.querySelector('[data-testid="toplevel-glyph-top-2"]')!);
-    expect(onTopLevelItemClick).toHaveBeenCalledTimes(1);
-    expect(onTopLevelItemClick.mock.calls[0][0]).toMatchObject({ id: "top-2" });
   });
 
   it("renders a dashed accent selection ring for a selected phase and a selected milestone TopLevelItem", () => {
@@ -1018,5 +1133,23 @@ describe("TopLevelItem selection (wayframe#t33) — mass-edit's selectability no
     const onToggleSelect = vi.fn();
     const { container } = render(<RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} selectionModeEnabled onToggleSelect={onToggleSelect} />);
     expect(container.querySelector('[data-testid="toplevel-glyph-top-3"]')).toBeNull();
+  });
+});
+
+describe("lane point-milestone selection via Cmd/Ctrl-click (wayframe UX-2026-09-18 §4 — no Select mode required)", () => {
+  it("a Cmd-click on a point marker calls onToggleSelect, not onMilestoneClick; a plain click still calls onMilestoneClick", () => {
+    const onToggleSelect = vi.fn();
+    const onMilestoneClick = vi.fn();
+    const { container } = render(
+      <RoadmapTimeline data={sampleRoadmap} today={new Date("2026-01-20T00:00:00Z")} onToggleSelect={onToggleSelect} onMilestoneClick={onMilestoneClick} />,
+    );
+    const marker = container.querySelector('[data-testid="marker-glyph-m1"]')!;
+    fireEvent.click(marker, { metaKey: true });
+    expect(onToggleSelect).toHaveBeenCalledWith("m1");
+    expect(onMilestoneClick).not.toHaveBeenCalled();
+
+    fireEvent.click(marker);
+    expect(onMilestoneClick).toHaveBeenCalledTimes(1);
+    expect(onMilestoneClick.mock.calls[0][0]).toMatchObject({ id: "m1" });
   });
 });
