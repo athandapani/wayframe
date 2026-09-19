@@ -210,8 +210,16 @@ export default function PortfolioLandingPage() {
             Portfolio has more than one Program: detecting that here would
             need an extra fetch just to decide whether to show a link, and
             the /all page itself already handles the single-Program case
-            gracefully (mergeProgramsForAllView works correctly for N=1). */}
-        <div className="fixed top-2 left-2 z-50 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
+            gracefully (mergeProgramsForAllView works correctly for N=1).
+            top-16 (not top-2) — RoadmapWorkspace's own logo/caption block
+            sits at top-3 left-4 and, being a later sibling in the DOM at
+            the same z-50, painted directly over this link at its old
+            top-2 left-2 position, making it effectively invisible/
+            unclickable (found 2026-09-19 — a real bug, not something this
+            session's own toolbar redesign introduced: the logo's position
+            was never touched by that work). top-16 clears the logo
+            block's full height (icon + title + the long caption line). */}
+        <div className="fixed top-16 left-4 z-50 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
           <Link href={`/p/${portfolioId}/all`} className="text-blue-600 hover:underline">
             View all Programs
           </Link>
