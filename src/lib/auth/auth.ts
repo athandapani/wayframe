@@ -34,6 +34,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      // Found 2026-09-19: without an explicit `profile()`, this Auth.js
+      // beta (5.0.0-beta.32) was falling through its own default mapping's
+      // `id: profile.sub ?? profile.id ?? crypto.randomUUID()` chain
+      // (node_modules/@auth/core/lib/utils/providers.js) all the way to a
+      // fresh random UUID on every sign-in, even though Google's `sub` was
+      // present in the id token the whole time — verified by two real
+      // sign-ins of the same Google account minting two different random
+      // `session.user.id` values a few hours apart, each becoming the
+      // `identity` a Portfolio got owned by (portfolios.ts's
+      // createPortfolioWithOwner), silently orphaning the previous one.
+      // Setting `id` explicitly from `profile.sub` bypasses whatever in
+      // that fallback chain wasn't firing correctly, rather than waiting
+      // on an upstream fix in a pre-1.0 release.
+      profile(profile) {
+        return { id: profile.sub, name: profile.name, email: profile.email, image: profile.picture };
+      },
     }),
   ],
   session: { strategy: "jwt" },
