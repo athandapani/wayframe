@@ -12,7 +12,8 @@ const STORAGE_KEY = "wayframe:document";
 // already produced in jsdom with no session cookie, so their behavior is
 // unchanged. `SessionProviderWrapper` itself becomes a passthrough — its
 // only job was making `SessionProvider` available, which is now mocked out.
-const useSessionMock = vi.fn(() => ({ data: null, status: "unauthenticated" as const }));
+type MockSession = { data: { user: { email?: string; name?: string } } | null; status: "authenticated" | "unauthenticated" };
+const useSessionMock = vi.fn<() => MockSession>(() => ({ data: null, status: "unauthenticated" }));
 vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
   SessionProvider: ({ children }: { children: React.ReactNode }) => children,

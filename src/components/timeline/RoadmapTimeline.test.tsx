@@ -2,12 +2,31 @@ import { useState } from "react";
 import { defaultTheme } from "./theme";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RoadmapTimeline } from "./RoadmapTimeline";
+import { RoadmapTimeline, computeDomain } from "./RoadmapTimeline";
 import { BlufCallout } from "./BlufCallout";
 import { sampleRoadmap } from "./__fixtures__/sample-roadmap";
 import { deriveShortLabel } from "./short-label";
 import { ghostsForTopLevelItemPhase, layoutItemGhosts } from "./delta-ghosts";
 import type { RenderableProgram } from "./types";
+
+describe("computeDomain (wayframe UX-2026-09-18 §7 regression — a brand-new empty Program used to crash the whole chart on mount)", () => {
+  it("never crashes on a genuinely empty Program (0 milestones, 0 topLevelItems) — 'reduce of empty array with no initial value' otherwise", () => {
+    const empty: RenderableProgram = { ...sampleRoadmap, milestones: [], topLevelItems: [] };
+    expect(() => computeDomain(empty)).not.toThrow();
+    const { domainMin, domainMax } = computeDomain(empty);
+    expect(domainMin).toBeLessThan(domainMax);
+  });
+
+  it("still derives min/max from real content when present, unaffected by the empty-array fallback", () => {
+    const { domainMin, domainMax } = computeDomain(sampleRoadmap);
+    expect(domainMin).toBeLessThan(domainMax);
+    // sampleRoadmap's own dates run 2026-01-01..2026-03-01 (see its own
+    // fixture comment) — the 14-day pad shouldn't collapse to the empty
+    // fallback's today-centered window.
+    const jan2026 = new Date("2026-01-01T00:00:00Z").getTime();
+    expect(domainMin).toBeLessThan(jan2026);
+  });
+});
 
 describe("RoadmapTimeline", () => {
   it("renders swimlanes, separators, and milestones", () => {

@@ -311,6 +311,20 @@ export function computeDomain(data: RenderableProgram): { domainMin: number; dom
     ...data.topLevelItems.map((t) => ("startDate" in t ? t.startDate : t.date)),
     ...data.topLevelItems.filter((t): t is Extract<TopLevelItem, { potentialDate?: string }> => "potentialDate" in t && !!t.potentialDate).map((t) => t.potentialDate!),
   ];
+  // A brand-new, genuinely empty Program (0 milestones, 0 topLevelItems —
+  // exactly what "+ New Program" creates, wayframe UX-2026-09-18 §7) has no
+  // dates to derive a domain from at all; `reduce` with no initial value
+  // throws on an empty array, which crashed the whole chart on mount the
+  // moment a fresh empty Program was ever opened (found 2026-09-19 — every
+  // prior caller of RoadmapWorkspace always had at least one dated item,
+  // so this was a live bug nothing had ever actually exercised). Falls
+  // back to a 90-day window centered on today, same PAD_DAYS-flavored
+  // "some breathing room" spirit as the real-content case below.
+  if (allDates.length === 0) {
+    const now = Date.now();
+    const DEFAULT_HALF_SPAN = 45 * 86400000;
+    return { domainMin: now - DEFAULT_HALF_SPAN, domainMax: now + DEFAULT_HALF_SPAN };
+  }
   const minDate = parseDate(allDates.reduce((a, b) => (a < b ? a : b)));
   const maxDate = parseDate(allDates.reduce((a, b) => (a > b ? a : b)));
   const PAD_DAYS = 14 * 86400000;

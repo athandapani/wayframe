@@ -88,6 +88,15 @@ function openSection(label: string) {
   fireEvent.click(screen.getByRole("button", { name: label }));
 }
 
+describe("RoadmapWorkspace on a genuinely empty Program (wayframe UX-2026-09-18 §7 regression)", () => {
+  it("renders without crashing when swimlanes/topLevelItems/milestones are all empty — exactly what '+ New Program' creates", () => {
+    const empty: Program = { ...baseData(), swimlanes: [], topLevelItems: [], milestones: [] };
+    expect(() => {
+      render(<RoadmapWorkspace initialData={empty} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    }).not.toThrow();
+  });
+});
+
 describe("RoadmapWorkspace options menu (wayframe#31)", () => {
   beforeEach(() => {
     window.localStorage.clear();
