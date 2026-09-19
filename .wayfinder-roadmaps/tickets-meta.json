@@ -1,0 +1,15 @@
+[
+{"key":"g1","type":"grilling","title":"Persistence architecture & terminology","blockers":[],"gist":"Deploy the existing party/ Yjs/Partykit stack (infra fix, not a rewrite). Rename \"Portfolio\" -> \"Roadmap\" in UI copy only. Local-only \"/\" page keeps a red 45° \"Local storage version, not stored in DB\" watermark."},
+{"key":"g2","type":"grilling","title":"Combined multi-Program editor & cross-program move design","blockers":[],"gist":"Shared time axis, collapsible Program bands, fully live-editable (all Programs connected, typical scale 3-4). Cross-Program move via Program/Swimlane dropdowns in the milestone & swimlane editors, one shared move primitive. Structure editor is Program-tabbed; canvas always stays combined."},
+{"key":"g3","type":"grilling","title":"Multi-Roadmap access & Version History semantics","blockers":[],"gist":"\"My Roadmaps\" lists every role (owner/editor/viewer), owned-first, no migration needed. \"Save a version\" = manual, whole-Roadmap capture, new term \"Version\" (not Snapshot). v1 is view-only browsing; restore-to-live deferred."},
+{"key":"mr1","type":"task","title":"Deploy party/ realtime backend to Cloudflare + wire production persistence","blockers":["g1"],"gist":"Deployed + verified via a second incognito session. Also found & fixed along the way: NewDocumentBanner always said \"blank template\" even after real extraction; onStartNew never cleared localStorage so a 2nd document always got clobbered by the 1st; Google sign-in was minting a new random identity every session (fixed via account.providerAccountId in the jwt callback) -- see #130's Notes for the landmine."},
+{"key":"mr2","type":"task","title":"Autosave status indicator + retire the misleading file-download Save button","blockers":["g1"],"gist":null},
+{"key":"mr3","type":"prototype","title":"Prototype: \"My Roadmaps\" landing page UX","blockers":["g3"],"gist":null},
+{"key":"mr4","type":"task","title":"Build \"My Roadmaps\" API + New Roadmap flow + landing page","blockers":["mr3"],"gist":null},
+{"key":"mr5","type":"task","title":"Cross-Program move primitive (milestone + swimlane, across Yjs docs)","blockers":["g2"],"gist":null},
+{"key":"mr6","type":"prototype","title":"Prototype: combined multi-Program editor UX","blockers":["g2"],"gist":null},
+{"key":"mr7","type":"task","title":"Build combined multi-Program editor","blockers":["mr5","mr6"],"gist":null},
+{"key":"mr8","type":"prototype","title":"Prototype: Version History UX","blockers":["g3"],"gist":null},
+{"key":"mr9","type":"task","title":"Build Version History + rename Export Snapshot copy","blockers":["mr8"],"gist":null},
+{"key":"mr10","type":"task","title":"Rename \"Portfolio\" -> \"Roadmap\" across user-facing UI copy","blockers":["g1"],"gist":null}
+]
