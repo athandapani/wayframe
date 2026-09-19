@@ -13,7 +13,7 @@ import Link from "next/link";
 import type { PortfolioDocument } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
-import { loadPersistedDocument } from "@/components/correction-box/use-correction-box";
+import { loadPersistedDocument, clearPersistedDocument } from "@/components/correction-box/use-correction-box";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { useOwnedPortfolioId } from "@/lib/auth/use-owned-portfolio-id";
 
@@ -70,7 +70,10 @@ export default function Home() {
           initialData={roadmap.programs[0]}
           initialPortfolio={roadmap.portfolio}
           today={today}
-          onStartNew={() => setStorageCheck({ checked: true, roadmap: null })}
+          onStartNew={() => {
+            clearPersistedDocument();
+            setStorageCheck({ checked: true, roadmap: null });
+          }}
           canManageSharing={ownedPortfolioId !== null && ownedPortfolioId === roadmap.portfolio.id}
           newDocumentOrigin={origin}
         />

@@ -76,6 +76,23 @@ export function loadPersistedDocument(): PortfolioDocument | null {
   }
 }
 
+/**
+ * Found 2026-09-19: "Save & Start New" (RoadmapWorkspace's onStartNew) only
+ * ever cleared the caller's React state, never this key — so useCorrectionBox's
+ * own mount-time rehydration effect below would silently re-read the stale
+ * document and clobber whatever fresh `initialData` (a brand-new extraction,
+ * or the blank template) the next RoadmapWorkspace mount was given. The
+ * entry page's onStartNew must call this before it drops back to EntryForm,
+ * or every "start new" is a no-op the moment a document exists to extract.
+ */
+export function clearPersistedDocument(): void {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
+}
+
 /** Fields the lighter phase/top-level-milestone/annotation editor can touch (wayframe#19, widened to showReferenceLine in wayframe#48, to annotation's fields in wayframe#59) — a subset shared across TopLevelItem's variants, applied only where each variant actually has the field. */
 export type TopLevelItemPatch = Partial<Pick<Extract<TopLevelItem, { type: "phase" }>, "title" | "status" | "startDate" | "endDate" | "potentialDate">> &
   Partial<Pick<Extract<TopLevelItem, { type: "milestone" }>, "date" | "showReferenceLine" | "potentialDate">> &
