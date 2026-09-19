@@ -9,6 +9,7 @@
 // identically on the server and on first client paint before the check
 // resolves.
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { PortfolioDocument } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
@@ -43,6 +44,25 @@ export default function Home() {
   return (
     <>
       <AuthControls />
+      {/* Found 2026-09-19: useMigrateLocalPortfolioOnSignIn (wired into
+          AuthControls) silently migrates this page's localStorage document
+          into a hosted Portfolio the first time a visitor signs in — but
+          nothing ever surfaced that hosted Portfolio's URL anywhere. This
+          page already fetches ownedPortfolioId (for canManageSharing
+          below); it just never rendered a link with it, leaving a signed-in
+          user with no way to reach /p/[portfolioId] (and therefore no way
+          to reach All Programs / New Program) at all except typing the URL
+          from memory. Same top-16 left-4 position as the "View all
+          Programs" link on /p/[portfolioId]/page.tsx — clear of
+          RoadmapWorkspace's own logo/caption block at top-3 left-4, and
+          consistent with it since this is the sibling page. */}
+      {ownedPortfolioId && (
+        <div className="fixed top-16 left-4 z-50 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
+          <Link href={`/p/${ownedPortfolioId}`} className="text-blue-600 hover:underline">
+            Open my hosted Portfolio →
+          </Link>
+        </div>
+      )}
       {roadmap ? (
         <RoadmapWorkspace
           initialData={roadmap.programs[0]}
