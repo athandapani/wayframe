@@ -1122,6 +1122,8 @@ function MilestoneChips({
   return (
     <g
       data-testid={`marker-chips-${m.id}`}
+      data-scene-kind="label"
+      data-scene-id={m.id}
       className={onDragStart ? "cursor-grab active:cursor-grabbing" : onClick ? "cursor-pointer" : "cursor-default"}
       transform={dragDx ? `translate(${dragDx} 0)` : undefined}
       // Dimming everything outside the trace is what makes the traced path
@@ -1316,6 +1318,8 @@ function MilestoneGlyph({
   return (
     <g
       data-testid={`marker-glyph-${m.id}`}
+      data-scene-kind="marker"
+      data-scene-id={m.id}
       className={onDragStart ? "cursor-grab active:cursor-grabbing" : onClick ? "cursor-pointer" : "cursor-default"}
       transform={dragDx ? `translate(${dragDx} 0)` : undefined}
       opacity={dragging ? 0.85 : traceState === "out" ? 0.22 : 1}
@@ -1499,6 +1503,21 @@ export interface RoadmapTimelineProps {
   remoteSelections?: Record<string, string>;
   /** Fired when a swimlane group's header band is clicked, with that group's id (t21) — the caller flips SwimlaneGroup.collapsed in response. Omit to render group bands non-interactive. */
   onToggleGroupCollapsed?: (groupId: string) => void;
+  /**
+   * Off-screen export-capture mode (export-pipeline-rewrite-2026-09-18):
+   * forces `rowVirtualizationEnabled` off (a virtualized-out lane must never
+   * silently vanish from a harvested scene) and `fitRatio` to 1 (export
+   * always wants true, uncompressed proportions — pagination handles
+   * overflow by adding pages, never by squeezing, see that doc). Also
+   * widens the `data-scene-*` attributes on lane/band/axis/marker/label `<g>`
+   * wrappers from static markup into `harvestTimelineScene`'s real
+   * partitioning hooks — they're present regardless of this flag, but only
+   * meaningfully consumed in this mode. Does not by itself omit interactive
+   * handlers/drag-preview state — the caller mounting the off-screen capture
+   * is responsible for simply not passing those props (same convention as
+   * `onEditDocument`/`onCompanyLogoChange` elsewhere in this file).
+   */
+  exportCapture?: boolean;
 }
 
 export function RoadmapTimeline({
@@ -1547,6 +1566,7 @@ export function RoadmapTimeline({
   domainOverride,
   remoteSelections,
   onToggleGroupCollapsed,
+  exportCapture = false,
 }: RoadmapTimelineProps) {
   // Fit to screen (wayframe#94/t20) — expand-only, replacing the old
   // shrink-based "Auto lane height" toggle entirely. Measures window
@@ -1652,7 +1672,7 @@ export function RoadmapTimeline({
   }
 
   const totalNaturalHeight = [...naturalHeightByLaneId.values()].reduce((sum, h) => sum + h, 0);
-  const fitRatio = fitToScreen && viewportHeight ? computeFitToScreenRatio(totalNaturalHeight, viewportHeight - reservedChromeEstimate) : 1;
+  const fitRatio = !exportCapture && fitToScreen && viewportHeight ? computeFitToScreenRatio(totalNaturalHeight, viewportHeight - reservedChromeEstimate) : 1;
   const heightByLaneId = new Map<string, number>();
   for (const [laneId, natural] of naturalHeightByLaneId) heightByLaneId.set(laneId, natural * fitRatio);
 
@@ -1805,7 +1825,7 @@ export function RoadmapTimeline({
   // t41 — only past the budget does the container become its own scroll
   // region with row virtualization active; below it this hook's own
   // isActive stays false and isRowVisible fails open (always true).
-  const rowVirtualizationEnabled = laneCount > LANE_VIRTUALIZATION_THRESHOLD;
+  const rowVirtualizationEnabled = !exportCapture && laneCount > LANE_VIRTUALIZATION_THRESHOLD;
   const rowVirtualization = useRowVirtualization(containerRef, rowVirtualizationEnabled);
   /**
    * A lane's accent. `Swimlane.color` is a per-document override (same
@@ -2364,6 +2384,17 @@ export function RoadmapTimeline({
         ref={svgRef}
         width={width}
         height={height}
+        // Scene-meta geometry for harvestTimelineScene (export-pipeline-
+        // rewrite-2026-09-18) — lets the harvester read the plot/axis/band
+        // frame directly off the root instead of recomputing this file's
+        // margin/layout math a second time.
+        data-scene-plot-left={MARGIN.left}
+        data-scene-plot-right={width - MARGIN.right}
+        data-scene-axis-top={chartTopMargin}
+        data-scene-axis-height={axisHeight}
+        data-scene-band-top={topBandY}
+        data-scene-band-height={topBandHeight}
+        data-scene-lanes-top={lanesTop}
         style={{ fontFamily: fontFamily ?? theme.font, color: theme.ink, background: theme.ground }}
         onPointerMove={
           drag || createDrag || labelDrag || logoDrag || marquee
@@ -2400,17 +2431,18 @@ export function RoadmapTimeline({
         }
       >
         {axisRows.map((row, i) => (
-          <AxisRow
-            key={i}
-            y={chartTopMargin + i * axisRowHeight}
-            segments={row.segments}
-            fill={row.fill}
-            text={row.text}
-            xOf={xTs}
-            rowHeight={axisRowHeight}
-            fontScale={fontScale}
-            availablePx={innerWidth}
-          />
+          <g key={i} data-scene-kind="axis-row" data-scene-tier={i}>
+            <AxisRow
+              y={chartTopMargin + i * axisRowHeight}
+              segments={row.segments}
+              fill={row.fill}
+              text={row.text}
+              xOf={xTs}
+              rowHeight={axisRowHeight}
+              fontScale={fontScale}
+              availablePx={innerWidth}
+            />
+          </g>
         ))}
         {onAxisTiersChange &&
           axisRows.map((row, i) => (
@@ -2445,6 +2477,7 @@ export function RoadmapTimeline({
             distorting as it's resized. */}
         {data.companyLogo && (
           <g
+            data-scene-kind="logo"
             onPointerEnter={onCompanyLogoChange ? () => setLogoHovered(true) : undefined}
             onPointerLeave={onCompanyLogoChange && !logoDrag ? () => setLogoHovered(false) : undefined}
           >
@@ -2637,6 +2670,8 @@ export function RoadmapTimeline({
               <g
                 key={t.id}
                 data-testid={`toplevel-glyph-${t.id}`}
+                data-scene-kind="program-item"
+                data-scene-id={t.id}
                 className={onToggleSelect || onTopLevelItemClick ? "cursor-pointer" : undefined}
                 onClick={(e) => selectableClick(t, e, selectionModeEnabled, onToggleSelect, onTopLevelItemClick)}
               >
@@ -2719,6 +2754,8 @@ export function RoadmapTimeline({
               <g
                 key={t.id}
                 data-testid={`toplevel-glyph-${t.id}`}
+                data-scene-kind="program-item"
+                data-scene-id={t.id}
                 className={onToggleSelect || onTopLevelItemClick ? "cursor-pointer" : undefined}
                 onClick={(e) => selectableClick(t, e, selectionModeEnabled, onToggleSelect, onTopLevelItemClick)}
               >
@@ -2774,7 +2811,13 @@ export function RoadmapTimeline({
           if (t.type === "annotation") {
             const cx = x(t.date);
             return (
-              <g key={t.id} className={onTopLevelItemClick ? "cursor-pointer" : undefined} onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}>
+              <g
+                key={t.id}
+                data-scene-kind="program-item"
+                data-scene-id={t.id}
+                className={onTopLevelItemClick ? "cursor-pointer" : undefined}
+                onClick={onTopLevelItemClick ? (e) => onTopLevelItemClick(t, e) : undefined}
+              >
                 <path d={`M${cx - 6},${y - 8} L${cx + 6},${y - 8} L${cx},${y} Z`} fill={theme.accent} stroke={theme.markerHalo} strokeWidth={1} />
                 <title>{t.title}</title>
               </g>
@@ -2807,7 +2850,7 @@ export function RoadmapTimeline({
           if (row.swimlane.type === "separator") {
             const separatorNameLines = wrapText(row.swimlane.name, Math.max(8, Math.floor(24 / metricsScale)), 2, { breakWords: false });
             return (
-              <g key={row.swimlane.id}>
+              <g key={row.swimlane.id} data-scene-kind="separator" data-scene-lane-id={row.swimlane.id}>
                 <rect x={0} y={y0} width={width} height={row.height} fill={theme.separatorBg} />
                 <text
                   fontSize={10.5 * fontScale}
@@ -2850,7 +2893,7 @@ export function RoadmapTimeline({
           // existed (a top-level group's own depth is 0, so 16 + 12*1 = 28).
           const laneTextX = row.swimlane.groupId && groupById.has(row.swimlane.groupId) ? 16 + 12 * (groupDepth(row.swimlane.groupId) + 1) : 16;
           return (
-            <g key={row.swimlane.id}>
+            <g key={row.swimlane.id} data-scene-kind="lane" data-scene-lane-id={row.swimlane.id}>
               {/* The wash and rail are inset by theme.laneGutter so bare
                   ground shows between lanes. Adjacent washes that touch read
                   as one continuous field with a hairline in it; a real gap
@@ -2946,6 +2989,9 @@ export function RoadmapTimeline({
           return (
             <g
               key={band.group.id}
+              data-scene-kind="band"
+              data-scene-band-id={band.group.id}
+              data-scene-depth={band.depth}
               className={onToggleGroupCollapsed ? "cursor-pointer" : undefined}
               onClick={onToggleGroupCollapsed ? () => onToggleGroupCollapsed(band.group.id) : undefined}
             >
@@ -3107,6 +3153,8 @@ export function RoadmapTimeline({
               <g
                 key={m.id}
                 data-testid={`pill-${m.id}`}
+                data-scene-kind="pill"
+                data-scene-id={m.id}
                 className={onMilestoneClick || onMilestoneDateRangeChange ? "cursor-pointer" : undefined}
                 opacity={traceState === "out" ? 0.22 : pillDragging ? 0.85 : 1}
                 transform={pillDx ? `translate(${pillDx} 0)` : undefined}
@@ -3300,6 +3348,8 @@ export function RoadmapTimeline({
                         <path
                           key={`${d.id}->${m.id}`}
                           data-testid={traced ? `traced-connector-${d.id}-${m.id}` : undefined}
+                          data-scene-kind="connector"
+                          data-scene-id={`${d.id}->${m.id}`}
                           d={path}
                           fill="none"
                           stroke={traced ? theme.traceColor : theme.connector}
@@ -3312,7 +3362,13 @@ export function RoadmapTimeline({
                     }
                     const cs = criticalStroke(criticalPathStyle);
                     return (
-                      <g key={`${d.id}->${m.id}`} data-testid={`critical-connector-${d.id}-${m.id}`}>
+                      <g
+                        key={`${d.id}->${m.id}`}
+                        data-testid={`critical-connector-${d.id}-${m.id}`}
+                        data-scene-kind="connector"
+                        data-scene-id={`${d.id}->${m.id}`}
+                        data-scene-critical="true"
+                      >
                         <path d={path} fill="none" stroke={theme.criticalPathColor} strokeWidth={cs.width} strokeDasharray={cs.dash} markerEnd="url(#roadmap-arrow-critical)" />
                         {/* "double" = overprint the middle in the ground colour */}
                         {cs.overprint !== undefined && <path d={path} fill="none" stroke={theme.ground} strokeWidth={cs.overprint} />}

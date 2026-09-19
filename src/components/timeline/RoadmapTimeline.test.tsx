@@ -827,6 +827,80 @@ describe("row virtualization (t41)", () => {
   });
 });
 
+describe("exportCapture (export-pipeline-rewrite-2026-09-18, phase 1)", () => {
+  function manyLaneRoadmap(laneCount: number): RenderableProgram {
+    const swimlanes = Array.from({ length: laneCount }, (_, i) => ({
+      id: `lane-${i}`,
+      order: i,
+      type: "lane" as const,
+      name: `Lane ${i}`,
+    }));
+    const milestones = swimlanes.map((lane, i) => ({
+      id: `m-${i}`,
+      laneId: lane.id,
+      title: `Milestone ${i}`,
+      date: "2026-01-10",
+      status: "on-track" as const,
+      dependsOn: [],
+      linksToTopLevelMilestone: null,
+      isCriticalPath: false,
+    }));
+    return { ...sampleRoadmap, swimlanes, milestones, topLevelItems: [] };
+  }
+
+  it("forces row virtualization off above the 50-lane budget — a virtualized-out lane must never vanish from a harvested scene", () => {
+    const { container } = render(<RoadmapTimeline data={manyLaneRoadmap(60)} today={new Date("2026-01-20T00:00:00Z")} exportCapture />);
+    const el = container.querySelector('[data-testid="roadmap-timeline"]') as HTMLElement;
+    expect(el.className).not.toMatch(/overflow-y/);
+    expect(el.style.maxHeight).toBe("");
+    for (let i = 0; i < 60; i++) {
+      expect(screen.getAllByText(`Milestone ${i}`).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("forces fitRatio to 1 even when fitToScreen is on — export always wants true, uncompressed proportions, not the expand-only fit-to-screen stretch", () => {
+    // A sparse (2-lane) document so fitToScreen's expand-only stretch
+    // (computeFitToScreenRatio, lane-rows.ts) actually has viewport budget
+    // to grow into under jsdom's default window.innerHeight.
+    const sparse = manyLaneRoadmap(2);
+    const natural = render(<RoadmapTimeline data={sparse} today={new Date("2026-01-20T00:00:00Z")} />);
+    const naturalHeight = Number(natural.container.querySelector("svg")!.getAttribute("height"));
+    natural.unmount();
+
+    const fitted = render(<RoadmapTimeline data={sparse} today={new Date("2026-01-20T00:00:00Z")} fitToScreen />);
+    const fittedHeight = Number(fitted.container.querySelector("svg")!.getAttribute("height"));
+    fitted.unmount();
+    // Sanity check the fixture actually exercises the stretch this test is about.
+    expect(fittedHeight).toBeGreaterThan(naturalHeight);
+
+    const captured = render(<RoadmapTimeline data={sparse} today={new Date("2026-01-20T00:00:00Z")} fitToScreen exportCapture />);
+    const capturedHeight = Number(captured.container.querySelector("svg")!.getAttribute("height"));
+    expect(capturedHeight).toBe(naturalHeight);
+  });
+
+  it("tags scene-meta geometry on the svg root, and lane/marker/label/pill/band/axis-row/logo `<g>` wrappers with data-scene-kind, for harvestTimelineScene to partition by", () => {
+    const withLogo: RenderableProgram = {
+      ...sampleRoadmap,
+      companyLogo: { dataUrl: "data:image/png;base64,AAAA" },
+      milestones: [
+        ...sampleRoadmap.milestones,
+        { id: "pill-1", laneId: "lane-a", title: "Design", date: "2026-01-10", endDate: "2026-02-10", status: "on-track", dependsOn: [], linksToTopLevelMilestone: null, isCriticalPath: false },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={withLogo} today={new Date("2026-01-20T00:00:00Z")} exportCapture />);
+    const svg = container.querySelector("svg")!;
+    expect(svg.getAttribute("data-scene-plot-left")).not.toBeNull();
+    expect(svg.getAttribute("data-scene-lanes-top")).not.toBeNull();
+    expect(container.querySelector('[data-scene-kind="axis-row"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-scene-kind="lane"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-scene-kind="marker"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-scene-kind="label"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-scene-kind="pill"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-scene-kind="program-item"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-scene-kind="logo"]')).toBeInTheDocument();
+  });
+});
+
 describe("swimlane groups (t21, wayframe#100)", () => {
   // One group ("Group One") with two member lanes (lane-a, lane-b — reusing
   // sampleRoadmap's m1/m2, which already live there) plus one ungrouped lane
