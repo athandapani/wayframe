@@ -34,29 +34,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
-      // Found 2026-09-19: without an explicit `profile()`, this Auth.js
-      // beta (5.0.0-beta.32) was falling through its own default mapping's
-      // `id: profile.sub ?? profile.id ?? crypto.randomUUID()` chain
-      // (node_modules/@auth/core/lib/utils/providers.js) all the way to a
-      // fresh random UUID on every sign-in, even though Google's `sub` was
-      // present in the id token the whole time — verified by two real
-      // sign-ins of the same Google account minting two different random
-      // `session.user.id` values a few hours apart, each becoming the
-      // `identity` a Portfolio got owned by (portfolios.ts's
-      // createPortfolioWithOwner), silently orphaning the previous one.
-      // Setting `id` explicitly from `profile.sub` bypasses whatever in
-      // that fallback chain wasn't firing correctly, rather than waiting
-      // on an upstream fix in a pre-1.0 release.
-      profile(profile) {
-        // TEMPORARY diagnostic (2026-09-19) — the explicit `id: profile.sub`
-        // mapping above this comment didn't fix the random-identity bug
-        // (confirmed by a 3rd distinct UUID after this fix was already
-        // live), meaning `profile.sub` itself isn't what we assumed it was
-        // at this point. Logging the raw shape to find out before guessing
-        // a third time. Remove once resolved.
-        console.log("[wayframe-auth-debug] raw Google profile:", JSON.stringify(profile));
-        return { id: profile.sub, name: profile.name, email: profile.email, image: profile.picture };
-      },
     }),
   ],
   session: { strategy: "jwt" },
@@ -74,9 +51,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // first consent or when prompt=consent is set — a plain re-sign-in
     // years later reuses the existing grant and won't repeat one, which is
     // why the access-token-only branch exists below.
-    async jwt({ token, account, user }) {
-      if (account) {
-        console.log("[wayframe-auth-debug] jwt callback: token.sub=", token.sub, "user=", JSON.stringify(user));
+    //
+    // Found 2026-09-19: in this adapter-less JWT-strategy setup (no `User`
+    // table backing sessions), Auth.js's core does NOT reliably carry a
+    // provider's `profile()`-returned `id` through to `token.sub` — it
+    // treats `user.id` as ephemeral and was observed (via temporary raw-
+    // profile logging, since removed) minting a fresh `crypto.randomUUID()`
+    // on every sign-in regardless of what `profile()` returned, even though
+    // the real Google `sub` was present in the id token every time. Setting
+    // `token.sub` explicitly from `account.providerAccountId` (which for an
+    // OAuth account is always the provider's own real account id — `sub`
+    // for Google) is what actually survives: it happens after Auth.js's own
+    // ephemeral-id assignment, on the one request per sign-in where
+    // `account` is non-null, and every subsequent request reuses this same
+    // `token.sub` from the encrypted JWT cookie rather than re-deriving it.
+    // Without this, every fresh sign-in silently orphaned whatever Portfolio
+    // the previous random identity owned.
+    async jwt({ token, account }) {
+      if (account?.provider === "google" && account.providerAccountId) {
+        token.sub = account.providerAccountId;
       }
       if (account?.provider === "google" && token.sub) {
         if (account.refresh_token) {
