@@ -48,6 +48,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // that fallback chain wasn't firing correctly, rather than waiting
       // on an upstream fix in a pre-1.0 release.
       profile(profile) {
+        // TEMPORARY diagnostic (2026-09-19) — the explicit `id: profile.sub`
+        // mapping above this comment didn't fix the random-identity bug
+        // (confirmed by a 3rd distinct UUID after this fix was already
+        // live), meaning `profile.sub` itself isn't what we assumed it was
+        // at this point. Logging the raw shape to find out before guessing
+        // a third time. Remove once resolved.
+        console.log("[wayframe-auth-debug] raw Google profile:", JSON.stringify(profile));
         return { id: profile.sub, name: profile.name, email: profile.email, image: profile.picture };
       },
     }),
@@ -67,7 +74,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // first consent or when prompt=consent is set — a plain re-sign-in
     // years later reuses the existing grant and won't repeat one, which is
     // why the access-token-only branch exists below.
-    async jwt({ token, account }) {
+    async jwt({ token, account, user }) {
+      if (account) {
+        console.log("[wayframe-auth-debug] jwt callback: token.sub=", token.sub, "user=", JSON.stringify(user));
+      }
       if (account?.provider === "google" && token.sub) {
         if (account.refresh_token) {
           await saveGoogleTokens(token.sub, {
