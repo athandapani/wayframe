@@ -20,6 +20,7 @@ import { useOwnedPortfolioId } from "@/lib/auth/use-owned-portfolio-id";
 interface StorageCheck {
   checked: boolean;
   roadmap: PortfolioDocument | null;
+  origin?: "extracted" | "blank";
 }
 
 export default function Home() {
@@ -36,8 +37,9 @@ export default function Home() {
     }
   }, []);
 
-  const { checked, roadmap } = storageCheck;
-  const setRoadmap = (document: PortfolioDocument) => setStorageCheck({ checked: true, roadmap: document });
+  const { checked, roadmap, origin } = storageCheck;
+  const setRoadmap = (document: PortfolioDocument, origin: "extracted" | "blank") =>
+    setStorageCheck({ checked: true, roadmap: document, origin });
 
   if (!checked) return null;
 
@@ -70,6 +72,7 @@ export default function Home() {
           today={today}
           onStartNew={() => setStorageCheck({ checked: true, roadmap: null })}
           canManageSharing={ownedPortfolioId !== null && ownedPortfolioId === roadmap.portfolio.id}
+          newDocumentOrigin={origin}
         />
       ) : (
         <EntryForm onExtracted={setRoadmap} />

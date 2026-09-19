@@ -71,7 +71,7 @@ async function callExtract(text: string, imageDataUrl: string | null): Promise<{
   return { ok: true, document: wrapExtractedDocument(body.document as Record<string, unknown>) };
 }
 
-export function EntryForm({ onExtracted }: { onExtracted: (document: PortfolioDocument) => void }) {
+export function EntryForm({ onExtracted }: { onExtracted: (document: PortfolioDocument, origin: "extracted" | "blank") => void }) {
   const [text, setText] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState<string | null>(null);
@@ -101,7 +101,7 @@ export function EntryForm({ onExtracted }: { onExtracted: (document: PortfolioDo
     setShowDetails(false);
     const outcome = await callExtract(text, photoDataUrl);
     setStatus("idle");
-    if (outcome.ok) onExtracted(outcome.document);
+    if (outcome.ok) onExtracted(outcome.document, "extracted");
     else setError(outcome.error);
   }
 
@@ -244,7 +244,7 @@ export function EntryForm({ onExtracted }: { onExtracted: (document: PortfolioDo
         <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
       </div>
       <button
-        onClick={() => onExtracted(createMidnightTemplate(new Date()))}
+        onClick={() => onExtracted(createMidnightTemplate(new Date()), "blank")}
         disabled={status === "loading"}
         className="mt-3 w-full rounded-lg border border-zinc-300 py-2.5 text-sm font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
       >

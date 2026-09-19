@@ -9,7 +9,7 @@
 import { useState } from "react";
 import type { Theme } from "@/components/timeline/theme";
 
-export function NewDocumentBanner({ theme }: { theme: Theme }) {
+export function NewDocumentBanner({ theme, origin }: { theme: Theme; origin?: "extracted" | "blank" }) {
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
 
@@ -23,8 +23,14 @@ export function NewDocumentBanner({ theme }: { theme: Theme }) {
         ✦
       </span>
       <p className="flex-1">
-        New roadmap started from a template — add lanes and milestones, or open a saved{" "}
-        <code>.wayframe.json</code>. Every change autosaves in this browser as you go.
+        {origin === "extracted" ? (
+          <>Roadmap extracted from what you gave us — check the milestones, then keep editing.</>
+        ) : (
+          <>
+            New roadmap started from a template — add lanes and milestones, or open a saved <code>.wayframe.json</code>.
+          </>
+        )}{" "}
+        Every change autosaves in this browser as you go.
       </p>
       <button onClick={() => setDismissed(true)} aria-label="Dismiss" className="shrink-0 leading-none opacity-60 hover:opacity-100">
         ×

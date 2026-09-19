@@ -367,6 +367,7 @@ export function RoadmapWorkspace({
   persist = true,
   onStartNew,
   canManageSharing = false,
+  newDocumentOrigin,
   realtime,
 }: {
   initialData: Program;
@@ -377,6 +378,8 @@ export function RoadmapWorkspace({
   onStartNew?: () => void;
   /** wayframe#t37: whether the caller has already established the current visitor owns this Portfolio — gates the Options menu's "Sharing" row and the SharePanel it opens. Defaults false so every existing call site (which never passes it) keeps behaving exactly as before. */
   canManageSharing?: boolean;
+  /** Whether the current document came from AI extraction vs a blank/template start — lets NewDocumentBanner say which one actually happened instead of always claiming "started from a template" (found 2026-09-19: that copy was shown unconditionally, making a successful extraction look like it had been silently discarded). Undefined (every caller but the root entry page) keeps the existing blank-template wording, since /p/[portfolioId] and /dev/demo-roadmap never originate from EntryForm's extraction path. */
+  newDocumentOrigin?: "extracted" | "blank";
   /**
    * Live collaborative editing (wayframe t38) — optional so every existing
    * caller (root `/`, the `/dev/demo-roadmap` QA route) that never passes
@@ -743,7 +746,9 @@ export function RoadmapWorkspace({
             )}
           </div>
         )}
-        {!box.data.lastUpdatedAt && box.historyLength === 0 && !placement && !trace && <NewDocumentBanner theme={theme} />}
+        {!box.data.lastUpdatedAt && box.historyLength === 0 && !placement && !trace && (
+          <NewDocumentBanner theme={theme} origin={newDocumentOrigin} />
+        )}
         {/* Unified top-right toolbar cluster (wayframe UX-2026-09-18 §3/§4/§5
             — designed and landed as one pass since all three compete for the
             same strip, see this ticket's own "toolbar contention" note).
