@@ -482,3 +482,69 @@ describe("RoadmapWorkspace live-room offline badge / conflict banner (wayframe t
     expect(screen.getByText("This milestone was deleted by another collaborator while you were offline.")).toBeInTheDocument();
   });
 });
+
+// wayframe#121: on any realtime-connected page, the toolbar's sync-status
+// text (not the file-download "Save" pill) is the thing that actually tells
+// a user whether their edit is persisted. These assert the three states
+// derived from the same status/showOfflineBadge pair fork 3's badge tests
+// above already exercise, and that the File "Save" pills get relabeled so
+// they never read as the save action on this route.
+describe("RoadmapWorkspace sync status indicator + relabeled Save (wayframe#121)", () => {
+  const mockedUseProgramRoom = useProgramRoom as unknown as Mock;
+
+  it("reads 'Saved' once truly connected", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+  });
+
+  it("reads 'Syncing…' while connecting", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "connecting", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    expect(screen.getByText("Syncing…")).toBeInTheDocument();
+  });
+
+  it("reads 'Syncing…', not 'Offline', during a drop still inside showOfflineBadge's debounce window", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "disconnected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    expect(screen.getByText("Syncing…")).toBeInTheDocument();
+  });
+
+  it("reads 'Offline — changes pending' once showOfflineBadge has debounced in", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "disconnected", showOfflineBadge: true, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    expect(screen.getByText("Offline — changes pending")).toBeInTheDocument();
+  });
+
+  it("renders no sync status text when no realtime prop is given (unauthenticated local-only page)", () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+  });
+
+  it("relabels the File 'Save' pill to 'Download a copy' on a realtime-connected page", async () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Download a copy" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the File 'Save' pill reading 'Save' when no realtime prop is given (the local-only '/' page)", async () => {
+    mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Download a copy" })).not.toBeInTheDocument();
+  });
+});

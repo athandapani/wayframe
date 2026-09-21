@@ -64,7 +64,7 @@ import { useSelection } from "@/components/timeline/use-selection";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { useZoomWindow, filterToWindow, type UseZoomWindowResult, type ZoomWindow } from "@/components/timeline/use-zoom-window";
 import { ZoomControls, ZoomPreviewFrame } from "@/components/timeline/ZoomControls";
-import { useProgramRoom, type ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
+import { useProgramRoom, type ConnectionStatus, type ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
 import type { RoomAccess } from "@/lib/realtime/provider";
 import { PresenceAvatars, remoteSelectionsFromPeers } from "./PresenceAvatars";
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
@@ -345,6 +345,29 @@ function formatLastUpdated(iso: string): string {
   const datePart = `${d.getMonth() + 1}/${d.getDate()}`;
   const timePart = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   return `Updated ${datePart} ${timePart}`;
+}
+
+/**
+ * The real persistence indicator (wayframe#121) — on a realtime-connected
+ * page this is what actually tells a user whether their edit is saved, not
+ * the Options ▸ File "Save" pill (which only ever downloads a local copy and
+ * is relabeled below once `realtime` is set). Derived from the same
+ * `status`/`showOfflineBadge` pair ConnectionStatusBadge already renders, so
+ * there's no new connection-state tracking here — just a second, differently
+ * shaped read of it: "Offline — changes pending" once showOfflineBadge's own
+ * ~2.5s debounce (use-program-room.ts) has confirmed a real drop, "Saved"
+ * once truly connected, and "Syncing…" for everything in between (initial
+ * connect, or a drop still inside that debounce window) — the same "no
+ * flicker on a brief blip" behavior the badge already gives the offline case.
+ */
+function SyncStatusIndicator({ status, showOfflineBadge }: { status: ConnectionStatus; showOfflineBadge: boolean }) {
+  const label = showOfflineBadge ? "Offline — changes pending" : status === "connected" ? "Saved" : "Syncing…";
+  const color = showOfflineBadge ? "#b45309" : "var(--wf-ink)";
+  return (
+    <span role="status" className="text-xs font-medium whitespace-nowrap opacity-70" style={{ color }}>
+      {label}
+    </span>
+  );
 }
 
 /** A plain inline child of the top toolbar's right-hand cluster (wayframe UX-2026-09-18 §3) — no longer self-positions via `fixed`, so it composes with its siblings (PresenceAvatars, the Options hamburger) in one flex row instead of each hand-offsetting from the viewport edge. */
@@ -795,6 +818,7 @@ export function RoadmapWorkspace({
             </button>
           </div>
           {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
+          {realtime && <SyncStatusIndicator status={room.status} showOfflineBadge={room.showOfflineBadge} />}
           <PresenceAvatars peers={room.peers} />
           <OptionsMenu>
             <OptionsMenuRow label="Help">
@@ -813,7 +837,7 @@ export function RoadmapWorkspace({
                     style={PILL_STYLE}
                     className={pillToggle(true)}
                   >
-                    Save &amp; Start New
+                    {realtime ? "Download a copy & Start New" : "Save & Start New"}
                   </button>
                   <button onClick={() => setConfirmingNew(false)} className="text-[11px] opacity-60 hover:opacity-100">
                     Cancel
@@ -822,7 +846,9 @@ export function RoadmapWorkspace({
               ) : (
                 <>
                   <button onClick={() => saveDocumentFile(portfolioDocument)} style={PILL_STYLE} className={pillToggle(true)}>
-                    Save
+                    {/* On a realtime-connected page (wayframe#121) this file-download action is not what saves the edit —
+                        useProgramRoom's live sync is — so it reads as "Download a copy" here, never "Save". */}
+                    {realtime ? "Download a copy" : "Save"}
                   </button>
                   <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
                     Open
