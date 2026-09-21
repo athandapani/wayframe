@@ -16,6 +16,10 @@ import { EntryForm } from "@/components/entry-form/EntryForm";
 import { loadPersistedDocument, clearPersistedDocument } from "@/components/correction-box/use-correction-box";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { useOwnedPortfolioId } from "@/lib/auth/use-owned-portfolio-id";
+// PROTOTYPE wiring — throwaway, wayframe#122. Dev-only: `next dev` shows
+// the "My Roadmaps" landing-page prototype (?variant=a|b|c) in place of the
+// real page below; production build and the vitest run are untouched.
+import { MyRoadmapsPrototype } from "./_prototype-my-roadmaps";
 
 interface StorageCheck {
   checked: boolean;
@@ -24,6 +28,14 @@ interface StorageCheck {
 }
 
 export default function Home() {
+  if (process.env.NODE_ENV === "development") {
+    return <MyRoadmapsPrototype />;
+  }
+
+  return <RealHome />;
+}
+
+function RealHome() {
   const [storageCheck, setStorageCheck] = useState<StorageCheck>({ checked: false, roadmap: null });
   const [today] = useState(() => new Date());
   const ownedPortfolioId = useOwnedPortfolioId();
