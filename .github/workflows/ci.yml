@@ -9,6 +9,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Bounds the whole job — `npm run test` has been silently hanging for
+    # ~2h15m before an eventual heap-OOM crash on every run since 9c7da84d
+    # (the Yjs/PartyKit/next-auth scaffold), consistently stuck partway into
+    # src/components/workspace/RoadmapWorkspace.test.tsx with zero test
+    # output in between (i.e. stuck outside any single test's own 5s/10s
+    # vitest timeout, so those never fired). Root cause not yet found; this
+    # converts a ~2h15m silent failure into a fast, bounded one so it stops
+    # burning CI compute while that gets diagnosed for real.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,5 +26,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npm run test
+      # --reporter=verbose: per-test (not just per-file) output, so a future
+      # hang is attributable to the exact test that never returned, instead
+      # of needing to diff the log against the full test-file list.
+      - run: npm run test -- --reporter=verbose
       - run: npm run build
