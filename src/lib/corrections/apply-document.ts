@@ -92,8 +92,17 @@ function topLevelEntries(data: Program): TopLevelEntry[] {
   return [...lanes, ...groups].sort((a, b) => a.item.order - b.item.order);
 }
 
-/** The top-level order space's next free slot — max `order` across every Swimlane (grouped or not) and every SwimlaneGroup, +1. Scanning grouped lanes too (not just top-level ones) costs nothing but a possible unused gap, and guarantees no collision with anything anywhere in the document, group-scoped or not. */
-function topOrderSpaceNextOrder(data: Program): number {
+/**
+ * The top-level order space's next free slot — max `order` across every Swimlane (grouped or not) and every SwimlaneGroup, +1. Scanning grouped lanes too (not just top-level ones) costs nothing but a possible unused gap, and guarantees no collision with anything anywhere in the document, group-scoped or not.
+ *
+ * Exported for src/lib/corrections/cross-program-move.ts (wayframe#124): a
+ * swimlane arriving from another Program via the cross-Program move
+ * primitive is placed exactly like a freshly-added one — appended at the end
+ * of the DESTINATION Program's own top-level order space, same as
+ * `addSwimlaneOp` — since its `groupId` (a different Program's id space) is
+ * dropped rather than carried over.
+ */
+export function topOrderSpaceNextOrder(data: Program): number {
   const swimlaneMax = data.swimlanes.reduce((max, l) => Math.max(max, l.order), -1);
   const groupMax = (data.swimlaneGroups ?? []).reduce((max, g) => Math.max(max, g.order), -1);
   return Math.max(swimlaneMax, groupMax) + 1;

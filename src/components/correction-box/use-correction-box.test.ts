@@ -1021,3 +1021,59 @@ describe("realtime reducer plumbing (wayframe t38)", () => {
     expect(next.history[0].data).toBe(state.data);
   });
 });
+
+describe("cross-Program move reducer actions (wayframe#124)", () => {
+  it("setMilestoneLane patches laneId only, stays ordinarily undoable, and stamps lastUpdatedAt", () => {
+    const state = initialState();
+    const next = reduce(state, { type: "setMilestoneLane", id: "m1", laneId: "lane-2" });
+    expect(next.data.milestones[0].laneId).toBe("lane-2");
+    expect(next.data.milestones[0].id).toBe("m1"); // same id — a field patch, not a clone
+    expect(next.data.lastUpdatedAt).toBeDefined();
+    expect(next.history).toHaveLength(1);
+    expect(next.history[0].data).toBe(state.data);
+  });
+
+  it("receiveMovedMilestone appends the clone as-constructed (no rev bump — it's brand new) and clears history/future", () => {
+    const priorHistory = [{ data: baseData(), portfolio: basePortfolio() }];
+    const state: CorrectionBoxState = { ...initialState(), history: priorHistory, future: [{ data: baseData(), portfolio: basePortfolio() }] };
+    const clone = { id: "new-m1", laneId: "lane-1", title: "Moved", date: "2026-01-01", status: "not-started" as const, dependsOn: [], linksToTopLevelMilestone: null };
+
+    const next = reduce(state, { type: "receiveMovedMilestone", milestone: clone });
+    expect(next.data.milestones.map((m) => m.id)).toEqual(["m1", "new-m1"]);
+    expect(next.data.milestones[1].rev).toBeUndefined();
+    expect(next.data.lastUpdatedAt).toBeDefined();
+    expect(next.history).toHaveLength(0);
+    expect(next.future).toHaveLength(0);
+  });
+
+  it("receiveMovedSwimlane appends the lane and its milestones together and clears history/future", () => {
+    const state: CorrectionBoxState = { ...initialState(), history: [{ data: baseData(), portfolio: basePortfolio() }] };
+    const swimlane = { id: "new-lane", order: 1, type: "lane" as const, name: "Moved lane" };
+    const milestones = [
+      { id: "new-m9", laneId: "new-lane", title: "Moved", date: "2026-01-01", status: "not-started" as const, dependsOn: [], linksToTopLevelMilestone: null },
+    ];
+
+    const next = reduce(state, { type: "receiveMovedSwimlane", swimlane, milestones });
+    expect(next.data.swimlanes.map((l) => l.id)).toEqual(["lane-1", "new-lane"]);
+    expect(next.data.milestones.map((m) => m.id)).toEqual(["m1", "new-m9"]);
+    expect(next.history).toHaveLength(0);
+    expect(next.future).toHaveLength(0);
+  });
+
+  it("releaseMovedMilestone removes the milestone (removeMilestoneOp) and clears history/future rather than pushing an undo entry", () => {
+    const state: CorrectionBoxState = { ...initialState(), history: [{ data: baseData(), portfolio: basePortfolio() }] };
+    const next = reduce(state, { type: "releaseMovedMilestone", id: "m1" });
+    expect(next.data.milestones).toEqual([]);
+    expect(next.history).toHaveLength(0);
+    expect(next.future).toHaveLength(0);
+  });
+
+  it("releaseMovedSwimlane removes the lane and everything it owned, clearing history/future", () => {
+    const state: CorrectionBoxState = { ...initialState(), history: [{ data: baseData(), portfolio: basePortfolio() }] };
+    const next = reduce(state, { type: "releaseMovedSwimlane", id: "lane-1" });
+    expect(next.data.swimlanes).toEqual([]);
+    expect(next.data.milestones).toEqual([]); // lane-1 owned m1
+    expect(next.history).toHaveLength(0);
+    expect(next.future).toHaveLength(0);
+  });
+});
