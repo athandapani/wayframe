@@ -320,10 +320,25 @@ export function computeDomain(data: RenderableProgram): { domainMin: number; dom
   // so this was a live bug nothing had ever actually exercised). Falls
   // back to a 90-day window centered on today, same PAD_DAYS-flavored
   // "some breathing room" spirit as the real-content case below.
+  //
+  // The anchor is *today's UTC midnight*, deliberately not `Date.now()`:
+  // computeDomain runs during render (useZoomWindow calls it on every render,
+  // as does RoadmapTimeline itself), so a millisecond-resolution anchor made
+  // this branch return a different domain on every single render. That fed
+  // useZoomWindow's `fullDomain` effect, which reacts to a changed domain by
+  // calling setWindowRaw/setCommittedWindow — which renders again, which moves
+  // the domain again: a self-sustaining render loop with no fixed point. It
+  // only ever terminated by luck, when two consecutive renders happened to
+  // land inside the same millisecond, which is common on a fast dev machine
+  // and essentially never true on CI — where it spun until the heap gave out
+  // (wayframe#134: ~2-4h of silent CI, then a JS heap OOM, on every run since
+  // this fallback was introduced). A per-day anchor is stable for the life of
+  // any render pass, so the domain reaches a fixed point immediately.
   if (allDates.length === 0) {
-    const now = Date.now();
+    const now = new Date();
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const DEFAULT_HALF_SPAN = 45 * 86400000;
-    return { domainMin: now - DEFAULT_HALF_SPAN, domainMax: now + DEFAULT_HALF_SPAN };
+    return { domainMin: todayUtc - DEFAULT_HALF_SPAN, domainMax: todayUtc + DEFAULT_HALF_SPAN };
   }
   const minDate = parseDate(allDates.reduce((a, b) => (a < b ? a : b)));
   const maxDate = parseDate(allDates.reduce((a, b) => (a > b ? a : b)));

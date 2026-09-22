@@ -9,14 +9,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Bounds the whole job — `npm run test` has been silently hanging for
-    # ~2h15m before an eventual heap-OOM crash on every run since 9c7da84d
-    # (the Yjs/PartyKit/next-auth scaffold), consistently stuck partway into
-    # src/components/workspace/RoadmapWorkspace.test.tsx with zero test
-    # output in between (i.e. stuck outside any single test's own 5s/10s
-    # vitest timeout, so those never fired). Root cause not yet found; this
-    # converts a ~2h15m silent failure into a fast, bounded one so it stops
-    # burning CI compute while that gets diagnosed for real.
+    # Bounds the whole job. Added while `npm run test` was silently hanging
+    # for 2-4h before an eventual heap-OOM crash — a React render loop on an
+    # empty Program, fixed in #134/#135, which spun outside any single test's
+    # own vitest timeout so none of those ever fired. Kept afterwards: a
+    # synchronous spin is exactly the failure vitest's own timeouts cannot
+    # catch, and this is the only thing that turns one back into a fast,
+    # loud failure instead of hours of silent CI compute.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -26,8 +25,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      # --reporter=verbose: per-test (not just per-file) output, so a future
-      # hang is attributable to the exact test that never returned, instead
-      # of needing to diff the log against the full test-file list.
+      # --reporter=verbose lists every test by name, not just every file.
+      # Note what it does NOT give you: results are flushed per *file*, at
+      # the point that file finishes, so a hung file prints nothing at all
+      # and the last name in the log is not where execution stopped. Reading
+      # it that way sent #134's first investigation after the wrong test.
+      # To localise a hang, diff the files that reported against the full
+      # test-file list — the one that never appears is the one that hung.
       - run: npm run test -- --reporter=verbose
+      # `next build` runs with NODE_ENV=production, which trips the
+      # deliberate module-scope `requireEnv` guards in src/lib/auth/auth.ts
+      # and src/lib/auth/token-crypto.ts while Next collects page data — a
+      # build has no secrets and needs none, but those modules are imported
+      # by the /api/google/* and /api/auth/* routes regardless, so the build
+      # fails closed before it can emit anything. These are placeholders that
+      # exist purely to satisfy the guards: nothing here serves a request,
+      # the output is discarded at the end of the job, and none of them is
+      # (or should ever be) a real credential. Keeping the guards fail-fast
+      # in production is the point — this is the narrowest way to let a
+      # secret-less CI compile the app without weakening them.
       - run: npm run build
+        env:
+          TOKEN_ENCRYPTION_KEY: ci-build-only-not-a-real-key
+          AUTH_SECRET: ci-build-only-not-a-real-secret
+          AUTH_GOOGLE_ID: ci-build-only
+          AUTH_GOOGLE_SECRET: ci-build-only
