@@ -17,6 +17,21 @@ describe("computeDomain (wayframe UX-2026-09-18 §7 regression — a brand-new e
     expect(domainMin).toBeLessThan(domainMax);
   });
 
+  it("returns the identical domain on repeated calls for the same empty Program — a moving fallback gave useZoomWindow's fullDomain effect no fixed point, so it re-rendered forever (wayframe#134)", () => {
+    const empty: RenderableProgram = { ...sampleRoadmap, milestones: [], topLevelItems: [] };
+    const first = computeDomain(empty);
+    // computeDomain runs during render, so "stable" has to mean stable across
+    // wall-clock time, not just across two calls in the same tick — the
+    // original Date.now() anchor passed a naive back-to-back comparison and
+    // still moved between two real renders. Busy-wait past a millisecond
+    // boundary so a millisecond-resolution anchor would definitely differ.
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 3) {
+      /* spin */
+    }
+    expect(computeDomain(empty)).toEqual(first);
+  });
+
   it("still derives min/max from real content when present, unaffected by the empty-array fallback", () => {
     const { domainMin, domainMax } = computeDomain(sampleRoadmap);
     expect(domainMin).toBeLessThan(domainMax);

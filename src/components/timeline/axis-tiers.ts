@@ -52,7 +52,23 @@ export function labelStride(segmentCount: number, availablePx: number, minLabelP
   return Math.ceil(minLabelPx / avgPx);
 }
 
+/**
+ * Every segment builder below walks a cursor forward until it passes
+ * `domainMax`. That exit test is a plain `>` comparison, and every comparison
+ * against `NaN` is `false` — so a non-finite domain turns each of those loops
+ * into an unbounded one that also keeps pushing a segment per iteration, i.e.
+ * spins and allocates until the heap gives out, with nothing thrown to catch.
+ * No live caller produces a non-finite domain today (computeDomain is bounded
+ * on both branches), but the failure mode is silent and catastrophic enough
+ * that it is worth making structurally unreachable rather than relying on
+ * every present and future caller staying careful (wayframe#134).
+ */
+function hasFiniteDomain(domainMin: number, domainMax: number): boolean {
+  return Number.isFinite(domainMin) && Number.isFinite(domainMax);
+}
+
 export function yearSegments(domainMin: number, domainMax: number): Segment[] {
+  if (!hasFiniteDomain(domainMin, domainMax)) return [];
   const segments: Segment[] = [];
   const d = new Date(domainMin);
   let year = d.getUTCFullYear();
@@ -69,6 +85,7 @@ export function yearSegments(domainMin: number, domainMax: number): Segment[] {
 }
 
 export function quarterSegments(domainMin: number, domainMax: number): Segment[] {
+  if (!hasFiniteDomain(domainMin, domainMax)) return [];
   const segments: Segment[] = [];
   const d = new Date(domainMin);
   let year = d.getUTCFullYear();
@@ -95,6 +112,7 @@ export function quarterSegments(domainMin: number, domainMax: number): Segment[]
 }
 
 export function monthSegments(domainMin: number, domainMax: number): Segment[] {
+  if (!hasFiniteDomain(domainMin, domainMax)) return [];
   const segments: Segment[] = [];
   const d = new Date(domainMin);
   let year = d.getUTCFullYear();
@@ -120,6 +138,7 @@ export function monthSegments(domainMin: number, domainMax: number): Segment[] {
 }
 
 export function weekSegments(domainMin: number, domainMax: number): Segment[] {
+  if (!hasFiniteDomain(domainMin, domainMax)) return [];
   const segments: Segment[] = [];
   const d = new Date(domainMin);
   const mondayOffsetDays = (d.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
