@@ -219,6 +219,38 @@ export async function appendLegendCategories(portfolioId: string, categories: Le
   return idRemap;
 }
 
+/** One Portfolio `identity` holds any role on, plus the Portfolio row's own `created_at` — the fallback "updated" timestamp for a Roadmap with zero Programs yet (wayframe#123). */
+export interface Membership {
+  portfolioId: string;
+  role: Role;
+  portfolioCreatedAt: string;
+}
+
+/**
+ * Every Portfolio `identity` holds any role on (owner/editor/viewer) —
+ * unlike getOwnedPortfolioId below, not scoped to owner-only. This is
+ * wayframe#123's "My Roadmaps" landing page's core query: #119 already
+ * decided that page lists every Roadmap a user has a `portfolio_members`
+ * row on, owned-first (sorting happens at the route layer, alongside the
+ * per-Portfolio Program/member aggregation this alone doesn't carry).
+ */
+export async function listMembershipsForIdentity(identity: string): Promise<Membership[]> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const result = await client.execute({
+    sql: `SELECT pm.portfolio_id, pm.role, p.created_at
+          FROM portfolio_members pm
+          JOIN portfolios p ON p.id = pm.portfolio_id
+          WHERE pm.identity = ?`,
+    args: [identity],
+  });
+  return result.rows.map((row) => ({
+    portfolioId: String(row.portfolio_id),
+    role: row.role as Role,
+    portfolioCreatedAt: String(row.created_at),
+  }));
+}
+
 /**
  * wayframe#t17's migration-idempotency check: does `identity` already own a
  * Portfolio? The local-artifact migration trigger calls this before writing

@@ -340,3 +340,30 @@ describe("getOwnedPortfolioId (wayframe#t17)", () => {
     expect(await getOwnedPortfolioId("user-3")).toBeNull();
   });
 });
+
+describe("listMembershipsForIdentity (wayframe#123)", () => {
+  it("lists every Portfolio the identity has any role on, not just owned", async () => {
+    const { createPortfolioWithOwner, setMember, listMembershipsForIdentity } = await import("./portfolios");
+    await createPortfolioWithOwner("owned", "user-1");
+    await createPortfolioWithOwner("someone-elses", "user-2");
+    await setMember("someone-elses", "user-1", "viewer");
+
+    const memberships = await listMembershipsForIdentity("user-1");
+    expect(memberships).toHaveLength(2);
+    expect(memberships.find((m) => m.portfolioId === "owned")?.role).toBe("owner");
+    expect(memberships.find((m) => m.portfolioId === "someone-elses")?.role).toBe("viewer");
+  });
+
+  it("includes the Portfolio row's own created_at", async () => {
+    const { createPortfolioWithOwner, listMembershipsForIdentity } = await import("./portfolios");
+    await createPortfolioWithOwner("p1", "user-1");
+    const [membership] = await listMembershipsForIdentity("user-1");
+    expect(typeof membership.portfolioCreatedAt).toBe("string");
+    expect(new Date(membership.portfolioCreatedAt).toString()).not.toBe("Invalid Date");
+  });
+
+  it("returns an empty list for an identity with no memberships", async () => {
+    const { listMembershipsForIdentity } = await import("./portfolios");
+    expect(await listMembershipsForIdentity("stranger")).toEqual([]);
+  });
+});

@@ -51,7 +51,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
 
   const snapshots = await listProgramSnapshotsForPortfolio(portfolioId);
   if (snapshots.length === 0) {
-    return NextResponse.json({ error: "This Portfolio has no Program yet." }, { status: 404 });
+    // `role` included (wayframe#123) so the client can decide whether to
+    // offer "add your first Program" (owner/editor) or just a plain "this
+    // Roadmap is empty" message (viewer) — a share-link guest's role is a
+    // ShareRole, never "owner", so they always get the plain message too.
+    return NextResponse.json({ error: "This Portfolio has no Program yet.", role }, { status: 404 });
   }
 
   // Optional ?programId= (wayframe UX-2026-09-18 §7) — a Portfolio's 2nd+

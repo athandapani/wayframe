@@ -21,6 +21,12 @@ vi.mock("next-auth/react", () => ({
   signOut: vi.fn(),
 }));
 
+// MyRoadmapsLanding (rendered for an authenticated visitor, wayframe#123)
+// calls useRouter — not otherwise mounted in this file's plain `render()`.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 function basePortfolio(): Portfolio {
   return { id: "portfolio-1", schemaVersion: 2 };
 }
@@ -83,7 +89,7 @@ describe("Home", () => {
   });
 });
 
-describe("Home — link to a signed-in user's hosted Portfolio (found 2026-09-19: useMigrateLocalPortfolioOnSignIn migrated a local document into a hosted Portfolio, but nothing ever surfaced a link to it)", () => {
+describe("Home — a signed-in visitor lands on My Roadmaps (wayframe#123, superseding the old hard-coded 'Open my hosted Portfolio' link found 2026-09-19)", () => {
   function mockFetch(handlers: Record<string, () => Promise<Partial<Response>> | Partial<Response>>) {
     return vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -96,34 +102,42 @@ describe("Home — link to a signed-in user's hosted Portfolio (found 2026-09-19
 
   beforeEach(() => {
     window.localStorage.clear();
-    // Suppresses the local->hosted migration POST (irrelevant to this
-    // describe block) so the fetch mock only needs to answer
-    // /api/portfolios/mine.
-    window.localStorage.setItem("wayframe:portfolio-migrated", "portfolio-owned-1");
   });
 
-  it("shows no link when signed out", async () => {
+  it("still shows the entry form, not My Roadmaps, when signed out", async () => {
     useSessionMock.mockReturnValue({ data: null, status: "unauthenticated" });
     render(<Home />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Build your roadmap" })).toBeInTheDocument());
-    expect(screen.queryByRole("link", { name: /Open my hosted Portfolio/ })).not.toBeInTheDocument();
   });
 
-  it("shows no link when signed in but the visitor owns no Portfolio yet", async () => {
+  it("shows the signed-in visitor's Roadmaps instead of the entry form once /api/roadmaps resolves", async () => {
     useSessionMock.mockReturnValue({ data: { user: { email: "a@b.com" } }, status: "authenticated" });
-    vi.stubGlobal("fetch", mockFetch({ "/api/portfolios/mine": () => ({ ok: true, json: async () => ({ portfolioId: null }) }) }));
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/roadmaps": () => ({
+          ok: true,
+          json: async () => ({
+            roadmaps: [
+              {
+                id: "portfolio-owned-1",
+                title: "My Roadmap",
+                role: "owner",
+                programCount: 1,
+                memberCount: 1,
+                updatedAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+          }),
+        }),
+      }),
+    );
     render(<Home />);
-    await waitFor(() => expect(screen.getByText("a@b.com")).toBeInTheDocument());
-    expect(screen.queryByRole("link", { name: /Open my hosted Portfolio/ })).not.toBeInTheDocument();
-    vi.unstubAllGlobals();
-  });
-
-  it("links straight to /p/{portfolioId} once ownedPortfolioId resolves, for a signed-in owner", async () => {
-    useSessionMock.mockReturnValue({ data: { user: { email: "a@b.com" } }, status: "authenticated" });
-    vi.stubGlobal("fetch", mockFetch({ "/api/portfolios/mine": () => ({ ok: true, json: async () => ({ portfolioId: "portfolio-owned-1" }) }) }));
-    render(<Home />);
-    const link = await screen.findByRole("link", { name: /Open my hosted Portfolio/ });
-    expect(link).toHaveAttribute("href", "/p/portfolio-owned-1");
+    // "My Roadmap" is the only Roadmap returned, so it's auto-selected —
+    // its title renders both in the sidebar row and the detail pane's
+    // heading; assert via the (unambiguous) heading.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "My Roadmap" })).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Build your roadmap" })).not.toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 });

@@ -13,17 +13,69 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { nanoid } from "nanoid";
-import type { Portfolio, Program } from "@/components/timeline/types";
+import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
+import { EntryForm } from "@/components/entry-form/EntryForm";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { GuestNamePrompt } from "./GuestNamePrompt";
 import type { RoomAccess } from "@/lib/realtime/provider";
 import type { ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
 
+type MemberRole = "owner" | "editor" | "viewer";
+
 interface ViewSuccess {
-  role: "owner" | "editor" | "viewer";
+  role: MemberRole;
   portfolio: Portfolio;
   program: Program;
+}
+
+/**
+ * wayframe#123: a brand-new "+ New Roadmap" Portfolio has no Program yet —
+ * /view 404s with { error, role }. An owner/editor sees this inline
+ * EntryForm instead of the plain error text below; a viewer (or a
+ * share-link guest, whose role is never "owner"/"editor" here) still gets
+ * the plain message, since they have nothing to create.
+ *
+ * Reshapes EntryForm's wrapped PortfolioDocument (portfolio + programs[0])
+ * back into the flat { ...programFields, legendCategories } shape
+ * /api/portfolios/[id]/programs/extract expects — the same shape
+ * /api/extract's raw response has before EntryForm's own wrapExtractedDocument
+ * redistributes it, so newly-invented legend categories still reach
+ * appendLegendCategories instead of silently being dropped.
+ */
+function EmptyPortfolioEntry({ portfolioId, onCreated }: { portfolioId: string; onCreated: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleExtracted(document: PortfolioDocument) {
+    setError(null);
+    const flatDocument = { ...document.programs[0], legendCategories: document.portfolio.legendCategories };
+    try {
+      const res = await fetch(`/api/portfolios/${portfolioId}/programs/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: flatDocument }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(body?.error ?? "Couldn't create the first Program.");
+        return;
+      }
+      onCreated();
+    } catch {
+      setError("Couldn't create the first Program.");
+    }
+  }
+
+  return (
+    <>
+      {error && (
+        <div className="fixed top-2 left-1/2 z-50 -translate-x-1/2 rounded-md bg-red-50 px-3 py-1.5 text-xs text-red-700 shadow-sm">
+          {error}
+        </div>
+      )}
+      <EntryForm onExtracted={handleExtracted} />
+    </>
+  );
 }
 
 interface GuestIdentity {
@@ -47,7 +99,10 @@ function readGuestIdentity(portfolioId: string): GuestIdentity | null {
   }
 }
 
-type FetchState = { status: "idle" | "loading" } | { status: "success"; data: ViewSuccess } | { status: "error"; error: string };
+type FetchState =
+  | { status: "idle" | "loading" }
+  | { status: "success"; data: ViewSuccess }
+  | { status: "error"; error: string; role?: MemberRole };
 
 export default function PortfolioLandingPage() {
   const params = useParams<{ portfolioId: string }>();
@@ -105,6 +160,10 @@ export default function PortfolioLandingPage() {
   }, [status]);
 
   const [result, setResult] = useState<FetchState>({ status: "idle" });
+  // Bumped after EmptyPortfolioEntry successfully creates the first Program
+  // (wayframe#123), to re-run the /view fetch below without duplicating its
+  // fetch logic in a separate callback.
+  const [refetchNonce, setRefetchNonce] = useState(0);
 
   useEffect(() => {
     if (!shareCheck.checked) return;
@@ -131,7 +190,7 @@ export default function PortfolioLandingPage() {
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) {
-          setResult({ status: "error", error: body.error ?? "Something went wrong loading this Portfolio." });
+          setResult({ status: "error", error: body.error ?? "Something went wrong loading this Portfolio.", role: body.role });
           return;
         }
         setResult({
@@ -145,7 +204,7 @@ export default function PortfolioLandingPage() {
     return () => {
       cancelled = true;
     };
-  }, [shareCheck.checked, shareCheck.token, shareCheck.programId, status, acceptInvitesDone, guestIdentity.checked, guestIdentity.identity, portfolioId]);
+  }, [shareCheck.checked, shareCheck.token, shareCheck.programId, status, acceptInvitesDone, guestIdentity.checked, guestIdentity.identity, portfolioId, refetchNonce]);
 
   function handleGuestNameSubmit(name: string) {
     const identity: GuestIdentity = { name, guestId: `guest:${nanoid()}` };
@@ -171,6 +230,16 @@ export default function PortfolioLandingPage() {
   }
 
   if (result.status === "error") {
+    const canAddFirstProgram =
+      result.error === "This Portfolio has no Program yet." && (result.role === "owner" || result.role === "editor");
+    if (canAddFirstProgram) {
+      return (
+        <>
+          <AuthControls />
+          <EmptyPortfolioEntry portfolioId={portfolioId} onCreated={() => setRefetchNonce((n) => n + 1)} />
+        </>
+      );
+    }
     return (
       <div className="flex min-h-screen items-center justify-center bg-white p-6 text-center text-sm text-gray-700">
         <p>{result.error}</p>
