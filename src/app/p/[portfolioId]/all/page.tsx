@@ -49,6 +49,11 @@ import { buildMultiProgramOutlineTree, isLeafKind, type OutlineNode } from "@/li
 import { PortfolioRollupBar } from "@/components/executive-view/PortfolioRollupBar";
 import { useSelection } from "@/components/timeline/use-selection";
 import { CrossProgramSelectionToolbar } from "@/components/workspace/CrossProgramSelectionToolbar";
+// PROTOTYPE wiring — throwaway, wayframe#125. Dev-only: `next dev` serves
+// the combined multi-Program editor prototype (?variant=a|b|c) on this
+// route in place of the real read-only merged view below, with mock
+// Programs and no auth. Production build and the vitest run are untouched.
+import { CombinedEditorPrototype } from "./_prototype-combined-editor";
 
 interface AllProgramsSuccess {
   role: "owner" | "editor" | "viewer";
@@ -150,6 +155,14 @@ function OutlineRow({
 }
 
 export default function AllProgramsPage() {
+  if (process.env.NODE_ENV === "development") {
+    return <CombinedEditorPrototype />;
+  }
+
+  return <RealAllProgramsPage />;
+}
+
+function RealAllProgramsPage() {
   const params = useParams<{ portfolioId: string }>();
   const portfolioId = params.portfolioId;
   const { data: session, status } = useSession();
