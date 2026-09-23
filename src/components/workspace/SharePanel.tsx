@@ -218,7 +218,7 @@ export function SharePanel({ portfolioId, onClose }: { portfolioId: string; onCl
         <div className="flex items-start justify-between gap-4 border-b p-5" style={{ borderColor: "var(--wf-border)" }}>
           <div>
             <h1 className="text-base font-semibold">Invite / share</h1>
-            <p className="text-xs opacity-60">Manage who can view or edit this Portfolio.</p>
+            <p className="text-xs opacity-60">Manage who can view or edit this Roadmap.</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="shrink-0 text-lg leading-none opacity-50 hover:opacity-100">
             ✕
@@ -289,7 +289,7 @@ export function SharePanel({ portfolioId, onClose }: { portfolioId: string; onCl
                 })()
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs opacity-60">No public link yet — anyone with the link can access this Portfolio at the role you choose below.</p>
+                  <p className="text-xs opacity-60">No public link yet — anyone with the link can access this Roadmap at the role you choose below.</p>
                   <div className="flex items-center gap-2">
                     <select
                       value={newLinkRole}

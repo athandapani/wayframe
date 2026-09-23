@@ -23,7 +23,7 @@ export function PortfolioRollupBar({ programs, today }: { programs: Program[]; t
     <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3">
       <div className="mb-2 flex items-center gap-2 text-sm">
         <span className="rounded-full border-2 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide" style={{ background: RAG_BG[rollup.rag], borderColor: RAG_BORDER[rollup.rag] }}>
-          Portfolio
+          Roadmap
         </span>
         {rollup.trend && <span aria-label={`Trend: ${rollup.trend}`}>{TREND_ARROW[rollup.trend]}</span>}
         <span className="text-xs text-gray-500">

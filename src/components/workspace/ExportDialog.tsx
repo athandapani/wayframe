@@ -88,7 +88,7 @@ function computeFileName(currentProgramName: string, slides: ExportSlideDescript
   if (programScopedCheckedCount === 1 && programSlides.length === 1) {
     return deckFileName(programSlides[0].label ?? currentProgramName);
   }
-  return deckFileName("Portfolio Roadmap");
+  return deckFileName("Roadmap");
 }
 
 export function ExportDialog({

@@ -27,8 +27,8 @@ export async function sendInviteEmail(to: string, inviteUrl: string, role: "edit
   const { error } = await resend.emails.send({
     from,
     to,
-    subject: "You've been invited to a Wayframe Portfolio",
-    html: `<p>You've been invited to ${roleLabel} a Wayframe Portfolio.</p><p><a href="${inviteUrl}">Open the Portfolio</a></p>`,
+    subject: "You've been invited to a Wayframe Roadmap",
+    html: `<p>You've been invited to ${roleLabel} a Wayframe Roadmap.</p><p><a href="${inviteUrl}">Open the Roadmap</a></p>`,
   });
 
   if (error) {

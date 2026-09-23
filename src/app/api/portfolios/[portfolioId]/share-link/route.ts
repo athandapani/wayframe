@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ po
 
   const existing = await getShareLink(portfolioId);
   if (!existing) {
-    return NextResponse.json({ error: "No share link exists yet for this Portfolio — create one first." }, { status: 409 });
+    return NextResponse.json({ error: "No share link exists yet for this Roadmap — create one first." }, { status: 409 });
   }
 
   await setShareLinkRole(portfolioId, rawRole);

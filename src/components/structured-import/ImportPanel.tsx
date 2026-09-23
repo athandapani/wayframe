@@ -194,7 +194,7 @@ export function ImportPanel({
               {targetPortfolioId && (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={createAsNewProgram} onChange={(e) => setCreateAsNewProgram(e.target.checked)} />
-                  Add as a new Program in my Portfolio (instead of replacing this one)
+                  Add as a new Program in my Roadmap (instead of replacing this one)
                 </label>
               )}
             </div>
@@ -214,7 +214,7 @@ export function ImportPanel({
             {extractError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{extractError}</p>}
             {createdConfirmation ? (
               <div className="mt-3 space-y-2">
-                <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Added as a new Program in your Portfolio.</p>
+                <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Added as a new Program in your Roadmap.</p>
                 <button onClick={onClose} className="w-full rounded-lg bg-zinc-900 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">
                   Done
                 </button>

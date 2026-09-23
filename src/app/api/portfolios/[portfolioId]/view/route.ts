@@ -31,7 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
     if (shareToken) {
       const resolved = await resolveShareLink(shareToken);
       if (resolved && resolved.portfolioId !== portfolioId) {
-        return NextResponse.json({ error: "This share link does not grant access to this Portfolio." }, { status: 403 });
+        return NextResponse.json({ error: "This share link does not grant access to this Roadmap." }, { status: 403 });
       }
       if (resolved) role = resolved.role;
     }
@@ -39,14 +39,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
 
   if (!role) {
     if (!session) {
-      return NextResponse.json({ error: "Sign in or use a share link to view this Portfolio." }, { status: 401 });
+      return NextResponse.json({ error: "Sign in or use a share link to view this Roadmap." }, { status: 401 });
     }
-    return NextResponse.json({ error: "No access to this Portfolio." }, { status: 403 });
+    return NextResponse.json({ error: "No access to this Roadmap." }, { status: 403 });
   }
 
   const content = await getPortfolioContent(portfolioId);
   if (!content) {
-    return NextResponse.json({ error: "Portfolio not found." }, { status: 404 });
+    return NextResponse.json({ error: "Roadmap not found." }, { status: 404 });
   }
 
   const snapshots = await listProgramSnapshotsForPortfolio(portfolioId);
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
     // offer "add your first Program" (owner/editor) or just a plain "this
     // Roadmap is empty" message (viewer) — a share-link guest's role is a
     // ShareRole, never "owner", so they always get the plain message too.
-    return NextResponse.json({ error: "This Portfolio has no Program yet.", role }, { status: 404 });
+    return NextResponse.json({ error: "This Roadmap has no Program yet.", role }, { status: 404 });
   }
 
   // Optional ?programId= (wayframe UX-2026-09-18 §7) — a Portfolio's 2nd+
@@ -67,12 +67,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
   const requestedProgramId = req.nextUrl.searchParams.get("programId");
   const row = requestedProgramId ? snapshots.find((s) => s.id === requestedProgramId) : snapshots[0];
   if (!row) {
-    return NextResponse.json({ error: `No Program "${requestedProgramId}" in this Portfolio.` }, { status: 404 });
+    return NextResponse.json({ error: `No Program "${requestedProgramId}" in this Roadmap.` }, { status: 404 });
   }
 
   const program = decodeProgramSnapshot(row.snapshot);
   if (!program) {
-    return NextResponse.json({ error: "This Portfolio's Program data is unreadable." }, { status: 500 });
+    return NextResponse.json({ error: "This Roadmap's Program data is unreadable." }, { status: 500 });
   }
 
   return NextResponse.json({ role, portfolio: content, program });

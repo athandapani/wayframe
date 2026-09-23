@@ -280,7 +280,7 @@ describe("ExportDialog (t29/t30)", () => {
     vi.stubGlobal(
       "fetch",
       mockFetch({
-        "/snapshots": () => ({ ok: false, json: async () => ({ error: "No edit access to this Portfolio." }) }),
+        "/snapshots": () => ({ ok: false, json: async () => ({ error: "No edit access to this Roadmap." }) }),
       }),
     );
 
@@ -289,6 +289,6 @@ describe("ExportDialog (t29/t30)", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Save Export Snapshot" }));
     fireEvent.click(screen.getByRole("button", { name: "Save Export Snapshot" }));
 
-    await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No edit access to this Roadmap.")).toBeInTheDocument());
   });
 });

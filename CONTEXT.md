@@ -6,6 +6,7 @@ Wayframe turns rough plans, whiteboard photos, CSVs, or Smartsheets into swimlan
 
 **Portfolio**:
 The top-level container holding multiple Programs. Owns the all-programs view and the cross-program executive rollup. New concept — today's app has no equivalent; a single Program is the whole app.
+Every user-facing string calls this a **Roadmap** (wayframe#129) — headings, buttons, help text, error copy and the invite email. `Portfolio` survives only as the code/schema name: the `Portfolio` type, the `/p/` and `/api/portfolios/` routes, the `portfolios`/`portfolio_*` tables, and the `.wayframeportfolio.json` export extension. Keep that split when writing either.
 
 **Program**:
 One roadmap document — what `RoadmapData` is today (swimlanes, milestones, phases, annotations), gaining its own identity so a Portfolio can hold many of them. Baseline and Scenario are owned by the Portfolio, not by the Program — see below.

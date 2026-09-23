@@ -276,10 +276,10 @@ describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ New Program" }));
     fireEvent.change(screen.getByLabelText("New Program name"), { target: { value: "Q3 Launch" } });
 
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, json: () => Promise.resolve({ error: "No edit access to this Portfolio." }) });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, json: () => Promise.resolve({ error: "No edit access to this Roadmap." }) });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No edit access to this Roadmap.")).toBeInTheDocument());
   });
 });
 
