@@ -42,6 +42,11 @@ import type { Portfolio, Program } from "@/components/timeline/types";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { CombinedProgramEditor } from "@/components/workspace/combined/CombinedProgramEditor";
 import type { RoomAccess } from "@/lib/realtime/provider";
+// PROTOTYPE wiring — throwaway, wayframe#127. Dev-only: `next dev` serves the
+// Version History prototype (?variant=a|b|c) on this route in place of the
+// real combined editor below, with mock Programs, a mock Version store and
+// no auth. Production build and the vitest run are untouched.
+import { VersionHistoryPrototype } from "./_prototype-version-history";
 
 interface AllProgramsSuccess {
   role: "owner" | "editor" | "viewer";
@@ -74,6 +79,14 @@ async function fetchAllProgramsData(portfolioId: string): Promise<FetchOutcome> 
 }
 
 export default function AllProgramsPage() {
+  if (process.env.NODE_ENV === "development") {
+    return <VersionHistoryPrototype />;
+  }
+
+  return <RealAllProgramsPage />;
+}
+
+function RealAllProgramsPage() {
   const params = useParams<{ portfolioId: string }>();
   const portfolioId = params.portfolioId;
   const { data: session, status } = useSession();
