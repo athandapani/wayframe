@@ -118,7 +118,7 @@
     "blockers": [
       "mr5"
     ],
-    "gist": null
+    "gist": "Overrides now follow the moved milestone(s) to their new destination ids -- pure `repointScenarioOverrides` (src/lib/scenario/apply.ts) + a Portfolio-side box action, dispatched to BOTH boxes after both Program halves so #124's insert-before-release window stays as narrow as it was. `baseRevAtCreation` restarts at 1 because the destination clone's own rev does. Two limits found while building it, both now in CONTEXT.md: it is a SWAP, not an elimination, of `orphaned` (resolveScenario takes one Program while a Scenario spans the Portfolio, so sibling-Program overrides already report orphaned -- the win is that SOME Program applies it; without the re-point none does), and it is box-local until Portfolio-level persistence exists (combined editor's seam 3)."
   },
   {
     "key": "ci1",
