@@ -1076,4 +1076,38 @@ describe("cross-Program move reducer actions (wayframe#124)", () => {
     expect(next.history).toHaveLength(0);
     expect(next.future).toHaveLength(0);
   });
+
+  it("repointScenarioOverrides rewrites every Scenario's override key and touches no Program content (wayframe#131)", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      portfolio: {
+        ...basePortfolio(),
+        scenarios: [
+          { id: "s1", name: "Plan B", milestoneOverrides: { m1: { op: "modify", patch: { status: "at-risk" }, baseRevAtCreation: 1 } }, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} },
+          { id: "s2", name: "Plan C", milestoneOverrides: { m1: { op: "remove" } }, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} },
+        ],
+      },
+    };
+
+    const next = reduce(state, { type: "repointScenarioOverrides", idMap: { m1: "new-m1" } });
+    expect(Object.keys(next.portfolio.scenarios![0].milestoneOverrides)).toEqual(["new-m1"]);
+    expect(Object.keys(next.portfolio.scenarios![1].milestoneOverrides)).toEqual(["new-m1"]);
+    // Portfolio-only: no re-stamp (the move's own halves already stamped) and
+    // no undo entry (undoing this alone would leave the Program halves moved).
+    expect(next.data).toBe(state.data);
+    expect(next.history).toHaveLength(0);
+  });
+
+  it("repointScenarioOverrides is a no-op when no Scenario holds a moved id", () => {
+    const state: CorrectionBoxState = {
+      ...initialState(),
+      portfolio: {
+        ...basePortfolio(),
+        scenarios: [{ id: "s1", name: "Plan B", milestoneOverrides: { elsewhere: { op: "remove" } }, topLevelItemOverrides: {}, milestoneAdditions: {}, topLevelItemAdditions: {} }],
+      },
+    };
+
+    expect(reduce(state, { type: "repointScenarioOverrides", idMap: { m1: "new-m1" } })).toBe(state);
+    expect(reduce(initialState(), { type: "repointScenarioOverrides", idMap: { m1: "new-m1" } }).portfolio.scenarios).toBeUndefined();
+  });
 });

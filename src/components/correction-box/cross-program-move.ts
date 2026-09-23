@@ -10,10 +10,10 @@ export interface CrossProgramMoveAccess {
 
 /**
  * The box-dispatch orchestrator for the cross-Program move primitive
- * (wayframe#124) — what #126's milestone-editor Program/Swimlane dropdowns
- * and swimlane-editor per-lane Program dropdown actually call. Wraps
- * src/lib/corrections/cross-program-move.ts's pure planners with the two
- * things a plan alone can't do:
+ * (wayframe#124, extended #131) — what #126's milestone-editor
+ * Program/Swimlane dropdowns and swimlane-editor per-lane Program dropdown
+ * actually call. Wraps src/lib/corrections/cross-program-move.ts's pure
+ * planners with the three things a plan alone can't do:
  *
  *  - Refuse the whole move up front if either side isn't writable. A move
  *    into a Program the user can only view would have its destination
@@ -26,6 +26,10 @@ export interface CrossProgramMoveAccess {
  *    only sanctioned path to a Program's live Yjs doc (see
  *    use-program-room.ts's local->remote sync effect, which diffs
  *    `box.data` itself and would fight any direct doc write it never saw).
+ *  - Carry the moved item's Scenario overrides over to its new id (#131).
+ *    Those live on the shared Portfolio, not on either Program's Yjs doc, so
+ *    a planner working purely in Program state can't reach them — see
+ *    `repointScenarios` at the bottom of this file.
  *
  * Guarantee: dispatches the destination-side insert BEFORE the source-side
  * release, back-to-back with no I/O or user input in between, so the only
@@ -68,6 +72,7 @@ export function moveMilestoneBetweenPrograms(
 
   dest.receiveMovedMilestone(plan.clonedMilestone);
   source.releaseMovedMilestone(milestoneId);
+  repointScenarios(source, dest, { [milestoneId]: plan.clonedMilestone.id });
   return plan;
 }
 
@@ -93,5 +98,39 @@ export function moveSwimlaneBetweenPrograms(
 
   dest.receiveMovedSwimlane(plan.clonedSwimlane, plan.clonedMilestones);
   source.releaseMovedSwimlane(laneId);
+  repointScenarios(source, dest, plan.idMap);
   return plan;
+}
+
+/**
+ * The move's Portfolio-side half (wayframe#131) — carries every Scenario
+ * override on the moved milestone(s) over to their new destination ids, so an
+ * override survives the move instead of being left pointing at an id no
+ * Program holds any more. `resolveScenario`'s `orphaned` reporting is the
+ * safety net for anything this doesn't catch and stays exactly as it is;
+ * src/lib/scenario/apply.ts's `repointScenarioOverrides` documents what is
+ * and isn't rewritten.
+ *
+ * Dispatched to BOTH boxes, and only after both Program halves are in
+ * flight, for two reasons. Both boxes, because a Scenario is Portfolio-scoped
+ * (types.ts's `Portfolio.scenarios`) and each box holds its own copy of the
+ * shared Portfolio — re-pointing on one side alone would leave the
+ * destination's copy keyed by an id only the source used to have, and the
+ * source's copy reporting `orphaned` for an item that legitimately left.
+ * After, because this writes no Program content and so has no bearing on the
+ * insert-before-release ordering guarantee above; keeping it out of that
+ * window keeps the window exactly as narrow as it was.
+ *
+ * Known gap, not introduced here: the combined multi-Program editor — today's
+ * only caller — has no Portfolio-level persistence at all (see
+ * CombinedProgramEditor's header, seam 3: each box holds its own Portfolio
+ * copy and `useProgramRoom` syncs only the Program half). So this rewrite is
+ * box-local and does not outlive the session there, the same as every other
+ * Portfolio-level edit on that surface. It becomes durable for free when a
+ * Portfolio-scoped room lands; until then the alternative was leaving the
+ * override pointing at a dead id in memory too, which is strictly worse.
+ */
+function repointScenarios(source: UseCorrectionBoxResult, dest: UseCorrectionBoxResult, idMap: Record<string, string>): void {
+  source.repointScenarioOverrides(idMap);
+  dest.repointScenarioOverrides(idMap);
 }

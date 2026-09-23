@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { currentRev, type Portfolio, type PortfolioDocument, type Rag, type Milestone, type Program, type RollupSnapshot, type StyleOverride, type Swimlane, type TopLevelItem } from "@/components/timeline/types";
 import { createScenario } from "@/lib/scenario/types";
+import { repointScenarioOverrides } from "@/lib/scenario/apply";
 import { defaultPortfolioTheme, type Theme, type ThemeId } from "@/components/timeline/theme";
 import {
   coercePatchOp,
@@ -255,17 +256,21 @@ export type CorrectionBoxAction =
   // small fixed non-field primitives, same as the old laneReassignments/
   // acceptBaselineOps split before it.
   | { type: "bulkEdit"; bulkPatchOps: { op: BulkPatchOp; ids: string[] }[]; deleteIds: string[]; acceptBaselineOps: AcceptBaselineOp[] }
-  // Cross-Program move primitive (wayframe#124) — these five are the
-  // low-level box actions src/components/correction-box/cross-program-move.ts
-  // dispatches; not meant for direct UI use. `setMilestoneLane` is the
-  // same-Program case (a plain field patch, ordinarily undoable); the other
-  // four are the two sides of a real cross-Program move and clear the undo
-  // stack instead of pushing onto it — see their reducer cases' own doc.
+  // Cross-Program move primitive (wayframe#124, extended #131) — these six
+  // are the low-level box actions
+  // src/components/correction-box/cross-program-move.ts dispatches; not meant
+  // for direct UI use. `setMilestoneLane` is the same-Program case (a plain
+  // field patch, ordinarily undoable); the next four are the two sides of a
+  // real cross-Program move and clear the undo stack instead of pushing onto
+  // it; `repointScenarioOverrides` is the move's Portfolio-side half (#131),
+  // the only one of the six that doesn't touch Program content at all — see
+  // their reducer cases' own doc.
   | { type: "setMilestoneLane"; id: string; laneId: string }
   | { type: "receiveMovedMilestone"; milestone: Milestone }
   | { type: "receiveMovedSwimlane"; swimlane: Swimlane; milestones: Milestone[] }
   | { type: "releaseMovedMilestone"; id: string }
   | { type: "releaseMovedSwimlane"; id: string }
+  | { type: "repointScenarioOverrides"; idMap: Record<string, string> }
   // Realtime plumbing (wayframe t38) — see CorrectionBoxState.conflicts's doc
   // and each case's own comment in `reduce` below.
   | { type: "setFromRemote"; data: Program }
@@ -1129,6 +1134,27 @@ function reduceInner(state: CorrectionBoxState, action: CorrectionBoxAction): Co
         error: null,
       };
     }
+    case "repointScenarioOverrides": {
+      // Portfolio-side half of a cross-Program move (wayframe#131) —
+      // dispatched to BOTH boxes right after the Program halves land, so the
+      // Scenario overrides on the moved milestone(s) follow them to their new
+      // ids instead of being left `orphaned` (see repointScenarioOverrides in
+      // src/lib/scenario/apply.ts for what is and isn't rewritten).
+      //
+      // The only case here that writes `portfolio` without also writing
+      // `data`: Scenarios are Portfolio-scoped (types.ts's Portfolio), and a
+      // move changes nothing about either Program's own content beyond what
+      // the four cases above already stamped — so no `stampUpdated`, which
+      // would otherwise re-stamp `lastUpdatedAt` twice for one user action.
+      // No history entry either, for the same reason those four clear the
+      // stack: undoing this alone would restore a pre-move Portfolio while
+      // both Program halves stayed moved.
+      const scenarios = state.portfolio.scenarios;
+      if (!scenarios?.length) return state;
+      const next = scenarios.map((scenario) => repointScenarioOverrides(scenario, action.idMap));
+      if (next.every((scenario, i) => scenario === scenarios[i])) return state;
+      return { ...state, portfolio: { ...state.portfolio, scenarios: next }, error: null };
+    }
     case "addCategory": {
       // Legend category vocabulary — mirrors
       // addSwimlaneOp's placement/pattern; CategoryManager.tsx is the
@@ -1366,16 +1392,19 @@ export interface UseCorrectionBoxResult {
   /** Generalized mass-edit (wayframe#t33) — one atomic edit, see SelectionToolbar.tsx / src/lib/bulk-edit/{types,apply}.ts. */
   bulkEdit: (bulkPatchOps: { op: BulkPatchOp; ids: string[] }[], deleteIds: string[], acceptBaselineOps: AcceptBaselineOp[]) => void;
   /**
-   * Cross-Program move primitive (wayframe#124) — low-level box actions;
-   * not for direct UI use. See src/lib/corrections/cross-program-move.ts
-   * for the pure planners and src/components/correction-box/cross-program-move.ts
-   * for the orchestrator that actually calls these five.
+   * Cross-Program move primitive (wayframe#124, extended #131) — low-level
+   * box actions; not for direct UI use. See
+   * src/lib/corrections/cross-program-move.ts for the pure planners and
+   * src/components/correction-box/cross-program-move.ts for the orchestrator
+   * that actually calls these six.
    */
   setMilestoneLane: (id: string, laneId: string) => void;
   receiveMovedMilestone: (milestone: Milestone) => void;
   receiveMovedSwimlane: (swimlane: Swimlane, milestones: Milestone[]) => void;
   releaseMovedMilestone: (id: string) => void;
   releaseMovedSwimlane: (id: string) => void;
+  /** Re-points this box's Scenario overrides across a move's old-id -> new-id map (wayframe#131) — Portfolio-side, writes no Program content. */
+  repointScenarioOverrides: (idMap: Record<string, string>) => void;
   /** Offline-edit conflicts (wayframe t38) — see CorrectionBoxState.conflicts's doc. */
   conflicts: ProgramConflict[];
   /** Replaces `data` wholesale with a merged Yjs update — not a user edit, see the "setFromRemote" reducer case's doc. */
@@ -1699,6 +1728,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
   const receiveMovedSwimlane = useCallback((swimlane: Swimlane, milestones: Milestone[]) => dispatch({ type: "receiveMovedSwimlane", swimlane, milestones }), []);
   const releaseMovedMilestone = useCallback((id: string) => dispatch({ type: "releaseMovedMilestone", id }), []);
   const releaseMovedSwimlane = useCallback((id: string) => dispatch({ type: "releaseMovedSwimlane", id }), []);
+  const repointScenarioOverrides = useCallback((idMap: Record<string, string>) => dispatch({ type: "repointScenarioOverrides", idMap }), []);
   const setFromRemote = useCallback((data: Program) => dispatch({ type: "setFromRemote", data }), []);
   const addConflicts = useCallback((conflicts: ProgramConflict[]) => dispatch({ type: "addConflicts", conflicts }), []);
   const dismissConflict = useCallback((targetId: string) => dispatch({ type: "dismissConflict", targetId }), []);
@@ -1774,6 +1804,7 @@ export function useCorrectionBox(initialData: Program, initialPortfolio: Portfol
     receiveMovedSwimlane,
     releaseMovedMilestone,
     releaseMovedSwimlane,
+    repointScenarioOverrides,
     conflicts: state.conflicts,
     setFromRemote,
     addConflicts,
