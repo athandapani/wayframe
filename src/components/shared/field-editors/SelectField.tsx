@@ -1,7 +1,7 @@
 "use client";
 
 // Generic labeled `<select>` (wayframe#t33's field-editor extraction) —
-// the shape MilestoneEditorModal.tsx's AppearanceBody already used for
+// the shape MilestoneEditorInspector.tsx's AppearanceBody already used for
 // Phase shape/Phase size (label span + select, both driven off a plain
 // {value,label} option list). Also backs StatusSelect/PhaseShapeSelect/
 // PhaseSizeSelect below rather than each hand-rolling its own <select>.
@@ -11,7 +11,7 @@
 // ever fires with a real option value) — SelectionToolbar's bulk
 // value-editor needs this (there's no meaningful "current value" across a
 // mixed selection, so the control starts blank and only fires once the
-// viewer actually picks something); MilestoneEditorModal's single-item
+// viewer actually picks something); MilestoneEditorInspector's single-item
 // controls never pass it, so their behavior/DOM is unchanged.
 export function SelectField<T extends string>({
   label,

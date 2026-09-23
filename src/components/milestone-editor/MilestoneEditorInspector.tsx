@@ -1,17 +1,37 @@
 "use client";
 
-// Manual milestone editor — two-column redesign (wayframe#102/t34), the
-// winning shape from that ticket's prototype exploration (validated on
-// prototype/milestone-editor-redesign-102: sticky-preview-rail +
-// collapsible-sections beat a top-strip+tabs layout and a wizard/stepper —
-// see the prototype's own "Rejected alternatives" writeup). Content
+// Manual milestone editor — a right-docked INSPECTOR (wayframe#126, per
+// #125's Variant B resolution), not the centered modal this was until then.
+// The canvas stays visible while you edit, which is the whole point on the
+// combined multi-Program surface: you can see the Program band you're about
+// to move something out of. #126 deliberately docks it on the
+// single-Program surface too (RoadmapWorkspace.tsx) rather than only on the
+// combined one — two editing surfaces that look different for the same
+// object is exactly the inconsistency Variant B was picked to avoid.
+//
+// What survived the container change unchanged: every field, every
+// correction-box action, and t34's own content model (wayframe#102/t34,
+// validated on prototype/milestone-editor-redesign-102) — Content
 // (title/dates/status/%/owner/category/lane row/comment/critical-path)
-// stays always-open on the left and scrolls; Appearance and Relationships
-// collapse by default, each badged with a live count so a glance shows
-// what's actually been customized. The live preview on the right renders
-// through the REAL t19 resolvers (style-resolution.ts) and the REAL
-// CushionMarker/pill geometry (RoadmapTimeline.tsx) — never a re-guess at
-// what the chart draws — per the prototype's own explicit design goal.
+// always open, Appearance and Relationships collapsed by default and each
+// badged with a live count, and a live preview rendering through the REAL
+// t19 resolvers (style-resolution.ts) and the REAL CushionMarker/pill
+// geometry (RoadmapTimeline.tsx) rather than a re-guess at what the chart
+// draws.
+//
+// What the dock changed: width. The modal was `max-w-4xl` with a
+// `grid-cols-[1fr_260px]` body, so the preview could live permanently in
+// its own right rail; at 380px there is only one column, so the preview
+// became its own `Section` (open by default, collapsible when the fields
+// matter more than the picture) sitting above the fields rather than beside
+// them.
+//
+// `locationSlot` is the combined view's cross-Program move control
+// (wayframe#124's primitive, surfaced per #118/#125 as a Program + Swimlane
+// pair above the dropped-edges warning). It renders FIRST, above every
+// field, and is simply omitted on the single-Program surface, where "which
+// Program is this in" is not a question and a one-option dropdown would be
+// noise.
 //
 // Save behavior per wayframe#18: Content-field edits stay batched into the
 // Save button (buildMilestoneEditOps/milestoneToEditableFields, unchanged).
@@ -20,7 +40,7 @@
 // "instant apply, not batched" treatment onToggleDependency/onEditAttachments
 // already had — batching a styleOverride change into Save would mean the
 // override count badge and the live preview show stale state while the
-// modal is still open.
+// inspector is still open.
 import { useState } from "react";
 import type {
   Attachment,
@@ -50,6 +70,7 @@ import { addDays, formatDateShort } from "@/components/timeline/date-utils";
 import { StatusSelect } from "@/components/shared/field-editors/StatusSelect";
 import { LaneRowSelect } from "@/components/shared/field-editors/LaneRowSelect";
 import { AppearanceBody, LANE_PILL_CAPABILITIES, POINT_CAPABILITIES, Section, overrideCount } from "./AppearanceEditor";
+import { EDITOR_DOCK_CLASS } from "./editor-dock";
 
 interface EdgeRef {
   id: string;
@@ -335,11 +356,12 @@ function MilestonePreview({
 
 // Keyed on milestone.id by the wrapper below so a fresh draft mounts per
 // selection, rather than resetting local state from an effect.
-function ModalForm({
+function InspectorForm({
   data,
   theme,
   milestone,
   legendCategoryFillEnabled,
+  locationSlot,
   onSave,
   onClose,
   onDelete,
@@ -356,6 +378,7 @@ function ModalForm({
   theme: Theme;
   milestone: RenderableMilestone;
   legendCategoryFillEnabled: boolean;
+  locationSlot?: React.ReactNode;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
   onDelete: (id: string) => void;
@@ -388,269 +411,268 @@ function ModalForm({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-zinc-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-700">
-          <input
-            className="w-full bg-transparent text-lg font-semibold outline-none"
-            value={draft.title}
-            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-          />
-          <button onClick={onClose} className="ml-3 shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" aria-label="Close">
-            ✕
-          </button>
-        </div>
+    <aside aria-label="Milestone editor" className={EDITOR_DOCK_CLASS}>
+      <div className="flex items-center justify-between border-b border-zinc-200 p-3 dark:border-zinc-700">
+        <input
+          aria-label="Title"
+          className="w-full min-w-0 bg-transparent text-base font-semibold outline-none"
+          value={draft.title}
+          onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+        />
+        <button onClick={onClose} className="ml-3 shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" aria-label="Close">
+          ✕
+        </button>
+      </div>
 
-        <div className="grid grid-cols-[1fr_260px]">
-          <div className="max-h-[65vh] overflow-y-auto p-4 text-sm">
-            <div className="grid grid-cols-2 gap-4">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">Date{draft.endDate ? " (start)" : ""}</span>
-                <input
-                  type="date"
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.date}
-                  onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-                />
-                {/* The ghost mechanism's baseline (wayframe#29/#30) — "Accept"
-                    clears it so this milestone stops reading as slipped, making
-                    the current date the new normal (wayframe#62). */}
-                {milestone.originalDate && (
-                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
-                    Original: {formatDateShort(milestone.originalDate)}
-                    <button
-                      type="button"
-                      onClick={() => onAcceptBaseline(milestone.id)}
-                      className="rounded border border-zinc-300 px-1.5 py-0.5 text-[10px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
-                    >
-                      Accept
-                    </button>
-                  </p>
-                )}
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">End date</span>
-                <input
-                  type="date"
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.endDate}
-                  onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                  placeholder="blank = milestone"
-                />
-              </label>
-              {/* End date is the whole answer to "is this a milestone or a phase" (wayframe#45) —
-                  blank reads as a point milestone, filled-in reads as a lane-scoped duration pill.
-                  The convert button is a one-click shortcut for the same toggle, not a separate path. */}
-              <div className="col-span-2 -mt-2 flex items-center justify-between gap-3">
-                <p className="text-[11px] text-zinc-400">Blank reads as a milestone (diamond); a filled-in date reads as a phase (pill).</p>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm">
+        {/* Cross-Program move (combined view only) — the inspector's
+            first line, above every field, per #125's resolution. */}
+        {locationSlot}
+        {/* Was the modal's permanent 260px right rail; at dock width it
+            becomes a section of its own, open by default. */}
+        <Section title="Preview" badgeText="live" badgeActive defaultOpen>
+          <MilestonePreview milestone={milestone} draft={draft} data={data} theme={theme} legendCategoryFillEnabled={legendCategoryFillEnabled} />
+        </Section>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">Date{draft.endDate ? " (start)" : ""}</span>
+            <input
+              type="date"
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.date}
+              onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+            />
+            {/* The ghost mechanism's baseline (wayframe#29/#30) — "Accept"
+                clears it so this milestone stops reading as slipped, making
+                the current date the new normal (wayframe#62). */}
+            {milestone.originalDate && (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
+                Original: {formatDateShort(milestone.originalDate)}
                 <button
                   type="button"
-                  onClick={() => setDraft({ ...draft, endDate: draft.endDate ? "" : addDays(draft.date, 14) })}
-                  className="shrink-0 rounded border border-zinc-300 px-2 py-1 text-[11px] dark:border-zinc-600"
+                  onClick={() => onAcceptBaseline(milestone.id)}
+                  className="rounded border border-zinc-300 px-1.5 py-0.5 text-[10px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
                 >
-                  {draft.endDate ? "Convert to milestone" : "Convert to pill"}
+                  Accept
                 </button>
-              </div>
-              <label className="col-span-2 block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">
-                  Potential {draft.endDate ? "end " : ""}date <span className="font-normal text-zinc-400">— at risk of slipping to</span>
-                </span>
-                <input
-                  type="date"
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.potentialDate}
-                  onChange={(e) => setDraft({ ...draft, potentialDate: e.target.value })}
-                  placeholder="blank = no projected risk"
-                />
-              </label>
-              <label className="block">
-                <StatusSelect value={draft.status} onChange={(status) => setDraft({ ...draft, status })} />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">% complete</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.percentComplete}
-                  onChange={(e) => setDraft({ ...draft, percentComplete: Number(e.target.value) })}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">Owner</span>
-                <input
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.owner}
-                  onChange={(e) => setDraft({ ...draft, owner: e.target.value })}
-                />
-              </label>
-              {onSetCategory && (data.legendCategories?.length ?? 0) > 0 && (
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-zinc-500">Category</span>
-                  <select
-                    className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                    value={milestone.categoryId ?? ""}
-                    onChange={(e) => onSetCategory(milestone.id, e.target.value || null)}
-                  >
-                    <option value="">None</option>
-                    {data.legendCategories!.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {/* Lane row — only meaningful for a duration-pill milestone (endDate set); a point marker never stacks, per laneRow's own doc in types.ts. */}
-              {draft.endDate && (
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-zinc-500">Lane row</span>
-                  <LaneRowSelect value={milestone.laneRow ?? 1} maxRow={maxLaneRow} onChange={(row) => onSetLaneRow(milestone.id, row)} />
-                </label>
-              )}
-              <label className="col-span-2 block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">Short label (timeline marker)</span>
-                <input
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.shortLabel}
-                  onChange={(e) => setDraft({ ...draft, shortLabel: e.target.value })}
-                  placeholder="auto-derived if blank"
-                />
-              </label>
-              <label className="col-span-2 block">
-                <span className="mb-1 block text-xs font-medium text-zinc-500">Comment</span>
-                <textarea
-                  rows={3}
-                  className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
-                  value={draft.comment}
-                  onChange={(e) => setDraft({ ...draft, comment: e.target.value })}
-                />
-              </label>
-              <label className="col-span-2 flex items-center gap-2">
-                <input type="checkbox" checked={draft.isCriticalPath} onChange={(e) => setDraft({ ...draft, isCriticalPath: e.target.checked })} />
-                <span className="text-xs font-medium text-zinc-500">On critical path (override)</span>
-              </label>
-              <label className="col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.showReferenceLine}
-                  onChange={(e) => setDraft({ ...draft, showReferenceLine: e.target.checked })}
-                />
-                <span className="text-xs font-medium text-zinc-500">Show reference line on the chart</span>
-              </label>
-            </div>
-
-            <Section title="Appearance" badgeText={appearanceOverrides > 0 ? `${appearanceOverrides} override${appearanceOverrides === 1 ? "" : "s"}` : "default"} badgeActive={appearanceOverrides > 0}>
-              <AppearanceBody
-                item={milestone}
-                data={data}
-                theme={theme}
-                legendCategoryFillEnabled={legendCategoryFillEnabled}
-                capabilities={draft.endDate ? LANE_PILL_CAPABILITIES : POINT_CAPABILITIES}
-                onSetStyleOverride={onSetStyleOverride}
-                onClearStyleOverride={onClearStyleOverride}
-              />
-            </Section>
-
-            <Section title="Relationships" badgeText={relationshipCount > 0 ? `${relationshipCount} linked` : "none"} badgeActive={relationshipCount > 0}>
-              <EdgeEditor
-                label="Predecessors"
-                hint="Must finish before this milestone"
-                edges={predecessors}
-                candidates={otherMilestones.filter((o) => !predecessors.some((p) => p.id === o.id))}
-                onAdd={(otherId) => onToggleDependency(milestone.id, otherId, true)}
-                onRemove={(otherId) => onToggleDependency(milestone.id, otherId, false)}
-              />
-              <EdgeEditor
-                label="Successors"
-                hint="Wait on this milestone"
-                edges={successors}
-                candidates={otherMilestones.filter((o) => !successors.some((s) => s.id === o.id))}
-                // A successor edge is the same edge read from the other end —
-                // it lives on the *other* milestone's dependsOn, so the ids swap.
-                onAdd={(otherId) => onToggleDependency(otherId, milestone.id, true)}
-                onRemove={(otherId) => onToggleDependency(otherId, milestone.id, false)}
-              />
-              <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
-                <p className="mb-1 text-xs font-semibold text-zinc-500">
-                  Highlight on the chart <span className="font-normal text-zinc-400">— a view, nothing is saved</span>
-                </p>
-                <div className="flex gap-1.5">
-                  {(
-                    [
-                      ["upstream", "Everything feeding this"],
-                      ["downstream", "Everything waiting on this"],
-                      ["both", "Both directions"],
-                    ] as const
-                  ).map(([dir, label]) => (
-                    <button
-                      key={dir}
-                      onClick={() => onTrace(dir)}
-                      className="rounded border border-zinc-300 px-2 py-1 text-[11px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
-                <AttachmentEditor
-                  attachments={milestone.attachments ?? []}
-                  onAdd={(attachment) => onEditAttachments([{ targetId: milestone.id, action: "add", attachment, reason: "manual edit" }])}
-                  onRemove={(index) => onEditAttachments([{ targetId: milestone.id, action: "remove", index, reason: "manual edit" }])}
-                  onEdit={(index, attachment) =>
-                    onEditAttachments([
-                      { targetId: milestone.id, action: "remove", index, reason: "manual edit" },
-                      { targetId: milestone.id, action: "add", attachment, index, reason: "manual edit" },
-                    ])
-                  }
-                />
-              </div>
-            </Section>
+              </p>
+            )}
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">End date</span>
+            <input
+              type="date"
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.endDate}
+              onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+              placeholder="blank = milestone"
+            />
+          </label>
+          {/* End date is the whole answer to "is this a milestone or a phase" (wayframe#45) —
+              blank reads as a point milestone, filled-in reads as a lane-scoped duration pill.
+              The convert button is a one-click shortcut for the same toggle, not a separate path. */}
+          <div className="col-span-2 -mt-2 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-zinc-400">Blank reads as a milestone (diamond); a filled-in date reads as a phase (pill).</p>
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, endDate: draft.endDate ? "" : addDays(draft.date, 14) })}
+              className="shrink-0 rounded border border-zinc-300 px-2 py-1 text-[11px] dark:border-zinc-600"
+            >
+              {draft.endDate ? "Convert to milestone" : "Convert to pill"}
+            </button>
           </div>
-
-          <div className="border-l border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
-            <MilestonePreview milestone={milestone} draft={draft} data={data} theme={theme} legendCategoryFillEnabled={legendCategoryFillEnabled} />
-          </div>
+          <label className="col-span-2 block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">
+              Potential {draft.endDate ? "end " : ""}date <span className="font-normal text-zinc-400">— at risk of slipping to</span>
+            </span>
+            <input
+              type="date"
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.potentialDate}
+              onChange={(e) => setDraft({ ...draft, potentialDate: e.target.value })}
+              placeholder="blank = no projected risk"
+            />
+          </label>
+          <label className="block">
+            <StatusSelect value={draft.status} onChange={(status) => setDraft({ ...draft, status })} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">% complete</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.percentComplete}
+              onChange={(e) => setDraft({ ...draft, percentComplete: Number(e.target.value) })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">Owner</span>
+            <input
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.owner}
+              onChange={(e) => setDraft({ ...draft, owner: e.target.value })}
+            />
+          </label>
+          {onSetCategory && (data.legendCategories?.length ?? 0) > 0 && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-500">Category</span>
+              <select
+                className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+                value={milestone.categoryId ?? ""}
+                onChange={(e) => onSetCategory(milestone.id, e.target.value || null)}
+              >
+                <option value="">None</option>
+                {data.legendCategories!.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {/* Lane row — only meaningful for a duration-pill milestone (endDate set); a point marker never stacks, per laneRow's own doc in types.ts. */}
+          {draft.endDate && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-500">Lane row</span>
+              <LaneRowSelect value={milestone.laneRow ?? 1} maxRow={maxLaneRow} onChange={(row) => onSetLaneRow(milestone.id, row)} />
+            </label>
+          )}
+          <label className="col-span-2 block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">Short label (timeline marker)</span>
+            <input
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.shortLabel}
+              onChange={(e) => setDraft({ ...draft, shortLabel: e.target.value })}
+              placeholder="auto-derived if blank"
+            />
+          </label>
+          <label className="col-span-2 block">
+            <span className="mb-1 block text-xs font-medium text-zinc-500">Comment</span>
+            <textarea
+              rows={3}
+              className="w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600"
+              value={draft.comment}
+              onChange={(e) => setDraft({ ...draft, comment: e.target.value })}
+            />
+          </label>
+          <label className="col-span-2 flex items-center gap-2">
+            <input type="checkbox" checked={draft.isCriticalPath} onChange={(e) => setDraft({ ...draft, isCriticalPath: e.target.checked })} />
+            <span className="text-xs font-medium text-zinc-500">On critical path (override)</span>
+          </label>
+          <label className="col-span-2 flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.showReferenceLine}
+              onChange={(e) => setDraft({ ...draft, showReferenceLine: e.target.checked })}
+            />
+            <span className="text-xs font-medium text-zinc-500">Show reference line on the chart</span>
+          </label>
         </div>
 
-        <div className="flex items-center justify-between border-t border-zinc-200 p-4 dark:border-zinc-700">
-          {/* No confirm dialog — deleting is instant and undoable through the
-              same shared undo stack as every other edit (wayframe#38 item 3 /
-              #39), so a confirm step would just be friction on a mistake
-              that's one Undo away from fixed. */}
-          <button
-            onClick={() => {
-              onDelete(milestone.id);
-              onClose();
-            }}
-            className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
-          >
-            Delete
-          </button>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
-              Cancel
-            </button>
-            <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
-              Save
-            </button>
+        <Section title="Appearance" badgeText={appearanceOverrides > 0 ? `${appearanceOverrides} override${appearanceOverrides === 1 ? "" : "s"}` : "default"} badgeActive={appearanceOverrides > 0}>
+          <AppearanceBody
+            item={milestone}
+            data={data}
+            theme={theme}
+            legendCategoryFillEnabled={legendCategoryFillEnabled}
+            capabilities={draft.endDate ? LANE_PILL_CAPABILITIES : POINT_CAPABILITIES}
+            onSetStyleOverride={onSetStyleOverride}
+            onClearStyleOverride={onClearStyleOverride}
+          />
+        </Section>
+
+        <Section title="Relationships" badgeText={relationshipCount > 0 ? `${relationshipCount} linked` : "none"} badgeActive={relationshipCount > 0}>
+          <EdgeEditor
+            label="Predecessors"
+            hint="Must finish before this milestone"
+            edges={predecessors}
+            candidates={otherMilestones.filter((o) => !predecessors.some((p) => p.id === o.id))}
+            onAdd={(otherId) => onToggleDependency(milestone.id, otherId, true)}
+            onRemove={(otherId) => onToggleDependency(milestone.id, otherId, false)}
+          />
+          <EdgeEditor
+            label="Successors"
+            hint="Wait on this milestone"
+            edges={successors}
+            candidates={otherMilestones.filter((o) => !successors.some((s) => s.id === o.id))}
+            // A successor edge is the same edge read from the other end —
+            // it lives on the *other* milestone's dependsOn, so the ids swap.
+            onAdd={(otherId) => onToggleDependency(otherId, milestone.id, true)}
+            onRemove={(otherId) => onToggleDependency(otherId, milestone.id, false)}
+          />
+          <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
+            <p className="mb-1 text-xs font-semibold text-zinc-500">
+              Highlight on the chart <span className="font-normal text-zinc-400">— a view, nothing is saved</span>
+            </p>
+            <div className="flex gap-1.5">
+              {(
+                [
+                  ["upstream", "Everything feeding this"],
+                  ["downstream", "Everything waiting on this"],
+                  ["both", "Both directions"],
+                ] as const
+              ).map(([dir, label]) => (
+                <button
+                  key={dir}
+                  onClick={() => onTrace(dir)}
+                  className="rounded border border-zinc-300 px-2 py-1 text-[11px] text-zinc-600 hover:border-zinc-500 dark:border-zinc-600 dark:text-zinc-300"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
+            <AttachmentEditor
+              attachments={milestone.attachments ?? []}
+              onAdd={(attachment) => onEditAttachments([{ targetId: milestone.id, action: "add", attachment, reason: "manual edit" }])}
+              onRemove={(index) => onEditAttachments([{ targetId: milestone.id, action: "remove", index, reason: "manual edit" }])}
+              onEdit={(index, attachment) =>
+                onEditAttachments([
+                  { targetId: milestone.id, action: "remove", index, reason: "manual edit" },
+                  { targetId: milestone.id, action: "add", attachment, index, reason: "manual edit" },
+                ])
+              }
+            />
+          </div>
+        </Section>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-zinc-200 p-3 dark:border-zinc-700">
+        {/* No confirm dialog — deleting is instant and undoable through the
+            same shared undo stack as every other edit (wayframe#38 item 3 /
+            #39), so a confirm step would just be friction on a mistake
+            that's one Undo away from fixed. */}
+        <button
+          onClick={() => {
+            onDelete(milestone.id);
+            onClose();
+          }}
+          className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+        >
+          Delete
+        </button>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
+            Cancel
+          </button>
+          <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
+            Save
+          </button>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
 
-export function MilestoneEditorModal({
+export function MilestoneEditorInspector({
   data,
   theme,
   milestone,
   legendCategoryFillEnabled,
+  locationSlot,
   onSave,
   onClose,
   onDelete,
@@ -667,6 +689,8 @@ export function MilestoneEditorModal({
   theme: Theme;
   milestone: RenderableMilestone | null;
   legendCategoryFillEnabled: boolean;
+  /** The combined view's cross-Program move control (wayframe#126) — rendered as the inspector's first line. Omitted on the single-Program surface; see this file's header doc. */
+  locationSlot?: React.ReactNode;
   onSave: (ops: PatchOp[]) => void;
   onClose: () => void;
   onDelete: (id: string) => void;
@@ -681,12 +705,13 @@ export function MilestoneEditorModal({
 }) {
   if (!milestone) return null;
   return (
-    <ModalForm
+    <InspectorForm
       key={milestone.id}
       data={data}
       theme={theme}
       milestone={milestone}
       legendCategoryFillEnabled={legendCategoryFillEnabled}
+      locationSlot={locationSlot}
       onSave={onSave}
       onClose={onClose}
       onDelete={onDelete}

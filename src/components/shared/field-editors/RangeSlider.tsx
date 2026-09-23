@@ -1,7 +1,7 @@
 "use client";
 
 // Generic labeled numeric range control (wayframe#t33's field-editor
-// extraction) — pulled out of MilestoneEditorModal.tsx's AppearanceBody,
+// extraction) — pulled out of MilestoneEditorInspector.tsx's AppearanceBody,
 // where marker-scale and font-scale used byte-for-byte identical JSX (same
 // 0.6-2/step 0.05 range, same "N.NNx" formatting), so one component now
 // serves both call sites there plus SelectionToolbar's bulk value-editor

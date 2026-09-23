@@ -526,7 +526,7 @@ export interface PortfolioDocument {
 export type RenderableMilestone = Milestone & { isCriticalPath: boolean };
 
 /**
- * What the render layer (RoadmapTimeline, MilestoneEditorModal, ChartLegend,
+ * What the render layer (RoadmapTimeline, MilestoneEditorInspector, ChartLegend,
  * CategoryManager) actually consumes — one Program's content reassembled
  * with its Portfolio's shared fields, structurally identical to the flat
  * document shape that existed before t11's Portfolio/Program split, plus
