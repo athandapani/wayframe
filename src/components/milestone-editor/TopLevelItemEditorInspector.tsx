@@ -22,7 +22,7 @@ import type { RenderableProgram, Status, StyleOverride, TopLevelItem } from "@/c
 import type { Theme } from "@/components/timeline/theme";
 import type { TopLevelItemPatch } from "@/components/correction-box/use-correction-box";
 import { AppearanceBody, Section, TOP_LEVEL_MILESTONE_CAPABILITIES, TOP_LEVEL_PHASE_CAPABILITIES, overrideCount } from "./AppearanceEditor";
-import { EDITOR_DOCK_CLASS } from "./editor-dock";
+import { EDITOR_DOCK_CLASS, EDITOR_DOCK_STYLE } from "./editor-dock";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
@@ -90,7 +90,7 @@ function InspectorForm({
   }
 
   return (
-    <aside aria-label="Program-band item editor" className={EDITOR_DOCK_CLASS}>
+    <aside aria-label="Program-band item editor" className={EDITOR_DOCK_CLASS} style={EDITOR_DOCK_STYLE}>
       <div className="flex items-center justify-between border-b border-zinc-200 p-3 dark:border-zinc-700">
         <input
           aria-label="Title"

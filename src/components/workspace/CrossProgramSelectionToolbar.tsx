@@ -25,25 +25,25 @@
 //     so a combined multi-Program DiffBanner list can't collide on two
 //     Programs' identical local ids — only de-namespaced again when
 //     building the final per-Program apply request.
-//   - apply POSTs one request to `.../programs/bulk-patch` (grouped by
+//   - apply hands the caller one `opsByProgram` record (grouped by
 //     programId, de-namespaced back to local ids) instead of dispatching a
 //     local reducer action — there is no single client-side Program
 //     document this selection could ever belong to.
-//   - after a successful apply, the caller (`onApplied`) is responsible for
-//     refetching the page's data (mirrors `handleMoveProgram`'s own
-//     convention on this page and the reorder route's own reasoning for why
-//     a client-side optimistic recompute would be the wrong tradeoff here)
-//     — this component never tries to locally patch `programs` itself.
 //
-// Deliberately NO undo wiring for this surface — call this out explicitly
-// since it's a real, deliberate scope cut, not an oversight: t38's live
-// per-(user, Program) undo manager (src/lib/realtime/undo-manager.ts) only
-// ever activates for an open `useProgramRoom` WebSocket connection (see the
-// reorder route's own comment — realtime editing is scoped to one already-
-// open Program), and the All-Programs page holds no live per-Program
-// realtime connections at all. Building N of them just to get undo here
-// would be a real scope expansion beyond this ticket — left for a future
-// one.
+// wayframe#126 changed where that record goes, and nothing else here. It
+// used to be POSTed to `.../programs/bulk-patch`, because this page held no
+// live connections and a server-side write was the only write there was.
+// The combined editor connects every Program's room, so the same record now
+// goes straight to each Program's own live box — reaching the very documents
+// the canvas is rendering, rather than a server-side write a connected room
+// wouldn't see until a reload. Two consequences worth naming:
+//   - `onApply` is synchronous and has no failure mode to report; the
+//     `applying`/`applyError` states this component used to carry for the
+//     POST are gone with it.
+//   - the edit now lands in each Program's own undo stack, since it goes
+//     through the same box actions every other edit does. t33's original
+//     "deliberately NO undo wiring for this surface" cut was a consequence
+//     of the REST path, not a design choice to preserve.
 import { useState } from "react";
 import type { Milestone, Program, TopLevelItem } from "@/components/timeline/types";
 import type { UseSelectionResult } from "@/components/timeline/use-selection";
@@ -60,7 +60,8 @@ const EXCLUDED_FIELDS: readonly BulkPatchField[] = ["laneId", "laneRow"];
 
 type PendingAction = { kind: "patch"; op: BulkPatchOp } | { kind: "delete" } | { kind: "acceptBaseline" };
 
-type OpsForProgram = { bulkPatchOps: { op: BulkPatchOp; ids: string[] }[]; deleteIds: string[]; acceptBaselineOps: AcceptBaselineOp[] };
+/** One Program's share of a cross-Program bulk edit, in that Program's own id space. */
+export type OpsForProgram = { bulkPatchOps: { op: BulkPatchOp; ids: string[] }[]; deleteIds: string[]; acceptBaselineOps: AcceptBaselineOp[] };
 
 /** Groups namespaced ids by owning Program, dropping ids that don't parse or don't resolve to a Program present in `programsById`. */
 function groupByProgram(ids: readonly string[], programsById: ReadonlyMap<string, Program>): Map<string, string[]> {
@@ -76,21 +77,18 @@ function groupByProgram(ids: readonly string[], programsById: ReadonlyMap<string
 }
 
 export function CrossProgramSelectionToolbar({
-  portfolioId,
   programs,
   selection,
-  onApplied,
+  onApply,
 }: {
-  portfolioId: string;
-  /** Each Program's own REAL (non-merged, own-id-space) object — `result.data.programs` on the All-Programs page, never the merged/namespaced canvas data. */
+  /** Each Program's own REAL (non-merged, own-id-space) object — on the combined editor, each live box's own `data`; never the merged/namespaced canvas data. */
   programs: readonly Program[];
   selection: UseSelectionResult;
-  onApplied: () => Promise<void> | void;
+  /** Applies the grouped edit — one entry per affected Program, already in that Program's own id space. See this file's header for why this replaced a POST. */
+  onApply: (opsByProgram: Record<string, OpsForProgram>) => void;
 }) {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [acceptedOverride, setAcceptedOverride] = useState<Set<string> | null>(null);
-  const [applyError, setApplyError] = useState<string | null>(null);
-  const [applying, setApplying] = useState(false);
 
   const selectedIds = [...selection.selectedIds];
   if (selectedIds.length === 0) return null;
@@ -134,13 +132,11 @@ export function CrossProgramSelectionToolbar({
   function startAction(action: PendingAction) {
     setPendingAction(action);
     setAcceptedOverride(null);
-    setApplyError(null);
   }
 
   function discardPreview() {
     setPendingAction(null);
     setAcceptedOverride(null);
-    setApplyError(null);
   }
 
   function toggleAccept(id: string) {
@@ -150,8 +146,8 @@ export function CrossProgramSelectionToolbar({
     setAcceptedOverride(next);
   }
 
-  async function apply() {
-    if (!pendingAction || applying) return;
+  function apply() {
+    if (!pendingAction) return;
     const acceptedNamespacedIds = entries.filter((e) => accepted.has(e.id)).map((e) => e.id);
     if (acceptedNamespacedIds.length === 0) return;
 
@@ -170,36 +166,18 @@ export function CrossProgramSelectionToolbar({
             : { bulkPatchOps: [], deleteIds: [], acceptBaselineOps: bulkAcceptBaseline(program.milestones, localIds) };
     }
 
-    setApplying(true);
-    setApplyError(null);
-    try {
-      const res = await fetch(`/api/portfolios/${portfolioId}/programs/bulk-patch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opsByProgram }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => null);
-        setApplyError(errBody?.error ?? `Couldn't apply (${res.status}).`);
-        return;
-      }
-      // Refetch-after-success, not a local optimistic recompute — mirrors
-      // handleMoveProgram's own convention on this page (see this file's
-      // top doc).
-      await onApplied();
-      discardPreview();
-      selection.clear();
-    } catch {
-      setApplyError("Something went wrong applying this edit.");
-    } finally {
-      setApplying(false);
-    }
+    onApply(opsByProgram);
+    discardPreview();
+    selection.clear();
   }
 
   const programCountLabel = `${groups.size} Program${groups.size === 1 ? "" : "s"}`;
 
   return (
-    <div className="fixed bottom-24 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2">
+    // marginLeft: the --wf-dock-w shift CorrectionBox.tsx documents (its
+    // DOCK_SHIFT) — keeps this centered on the canvas rather than the window
+    // when the inspector is docked to the right (wayframe#126).
+    <div style={{ marginLeft: "calc(var(--wf-dock-w, 0px) / -2)" }} className="fixed bottom-24 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2">
       {pendingAction && (
         <DiffBanner
           title={
@@ -214,10 +192,9 @@ export function CrossProgramSelectionToolbar({
           onToggle={toggleAccept}
           onApply={apply}
           onDiscard={discardPreview}
-          applyLabel={applying ? "Applying…" : pendingAction.kind === "delete" ? "Delete" : "Apply"}
+          applyLabel={pendingAction.kind === "delete" ? "Delete" : "Apply"}
         />
       )}
-      {applyError && <p className="text-xs text-red-600">{applyError}</p>}
       {!pendingAction && (
         <div
           style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}

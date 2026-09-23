@@ -696,6 +696,10 @@ export function RoadmapWorkspace({
           // instead of sliding under the dock. See CorrectionBox.tsx's
           // DOCK_SHIFT.
           "--wf-dock-w": selectedMilestone || selectedTopLevelItem ? `${EDITOR_DOCK_WIDTH}px` : "0px",
+          // Clears this surface's own floating top toolbar (the `fixed top-3`
+          // rows below), which spans the whole window and would otherwise
+          // paint over the docked editor's title row.
+          "--wf-dock-top": "3.5rem",
         } as React.CSSProperties
       }
     >

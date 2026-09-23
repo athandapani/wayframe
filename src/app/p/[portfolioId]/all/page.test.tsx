@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Portfolio, Program } from "@/components/timeline/types";
 
@@ -7,10 +7,8 @@ vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
 }));
 
-const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ portfolioId: "portfolio-1" }),
-  useRouter: () => ({ push: pushMock }),
 }));
 
 // AuthControls pulls in a real sign-in/out button tied to next-auth — this
@@ -18,6 +16,18 @@ vi.mock("next/navigation", () => ({
 // "mock the chrome, not the thing under test" scoping RoadmapWorkspace's
 // own tests use for adjacent chrome.
 vi.mock("@/components/auth/AuthControls", () => ({ AuthControls: () => null }));
+
+// The room layer, stubbed (wayframe#126): this page now connects one live
+// Yjs room per Program, and a real `useProgramRoom` would open N websockets
+// to a Partykit host that doesn't exist under vitest. Every box still
+// behaves exactly as it does in production — the room is the piece that
+// syncs a box to a server, not the piece that makes it editable — so
+// stubbing it leaves the editing behaviour these tests are about fully
+// intact. The hook's own behaviour has its own tests
+// (src/lib/realtime/use-program-room.test.ts).
+vi.mock("@/lib/realtime/use-program-room", () => ({
+  useProgramRoom: () => ({ status: "connected", showOfflineBadge: false, peers: [] }),
+}));
 
 function portfolio(): Portfolio {
   return { id: "portfolio-1", schemaVersion: 2 };
@@ -66,21 +76,104 @@ beforeEach(() => {
   useSessionMock.mockReturnValue({ status: "authenticated", data: { user: { name: "Test User", email: "test@example.com" } } });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
-  pushMock.mockReset();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function rail() {
+  return screen.getByRole("complementary", { name: "Programs in this Roadmap" });
+}
+
+function marker(mergedId: string): Element | null {
+  return document.querySelector(`[data-testid="marker-glyph-${mergedId}"]`);
+}
+
 async function renderPage(role: "owner" | "editor" | "viewer" = "editor") {
   fetchMock.mockResolvedValueOnce(allProgramsResponse(role));
   const { default: AllProgramsPage } = await import("./page");
   render(<AllProgramsPage />);
   await waitFor(() => expect(screen.getByTestId("roadmap-timeline")).toBeInTheDocument());
+  // Each Program publishes its box one commit after mount; the canvas is
+  // only whole once both have.
+  await waitFor(() => expect(marker("program-B::m1")).not.toBeNull());
 }
 
-describe("AllProgramsPage — cross-Program bulk edit (wayframe#t33 fork 3)", () => {
+describe("AllProgramsPage — the Program rail (wayframe#126, #125's Variant B)", () => {
+  it("lists every Program in the Roadmap, with the first card expanded as the structure editor", async () => {
+    await renderPage("editor");
+    expect(within(rail()).getByText("Program Alpha")).toBeInTheDocument();
+    expect(within(rail()).getByText("Program Beta")).toBeInTheDocument();
+    // The expanded card IS the selected tab — there are no tabs.
+    expect(screen.getAllByRole("link", { name: "Open on its own" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Open on its own" })[0]).toHaveAttribute("href", "/p/portfolio-1?programId=program-A");
+  });
+
+  it("collapses one Program's band on the canvas without touching the other's, and independently of which card is expanded", async () => {
+    await renderPage("editor");
+    expect(marker("program-A::m1")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Program Alpha's band on the canvas" }));
+
+    await waitFor(() => expect(marker("program-A::m1")).toBeNull());
+    expect(marker("program-B::m1")).not.toBeNull();
+    // Collapse didn't close the card: its lanes are still editable.
+    expect(screen.getByRole("button", { name: "+ Lane" })).toBeInTheDocument();
+  });
+
+  it("renames a lane through the owning Program's own live box", async () => {
+    await renderPage("editor");
+    fireEvent.change(screen.getByLabelText("Name of Lane 1"), { target: { value: "Delivery" } });
+    await waitFor(() => expect(screen.getByLabelText("Name of Delivery")).toBeInTheDocument());
+  });
+
+  it("gives a viewer no structure editing at all", async () => {
+    await renderPage("viewer");
+    // The first card is expanded by default — for a viewer it says why it's empty.
+    expect(screen.getByText("You have view-only access to this Roadmap.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ Lane" })).not.toBeInTheDocument();
+  });
+});
+
+describe("AllProgramsPage — the docked inspector and cross-Program move (wayframe#126/#124)", () => {
+  it("opens the inspector against the owning Program's OWN document, with the move control as its first line", async () => {
+    await renderPage("editor");
+
+    fireEvent.click(marker("program-A::m1")!);
+
+    expect(await screen.findByRole("complementary", { name: "Milestone editor" })).toBeInTheDocument();
+    expect(screen.getByText(/Currently in/)).toHaveTextContent("Currently in Program Alpha / Lane 1");
+    // The destination list offers the sibling Program, never the one it's already in.
+    const destinations = Array.from(screen.getByLabelText("Move to Program").querySelectorAll("option")).map((o) => o.textContent);
+    expect(destinations).toEqual(["Stay in Program Alpha", "Program Beta"]);
+  });
+
+  it("moves a milestone into another Program: it leaves the source band and arrives in the destination under a new id", async () => {
+    await renderPage("editor");
+    fireEvent.click(marker("program-A::m1")!);
+
+    fireEvent.change(await screen.findByLabelText("Move to Program"), { target: { value: "program-B" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move to Program Beta" }));
+
+    await waitFor(() => expect(marker("program-A::m1")).toBeNull());
+    // #124 mints a fresh, storage-durable id in the destination Program, so
+    // the arrival is asserted by count rather than by the old id.
+    await waitFor(() => expect(document.querySelectorAll('[data-testid^="marker-glyph-program-B::"]')).toHaveLength(2));
+    // The inspector closed rather than pointing at an id that no longer exists.
+    expect(screen.queryByRole("complementary", { name: "Milestone editor" })).not.toBeInTheDocument();
+  });
+
+  it("closes the inspector without applying anything when Cancel is pressed", async () => {
+    await renderPage("editor");
+    fireEvent.click(marker("program-A::m1")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("complementary", { name: "Milestone editor" })).not.toBeInTheDocument();
+    expect(marker("program-A::m1")).not.toBeNull();
+  });
+});
+
+describe("AllProgramsPage — cross-Program bulk edit (wayframe#t33 fork 3, live since #126)", () => {
   it("shows the Select-mode toggle for an editor", async () => {
     await renderPage("editor");
     expect(screen.getByRole("button", { name: /Select mode/ })).toBeInTheDocument();
@@ -100,66 +193,46 @@ describe("AllProgramsPage — cross-Program bulk edit (wayframe#t33 fork 3)", ()
     await renderPage("editor");
 
     fireEvent.click(screen.getByRole("button", { name: /Select mode/ }));
-    const toggle = screen.getByRole("button", { name: /Select mode/ });
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Select mode/ })).toHaveAttribute("aria-pressed", "true");
 
-    fireEvent.click(document.querySelector('[data-testid="marker-glyph-program-A::m1"]')!);
-    fireEvent.click(document.querySelector('[data-testid="marker-glyph-program-B::m1"]')!);
+    fireEvent.click(marker("program-A::m1")!);
+    fireEvent.click(marker("program-B::m1")!);
 
     expect(screen.getByText("2 selected across 2 Programs")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Set property…" }));
-    const fieldSelect = screen.getByLabelText("Set property to");
-    const optionLabels = Array.from(fieldSelect.querySelectorAll("option")).map((o) => o.textContent);
+    const optionLabels = Array.from(screen.getByLabelText("Set property to").querySelectorAll("option")).map((o) => o.textContent);
     expect(optionLabels).not.toContain("Lane");
     expect(optionLabels).not.toContain("Lane row");
     expect(optionLabels).toContain("Status");
   });
 
-  it("apply POSTs the correctly-grouped-by-programId body and refetches on success", async () => {
+  it("applies through each Program's own live box — no REST round-trip, and the canvas updates in place", async () => {
     await renderPage("editor");
 
     fireEvent.click(screen.getByRole("button", { name: /Select mode/ }));
-    fireEvent.click(document.querySelector('[data-testid="marker-glyph-program-A::m1"]')!);
-    fireEvent.click(document.querySelector('[data-testid="marker-glyph-program-B::m1"]')!);
+    fireEvent.click(marker("program-A::m1")!);
+    fireEvent.click(marker("program-B::m1")!);
 
-    fireEvent.click(screen.getByRole("button", { name: "Set property…" }));
-    fireEvent.change(screen.getByLabelText("Set property to"), { target: { value: "status" } });
-    fireEvent.change(screen.getByLabelText("Set status to"), { target: { value: "at-risk" } });
+    // The toolbar's own Delete (the rail has per-lane ✕ buttons labelled "Delete <lane>").
+    const toolbar = screen.getByText("2 selected across 2 Programs").parentElement!;
+    fireEvent.click(within(toolbar).getByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete (2)" }));
 
-    // The DiffBanner preview is now showing — apply it.
-    const applyButton = await screen.findByRole("button", { name: /^Apply/ });
-
-    fetchMock.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    fetchMock.mockResolvedValueOnce(allProgramsResponse("editor"));
-
-    fireEvent.click(applyButton);
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3)); // initial GET + bulk-patch POST + refetch GET
-
-    const bulkPatchCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/programs/bulk-patch"));
-    expect(bulkPatchCall).toBeDefined();
-    const [, init] = bulkPatchCall!;
-    const body = JSON.parse(init.body as string);
-    expect(Object.keys(body.opsByProgram).sort()).toEqual(["program-A", "program-B"]);
-    expect(body.opsByProgram["program-A"]).toEqual({ bulkPatchOps: [{ op: { field: "status", value: "at-risk" }, ids: ["m1"] }], deleteIds: [], acceptBaselineOps: [] });
-    expect(body.opsByProgram["program-B"]).toEqual({ bulkPatchOps: [{ op: { field: "status", value: "at-risk" }, ids: ["m1"] }], deleteIds: [], acceptBaselineOps: [] });
-
-    // Selection is cleared and the toolbar disappears once nothing is selected.
+    // Both Programs' documents actually changed, which is what the old REST
+    // path could not do while a room held the live doc (see the page's own
+    // header) — and the merged canvas is rendering those documents.
+    await waitFor(() => expect(marker("program-A::m1")).toBeNull());
+    expect(marker("program-B::m1")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/programs/bulk-patch"))).toBe(false);
     await waitFor(() => expect(screen.queryByText(/selected across/)).not.toBeInTheDocument());
   });
 });
 
 describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
-  it("shows a '+ New Program' button for an editor, and an 'Open' link on each Program in the Outline", async () => {
+  it("shows a '+ New Program' button for an editor", async () => {
     await renderPage("editor");
     expect(screen.getByRole("button", { name: "+ New Program" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Outline/ }));
-    const openLinks = screen.getAllByRole("link", { name: "Open" });
-    expect(openLinks).toHaveLength(2);
-    expect(openLinks[0]).toHaveAttribute("href", "/p/portfolio-1?programId=program-A");
-    expect(openLinks[1]).toHaveAttribute("href", "/p/portfolio-1?programId=program-B");
   });
 
   it("hides '+ New Program' for a viewer", async () => {
@@ -167,21 +240,29 @@ describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
     expect(screen.queryByRole("button", { name: "+ New Program" })).not.toBeInTheDocument();
   });
 
-  it("creating a Program POSTs a schema-complete empty document to the extract route and navigates to it", async () => {
+  it("POSTs a schema-complete empty document and refetches, leaving the new Program in the rail rather than navigating away", async () => {
     await renderPage("editor");
 
     fireEvent.click(screen.getByRole("button", { name: "+ New Program" }));
     fireEvent.change(screen.getByLabelText("New Program name"), { target: { value: "Q3 Launch" } });
 
     fetchMock.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ programId: "program-new-1" }) });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          role: "editor",
+          portfolio: portfolio(),
+          programs: [programA(), programB(), { ...programA(), id: "program-new-1", order: 2, programName: "Q3 Launch", swimlanes: [], milestones: [] }],
+        }),
+    });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/p/portfolio-1?programId=program-new-1"));
+    await waitFor(() => expect(within(rail()).getByText("Q3 Launch")).toBeInTheDocument());
 
     const extractCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/programs/extract"));
     expect(extractCall).toBeDefined();
-    const [, init] = extractCall!;
-    const body = JSON.parse(init.body as string);
+    const body = JSON.parse(extractCall![1].body as string);
     expect(body.document.programName).toBe("Q3 Launch");
     expect(body.document.owner).toBe("Test User");
     // Every Program field the extract route's spread doesn't otherwise supply must be real, not omitted.
@@ -189,7 +270,7 @@ describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
     expect(typeof body.document.generatedAt).toBe("string");
   });
 
-  it("shows an inline error and does not navigate when the extract route fails", async () => {
+  it("shows an inline error when the extract route fails", async () => {
     await renderPage("editor");
 
     fireEvent.click(screen.getByRole("button", { name: "+ New Program" }));
@@ -199,6 +280,5 @@ describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
-    expect(pushMock).not.toHaveBeenCalled();
   });
 });

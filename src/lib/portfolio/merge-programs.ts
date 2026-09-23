@@ -52,7 +52,26 @@ export function splitNamespacedId(id: string): { programId: string; localId: str
 }
 
 /** The synthetic id every Program gets namespaced under for its own depth-0 wrapping SwimlaneGroup — see mergeProgramsForAllView's doc. */
-const PROGRAM_BAND_LOCAL_ID = "__program__";
+export const PROGRAM_BAND_LOCAL_ID = "__program__";
+
+/** The merged-view id of a Program's own band. Exported (wayframe#126) because the combined editor addresses bands by id — its rail collapses them, and the canvas reports clicks on them. */
+export function programBandId(programId: string): string {
+  return namespaceId(programId, PROGRAM_BAND_LOCAL_ID);
+}
+
+/**
+ * True for a merged id that names a Program BAND rather than anything
+ * inside a Program (wayframe#126). The distinction matters at exactly one
+ * place — collapse: a real SwimlaneGroup's `collapsed` is document content
+ * and routes to its owning Program's box like any other edit, while a band
+ * is synthetic (it exists only for the duration of one merge pass, see this
+ * module's header) and so has no field in any Program's doc to write to.
+ * The combined editor keeps band collapse as viewer-local state for that
+ * reason, not as a design preference.
+ */
+export function isProgramBandId(id: string): boolean {
+  return splitNamespacedId(id)?.localId === PROGRAM_BAND_LOCAL_ID;
+}
 
 /**
  * Merges N Programs into one Program-shaped object for a read-only
@@ -85,13 +104,13 @@ export function mergeProgramsForAllView(portfolioId: string, programs: Program[]
   const milestones: Milestone[] = [];
 
   sorted.forEach((program, i) => {
-    const programBandId = namespaceId(program.id, PROGRAM_BAND_LOCAL_ID);
+    const bandId = programBandId(program.id);
     const accentHue = (360 / sorted.length) * i;
 
     // The Program band itself — depth-0, no parentGroupId, tinted per this
     // Program's slot in the wheel.
     swimlaneGroups.push({
-      id: programBandId,
+      id: bandId,
       order: program.order,
       name: program.programName,
       accentHue,
@@ -105,7 +124,7 @@ export function mergeProgramsForAllView(portfolioId: string, programs: Program[]
       swimlaneGroups.push({
         ...g,
         id: namespaceId(program.id, g.id),
-        parentGroupId: g.parentGroupId ? namespaceId(program.id, g.parentGroupId) : programBandId,
+        parentGroupId: g.parentGroupId ? namespaceId(program.id, g.parentGroupId) : bandId,
       });
     }
 
@@ -118,7 +137,7 @@ export function mergeProgramsForAllView(portfolioId: string, programs: Program[]
       swimlanes.push({
         ...sl,
         id: namespaceId(program.id, sl.id),
-        groupId: sl.groupId ? namespaceId(program.id, sl.groupId) : programBandId,
+        groupId: sl.groupId ? namespaceId(program.id, sl.groupId) : bandId,
       });
     }
 
