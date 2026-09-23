@@ -1,7 +1,7 @@
 "use client";
 
 // Marker-shape swatch grid (wayframe#t33's field-editor extraction) —
-// pulled out of MilestoneEditorModal.tsx's AppearanceBody verbatim. Draws
+// pulled out of MilestoneEditorInspector.tsx's AppearanceBody verbatim. Draws
 // each shape through the REAL CushionMarker geometry (same reasoning as the
 // modal's live preview rail: never re-guess what the chart draws).
 //

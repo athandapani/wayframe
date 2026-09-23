@@ -35,8 +35,9 @@ import { laneColors } from "@/components/timeline/lane-colors";
 import { SwimlaneManager } from "./SwimlaneManager";
 import { OutlineTree } from "./OutlineTree";
 import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/correction-box/CorrectionBoxSwitcher";
-import { MilestoneEditorModal } from "@/components/milestone-editor/MilestoneEditorModal";
-import { TopLevelItemEditorModal, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorModal";
+import { MilestoneEditorInspector } from "@/components/milestone-editor/MilestoneEditorInspector";
+import { TopLevelItemEditorInspector, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorInspector";
+import { EDITOR_DOCK_WIDTH } from "@/components/milestone-editor/editor-dock";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
 import { useOptionsSections } from "./use-options-sections";
@@ -414,7 +415,7 @@ export function RoadmapWorkspace({
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
-  // The render layer (RoadmapTimeline, MilestoneEditorModal, CategoryManager)
+  // The render layer (RoadmapTimeline, MilestoneEditorInspector, CategoryManager)
   // stays Portfolio-agnostic (wayframe t11) — this is the one seam that
   // reassembles the flat shape it expects from the split edit-time state.
   // Computed before useTimelineSummary since that needs the render layer's
@@ -571,7 +572,7 @@ export function RoadmapWorkspace({
   const openFileRef = useRef<HTMLInputElement>(null);
   const logoFileRef = useRef<HTMLInputElement>(null);
 
-  // From `renderable`, not `box.data` (t14): MilestoneEditorModal needs the
+  // From `renderable`, not `box.data` (t14): MilestoneEditorInspector needs the
   // render-layer's computed isCriticalPath, which only RenderableProgram's
   // milestones carry.
   const selectedMilestone = renderable.milestones.find((m) => m.id === selectedMilestoneId) ?? null;
@@ -689,6 +690,16 @@ export function RoadmapWorkspace({
           "--wf-rag-green": theme.ragColor.green,
           "--wf-rag-amber": theme.ragColor.amber,
           "--wf-rag-red": theme.ragColor.red,
+          // Width of whatever editor is currently docked on the right
+          // (wayframe#126) — read by the viewport-centered correction bar
+          // and selection toolbar so they stay centered on the chart
+          // instead of sliding under the dock. See CorrectionBox.tsx's
+          // DOCK_SHIFT.
+          "--wf-dock-w": selectedMilestone || selectedTopLevelItem ? `${EDITOR_DOCK_WIDTH}px` : "0px",
+          // Clears this surface's own floating top toolbar (the `fixed top-3`
+          // rows below), which spans the whole window and would otherwise
+          // paint over the docked editor's title row.
+          "--wf-dock-top": "3.5rem",
         } as React.CSSProperties
       }
     >
@@ -1571,7 +1582,7 @@ export function RoadmapWorkspace({
           "something is actually selected," not on Select mode being armed
           (that mode only gates the lane-background marquee drag now). */}
       {selection.selectedIds.size > 0 && !isViewMode && <SelectionToolbar data={box.data} selection={selection} onBulkEdit={box.bulkEdit} />}
-      <MilestoneEditorModal
+      <MilestoneEditorInspector
         data={renderable}
         theme={theme}
         milestone={selectedMilestone}
@@ -1591,7 +1602,7 @@ export function RoadmapWorkspace({
         onClearStyleOverride={box.clearMilestoneStyleOverride}
         onSetLaneRow={box.setMilestoneLaneRow}
       />
-      <TopLevelItemEditorModal
+      <TopLevelItemEditorInspector
         item={selectedTopLevelItem}
         data={renderable}
         theme={theme}

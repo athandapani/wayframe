@@ -1,12 +1,12 @@
 "use client";
 
 // 3x3 compass label-position picker (wayframe#t33's field-editor
-// extraction) — pulled out of MilestoneEditorModal.tsx's AppearanceBody
+// extraction) — pulled out of MilestoneEditorInspector.tsx's AppearanceBody
 // `positionField` helper verbatim. Corners are never valid LabelPosition
 // values, so they render as inert filler cells, same as the original.
 //
 // `resolvedValue` (defaults to `value`) is what actually gets highlighted —
-// MilestoneEditorModal passes the real resolved position (with its own
+// MilestoneEditorInspector passes the real resolved position (with its own
 // top/bottom fallback already applied) so the grid always shows "what's
 // live," while SelectionToolbar's bulk value-editor has no single resolved
 // position across a mixed selection and simply leaves it undefined (nothing

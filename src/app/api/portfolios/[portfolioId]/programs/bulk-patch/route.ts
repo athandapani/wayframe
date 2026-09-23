@@ -15,6 +15,15 @@ import type { AcceptBaselineOp } from "@/lib/corrections/schema";
  * merged canvas's namespaced ids (mergeProgramsForAllView, t26/wayframe#104)
  * but must apply against each affected Program's own local id space.
  *
+ * NO CALLER as of wayframe#126. That toolbar now applies through each
+ * Program's own live box instead: #126 connects a room per Program on the
+ * combined editor, and a connected room holds its own in-memory doc, so a
+ * server-side write like this one — correct though it is — wouldn't reach
+ * the canvas until a reload. Left in place rather than deleted because it
+ * is the only bulk-edit path that works with no live connection at all
+ * (scripts, future automation, a server-side job); delete it if nothing
+ * claims it.
+ *
  * Modeled directly on the sibling
  * `.../programs/[programId]/reorder/route.ts` route: `loadMergedProgramDoc`
  * (never a possibly-stale `programs.snapshot` row alone — a live

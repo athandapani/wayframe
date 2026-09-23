@@ -39,6 +39,17 @@ function AiAvatar() {
   );
 }
 
+/**
+ * Keeps the viewport-centered bar (and every panel that stacks above it)
+ * centered on the CHART, not on the window, whenever an editor is docked to
+ * the right (wayframe#126). `--wf-dock-w` is published by the surface that
+ * owns the dock — RoadmapWorkspace.tsx and the combined editor — and is 0
+ * everywhere else, including every existing mount that never sets it, so
+ * this is inert until something is actually docked. Without it a 660px bar
+ * centered in a 1280px window runs under a 380px dock.
+ */
+const DOCK_SHIFT: React.CSSProperties = { marginLeft: "calc(var(--wf-dock-w, 0px) / -2)" };
+
 export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxResult; onNeedsEditor?: (ids: AppliedIds) => void }) {
   const [text, setText] = useState("");
   const opRows = box.pending ? buildOpPreview(box.data.milestones, box.pending.ops) : [];
@@ -73,7 +84,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
   return (
     <>
       {ambiguous && (
-        <div className="fixed bottom-24 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-start gap-2">
+        <div style={DOCK_SHIFT} className="fixed bottom-24 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-start gap-2">
           <AiAvatar />
           <div
             style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
@@ -103,7 +114,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
       )}
 
       {!ambiguous && box.pending && hasCleanResolution && (
-        <div style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+        <div style={{ ...DOCK_SHIFT, background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
           className="fixed bottom-24 left-1/2 z-40 w-[560px] -translate-x-1/2 rounded-xl border p-4 shadow-2xl">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Proposed correction</p>
           <ul className="mb-3 space-y-1 text-sm">
@@ -199,7 +210,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
       )}
 
       {!ambiguous && box.pending && !hasCleanResolution && (
-        <div className="fixed bottom-24 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-start gap-2">
+        <div style={DOCK_SHIFT} className="fixed bottom-24 left-1/2 z-40 flex w-[560px] -translate-x-1/2 items-start gap-2">
           <AiAvatar />
           <div
             style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
@@ -211,7 +222,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
       )}
 
       {box.error && (
-        <div className="fixed bottom-24 left-1/2 z-40 -translate-x-1/2 rounded-md bg-red-600 px-3 py-1.5 text-sm text-white shadow-lg">
+        <div style={DOCK_SHIFT} className="fixed bottom-24 left-1/2 z-40 -translate-x-1/2 rounded-md bg-red-600 px-3 py-1.5 text-sm text-white shadow-lg">
           {box.error}
         </div>
       )}
@@ -222,7 +233,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
           box.submit(text);
           setText("");
         }}
-        style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+        style={{ ...DOCK_SHIFT, background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
         className="fixed bottom-16 left-1/2 z-40 flex w-[660px] -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-2 shadow-xl"
       >
         {/* Nothing on the chart said this bar was AI-driven — it read as a
@@ -275,7 +286,7 @@ export function CorrectionBox({ box, onNeedsEditor }: { box: UseCorrectionBoxRes
       {/* Says what happens next, which is the part that makes people willing
           to try it: nothing is applied until you've seen the diff. */}
       {!box.pending && !box.error && (
-        <p className="pointer-events-none fixed bottom-9 left-1/2 z-40 -translate-x-1/2 text-[11px] opacity-55" style={{ color: "var(--wf-ink)" }}>
+        <p className="pointer-events-none fixed bottom-9 left-1/2 z-40 -translate-x-1/2 text-[11px] opacity-55" style={{ ...DOCK_SHIFT, color: "var(--wf-ink)" }}>
           Plain English. You&apos;ll see a preview before anything changes — and Undo reverses it.
         </p>
       )}

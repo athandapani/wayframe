@@ -1,7 +1,7 @@
 "use client";
 
 // Shared Appearance-section building blocks (wayframe UX-2026-09-18 §2) —
-// extracted from MilestoneEditorModal.tsx so TopLevelItemEditorModal.tsx can
+// extracted from MilestoneEditorInspector.tsx so TopLevelItemEditorInspector.tsx can
 // offer the same styleOverride editing surface for Program-band phases and
 // milestones, not just lane items. Every control here still reads its live
 // resolved value through style-resolution.ts's real ladder functions (never

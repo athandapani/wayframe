@@ -524,7 +524,7 @@ function reduceInner(state: CorrectionBoxState, action: CorrectionBoxAction): Co
       };
     }
     case "editAttachments": {
-      // Manual add/remove/edit-row in MilestoneEditorModal (wayframe#55/#60)
+      // Manual add/remove/edit-row in MilestoneEditorInspector (wayframe#55/#60)
       // — routes through the same applyAttachmentOps the AI attachmentOps
       // path uses (an in-place row edit is remove-then-add at that index),
       // per the standing rule adopted in #55/#56.
@@ -1355,7 +1355,7 @@ export interface UseCorrectionBoxResult {
   setMilestoneStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
   /** Resets one styleOverride field back to "inherit from the ladder" (t34) — removes the key entirely, not just sets it undefined, so an override count reads accurately. */
   clearMilestoneStyleOverride: (id: string, field: keyof StyleOverride) => void;
-  /** PROGRAM-band mirror of setMilestoneStyleOverride, for TopLevelItemEditorModal's own Appearance section (wayframe UX-2026-09-18 §2). No-op on an annotation id. */
+  /** PROGRAM-band mirror of setMilestoneStyleOverride, for TopLevelItemEditorInspector's own Appearance section (wayframe UX-2026-09-18 §2). No-op on an annotation id. */
   setTopLevelItemStyleOverride: (id: string, patch: Partial<StyleOverride>) => void;
   /** PROGRAM-band mirror of clearMilestoneStyleOverride. No-op on an annotation id. */
   clearTopLevelItemStyleOverride: (id: string, field: keyof StyleOverride) => void;

@@ -1,17 +1,130 @@
 [
-{"key":"g1","type":"grilling","title":"Persistence architecture & terminology","blockers":[],"gist":"Deploy the existing party/ Yjs/Partykit stack (infra fix, not a rewrite). Rename \"Portfolio\" -> \"Roadmap\" in UI copy only. Local-only \"/\" page keeps a red 45° \"Local storage version, not stored in DB\" watermark."},
-{"key":"g2","type":"grilling","title":"Combined multi-Program editor & cross-program move design","blockers":[],"gist":"Shared time axis, collapsible Program bands, fully live-editable (all Programs connected, typical scale 3-4). Cross-Program move via Program/Swimlane dropdowns in the milestone & swimlane editors, one shared move primitive. Structure editor is Program-tabbed; canvas always stays combined."},
-{"key":"g3","type":"grilling","title":"Multi-Roadmap access & Version History semantics","blockers":[],"gist":"\"My Roadmaps\" lists every role (owner/editor/viewer), owned-first, no migration needed. \"Save a version\" = manual, whole-Roadmap capture, new term \"Version\" (not Snapshot). v1 is view-only browsing; restore-to-live deferred."},
-{"key":"mr1","type":"task","title":"Deploy party/ realtime backend to Cloudflare + wire production persistence","blockers":["g1"],"gist":"Deployed + verified via a second incognito session. Also found & fixed along the way: NewDocumentBanner always said \"blank template\" even after real extraction; onStartNew never cleared localStorage so a 2nd document always got clobbered by the 1st; Google sign-in was minting a new random identity every session (fixed via account.providerAccountId in the jwt callback) -- see #130's Notes for the landmine."},
-{"key":"mr2","type":"task","title":"Autosave status indicator + retire the misleading file-download Save button","blockers":["g1"],"gist":"Added a toolbar SyncStatusIndicator (\"Saved\"/\"Syncing…\"/\"Offline — changes pending\") reading useProgramRoom's existing status/showOfflineBadge. File ‣ Save/Save & Start New now read \"Download a copy\" on any realtime-connected page; unauthenticated local-only \"/\" keeps \"Save\"."},
-{"key":"mr3","type":"prototype","title":"Prototype: \"My Roadmaps\" landing page UX","blockers":["g3"],"gist":"Picked Option C — sidebar list (All/Owned/Shared filter) + detail pane for the selected Roadmap, over a dense table (A) and a card grid (B). Prototype on branch prototype/my-roadmaps-landing-122, not merged."},
-{"key":"mr4","type":"task","title":"Build \"My Roadmaps\" API + New Roadmap flow + landing page","blockers":["mr3"],"gist":"Built GET/POST /api/roadmaps + MyRoadmapsLanding.tsx (mr3's Option C), wired into \"/\" for signed-in visitors, replacing the old hard-coded link. Closed the \"+ New Roadmap\" loop: /view now carries role on its empty-Portfolio 404 so /p/[id] offers EntryForm inline via the existing programs/extract endpoint. No new title field — a Roadmap's display name is its first Program's name until it has one."},
-{"key":"mr5","type":"task","title":"Cross-Program move primitive (milestone + swimlane, across Yjs docs)","blockers":["g2"],"gist":"Shipped as pure planners (planMilestoneMove/planSwimlaneMove) + a box-dispatch orchestrator #126's dropdowns will call: fresh doc-local ids on the destination side, destination-insert before source-release, and dropped dependsOn / cleared linksToTopLevelMilestone reported on the returned plan rather than silently discarded. The 4 cross-Program reducer actions clear both undo stacks -- history is whole-document snapshots, so an undo crossing the move would resurrect the item as a duplicate. Ordering guarantees never-in-NEITHER Program; it cannot guarantee never-in-BOTH (each Program flushes over its own room connection, no offline persistence), and that window is encoded as a test, not prose. Server-side move ruled out: ProgramRoom only appends to its update log and never re-reads, so a REST write would be invisible to already-connected rooms. No UI -- #126 wires the dropdowns. Follow-up #131 filed for scenario-override re-pointing after a move."},
-{"key":"mr6","type":"prototype","title":"Prototype: combined multi-Program editor UX","blockers":["g2"],"gist":"Picked Option B -- a permanent left Program rail (no structure-editor tabs at all: the expanded rail card IS the tab), combined canvas to its right always showing every Program. Band collapse is a per-card rail toggle INDEPENDENT of which card is expanded, so a Program can be restructured while its band is collapsed. Milestone editing is a right-docked inspector rather than a modal (canvas stays visible while you move something out of a band), with the cross-Program Program+Swimlane pair as its first line above the dropped-edges warning; a swimlane moves via a per-lane arrow button that expands the same picker inline. Rejected A (bottom dock + spreadsheet tabs: permanent vertical cost, collapse state buried behind a tab switch) and C (drawer over the canvas: covers the Programs you're moving between; breadcrumb-as-move makes a cross-document move read like a rename). Decided on top of the verdict: the inspector replaces MilestoneEditorModal on the SINGLE-Program page (RoadmapWorkspace) too, so #126 is \"turn the modal into a docked inspector both surfaces render\" -- TopLevelItemEditorModal follows it, and re-flowing the modal's max-w-4xl/grid-cols-[1fr_260px] body into one narrow column is the real work. Prototype on branch prototype/combined-multi-program-editor-125, not merged."},
-{"key":"mr7","type":"task","title":"Build combined multi-Program editor","blockers":["mr5","mr6"],"gist":null},
-{"key":"mr8","type":"prototype","title":"Prototype: Version History UX","blockers":["g3"],"gist":null},
-{"key":"mr9","type":"task","title":"Build Version History + rename Export Snapshot copy","blockers":["mr8"],"gist":null},
-{"key":"mr10","type":"task","title":"Rename \"Portfolio\" -> \"Roadmap\" across user-facing UI copy","blockers":["g1"],"gist":null},
-{"key":"mr11","type":"task","title":"Scenario override cleanup for a milestone/swimlane moved across Programs","blockers":["mr5"],"gist":null},
-{"key":"ci1","type":"task","title":"CI hung for hours then heap-OOMed: an empty Program's domain moved on every render","blockers":[],"gist":"computeDomain's empty-Program fallback anchored on Date.now(), and computeDomain runs DURING render -- so an empty Program produced a new domain every render, re-firing useZoomWindow's fullDomain effect, which set state, which rendered again: a render loop with no fixed point. It terminated only when two consecutive renders landed in the same millisecond -- near-always true for a small tree on a fast dev machine, near-never true for the real workspace tree on CI, where it spun 2-4h and then heap-OOMed on React re-render garbage. Fixed by anchoring to today's UTC midnight. Neither of the issue's own leads held: the first bad commit is 42aef22d (not 9c7da84d), and axis-tiers' NaN loops were not the cause (hardened anyway). Also fixed a separate npm run build failure that predated the hang -- next build runs NODE_ENV=production, tripping the module-scope requireEnv guards, so the build step now carries placeholder secrets. Landmine for future debugging: --reporter=verbose flushes per FILE, not per test, so a hung file prints nothing and the last name in the log is not where execution stopped. CI: 2-4h + OOM -> 112s green."}
+  {
+    "key": "g1",
+    "type": "grilling",
+    "title": "Persistence architecture & terminology",
+    "blockers": [],
+    "gist": "Deploy the existing party/ Yjs/Partykit stack (infra fix, not a rewrite). Rename \"Portfolio\" -> \"Roadmap\" in UI copy only. Local-only \"/\" page keeps a red 45° \"Local storage version, not stored in DB\" watermark."
+  },
+  {
+    "key": "g2",
+    "type": "grilling",
+    "title": "Combined multi-Program editor & cross-program move design",
+    "blockers": [],
+    "gist": "Shared time axis, collapsible Program bands, fully live-editable (all Programs connected, typical scale 3-4). Cross-Program move via Program/Swimlane dropdowns in the milestone & swimlane editors, one shared move primitive. Structure editor is Program-tabbed; canvas always stays combined."
+  },
+  {
+    "key": "g3",
+    "type": "grilling",
+    "title": "Multi-Roadmap access & Version History semantics",
+    "blockers": [],
+    "gist": "\"My Roadmaps\" lists every role (owner/editor/viewer), owned-first, no migration needed. \"Save a version\" = manual, whole-Roadmap capture, new term \"Version\" (not Snapshot). v1 is view-only browsing; restore-to-live deferred."
+  },
+  {
+    "key": "mr1",
+    "type": "task",
+    "title": "Deploy party/ realtime backend to Cloudflare + wire production persistence",
+    "blockers": [
+      "g1"
+    ],
+    "gist": "Deployed + verified via a second incognito session. Also found & fixed along the way: NewDocumentBanner always said \"blank template\" even after real extraction; onStartNew never cleared localStorage so a 2nd document always got clobbered by the 1st; Google sign-in was minting a new random identity every session (fixed via account.providerAccountId in the jwt callback) -- see #130's Notes for the landmine."
+  },
+  {
+    "key": "mr2",
+    "type": "task",
+    "title": "Autosave status indicator + retire the misleading file-download Save button",
+    "blockers": [
+      "g1"
+    ],
+    "gist": "Added a toolbar SyncStatusIndicator (\"Saved\"/\"Syncing…\"/\"Offline — changes pending\") reading useProgramRoom's existing status/showOfflineBadge. File ‣ Save/Save & Start New now read \"Download a copy\" on any realtime-connected page; unauthenticated local-only \"/\" keeps \"Save\"."
+  },
+  {
+    "key": "mr3",
+    "type": "prototype",
+    "title": "Prototype: \"My Roadmaps\" landing page UX",
+    "blockers": [
+      "g3"
+    ],
+    "gist": "Picked Option C — sidebar list (All/Owned/Shared filter) + detail pane for the selected Roadmap, over a dense table (A) and a card grid (B). Prototype on branch prototype/my-roadmaps-landing-122, not merged."
+  },
+  {
+    "key": "mr4",
+    "type": "task",
+    "title": "Build \"My Roadmaps\" API + New Roadmap flow + landing page",
+    "blockers": [
+      "mr3"
+    ],
+    "gist": "Built GET/POST /api/roadmaps + MyRoadmapsLanding.tsx (mr3's Option C), wired into \"/\" for signed-in visitors, replacing the old hard-coded link. Closed the \"+ New Roadmap\" loop: /view now carries role on its empty-Portfolio 404 so /p/[id] offers EntryForm inline via the existing programs/extract endpoint. No new title field — a Roadmap's display name is its first Program's name until it has one."
+  },
+  {
+    "key": "mr5",
+    "type": "task",
+    "title": "Cross-Program move primitive (milestone + swimlane, across Yjs docs)",
+    "blockers": [
+      "g2"
+    ],
+    "gist": "Shipped as pure planners (planMilestoneMove/planSwimlaneMove) + a box-dispatch orchestrator #126's dropdowns will call: fresh doc-local ids on the destination side, destination-insert before source-release, and dropped dependsOn / cleared linksToTopLevelMilestone reported on the returned plan rather than silently discarded. The 4 cross-Program reducer actions clear both undo stacks -- history is whole-document snapshots, so an undo crossing the move would resurrect the item as a duplicate. Ordering guarantees never-in-NEITHER Program; it cannot guarantee never-in-BOTH (each Program flushes over its own room connection, no offline persistence), and that window is encoded as a test, not prose. Server-side move ruled out: ProgramRoom only appends to its update log and never re-reads, so a REST write would be invisible to already-connected rooms. No UI -- #126 wires the dropdowns. Follow-up #131 filed for scenario-override re-pointing after a move."
+  },
+  {
+    "key": "mr6",
+    "type": "prototype",
+    "title": "Prototype: combined multi-Program editor UX",
+    "blockers": [
+      "g2"
+    ],
+    "gist": "Picked Option B -- a permanent left Program rail (no structure-editor tabs at all: the expanded rail card IS the tab), combined canvas to its right always showing every Program. Band collapse is a per-card rail toggle INDEPENDENT of which card is expanded, so a Program can be restructured while its band is collapsed. Milestone editing is a right-docked inspector rather than a modal (canvas stays visible while you move something out of a band), with the cross-Program Program+Swimlane pair as its first line above the dropped-edges warning; a swimlane moves via a per-lane arrow button that expands the same picker inline. Rejected A (bottom dock + spreadsheet tabs: permanent vertical cost, collapse state buried behind a tab switch) and C (drawer over the canvas: covers the Programs you're moving between; breadcrumb-as-move makes a cross-document move read like a rename). Decided on top of the verdict: the inspector replaces MilestoneEditorModal on the SINGLE-Program page (RoadmapWorkspace) too, so #126 is \"turn the modal into a docked inspector both surfaces render\" -- TopLevelItemEditorModal follows it, and re-flowing the modal's max-w-4xl/grid-cols-[1fr_260px] body into one narrow column is the real work. Prototype on branch prototype/combined-multi-program-editor-125, not merged."
+  },
+  {
+    "key": "mr7",
+    "type": "task",
+    "title": "Build combined multi-Program editor",
+    "blockers": [
+      "mr5",
+      "mr6"
+    ],
+    "gist": "Built as #125's Variant B: permanent left Program rail (the structure editor, no tabs), merged canvas always showing every Program, one live Yjs room per Program (ProgramRoomHost) and merged-dispatch.ts routing a namespaced canvas id to its owning Program's box — the editing-dispatch half CONTEXT.md flagged as unbuilt since t26. MilestoneEditorModal became a 380px docked inspector on BOTH surfaces (TopLevelItemEditorModal followed it), with the cross-Program move as its first line and a per-lane ⇄ in the rail; both preview what the move drops by running #124's own planner. Band collapse is viewer-local (a band is synthesized by the merge, so no doc field to write); a real Swimlane Group's collapsed still routes to its box. t33's bulk-edit toolbar now applies through the live boxes, leaving the bulk-patch route callerless. Deferred: Portfolio-level editing (theme/categories) on this surface, and share-link guests."
+  },
+  {
+    "key": "mr8",
+    "type": "prototype",
+    "title": "Prototype: Version History UX",
+    "blockers": [
+      "g3"
+    ],
+    "gist": null
+  },
+  {
+    "key": "mr9",
+    "type": "task",
+    "title": "Build Version History + rename Export Snapshot copy",
+    "blockers": [
+      "mr8"
+    ],
+    "gist": null
+  },
+  {
+    "key": "mr10",
+    "type": "task",
+    "title": "Rename \"Portfolio\" -> \"Roadmap\" across user-facing UI copy",
+    "blockers": [
+      "g1"
+    ],
+    "gist": null
+  },
+  {
+    "key": "mr11",
+    "type": "task",
+    "title": "Scenario override cleanup for a milestone/swimlane moved across Programs",
+    "blockers": [
+      "mr5"
+    ],
+    "gist": null
+  },
+  {
+    "key": "ci1",
+    "type": "task",
+    "title": "CI hung for hours then heap-OOMed: an empty Program's domain moved on every render",
+    "blockers": [],
+    "gist": "computeDomain's empty-Program fallback anchored on Date.now(), and computeDomain runs DURING render -- so an empty Program produced a new domain every render, re-firing useZoomWindow's fullDomain effect, which set state, which rendered again: a render loop with no fixed point. It terminated only when two consecutive renders landed in the same millisecond -- near-always true for a small tree on a fast dev machine, near-never true for the real workspace tree on CI, where it spun 2-4h and then heap-OOMed on React re-render garbage. Fixed by anchoring to today's UTC midnight. Neither of the issue's own leads held: the first bad commit is 42aef22d (not 9c7da84d), and axis-tiers' NaN loops were not the cause (hardened anyway). Also fixed a separate npm run build failure that predated the hang -- next build runs NODE_ENV=production, tripping the module-scope requireEnv guards, so the build step now carries placeholder secrets. Landmine for future debugging: --reporter=verbose flushes per FILE, not per test, so a hung file prints nothing and the last name in the log is not where execution stopped. CI: 2-4h + OOM -> 112s green."
+  }
 ]

@@ -13,7 +13,7 @@
 //
 // Applicability research (this ticket's own process requirement — verified
 // against real code, not assumed from the StyleOverride doc comment alone):
-//   - MilestoneEditorModal.tsx's AppearanceBody is the authoritative source
+//   - MilestoneEditorInspector.tsx's AppearanceBody is the authoritative source
 //     for the Milestone-side ladder: every StyleOverride control is always
 //     shown, but an amber banner (`hasEndDate` branch) states that once a
 //     Milestone becomes a duration pill (`endDate` set), marker shape/scale,
@@ -146,7 +146,7 @@ export const BULK_PATCH_FIELD_META: Record<BulkPatchField, BulkPatchFieldMeta> =
     editorKind: "select",
     // Milestone-only, and only meaningful once it's a duration pill
     // (`endDate` set) — a point milestone never stacks, so a row assignment
-    // on one is inert (Milestone.laneRow's own doc; MilestoneEditorModal
+    // on one is inert (Milestone.laneRow's own doc; MilestoneEditorInspector
     // only ever shows the Lane row control when `draft.endDate` is set).
     appliesTo: (item) => !isTopLevelItem(item) && isDurationPillMilestone(item),
   },
@@ -233,7 +233,7 @@ export const BULK_PATCH_FIELD_META: Record<BulkPatchField, BulkPatchFieldMeta> =
   "styleOverride.phaseShape": {
     label: "Phase shape",
     editorKind: "select",
-    // The phase-shaped items: a duration-pill Milestone (MilestoneEditorModal's
+    // The phase-shaped items: a duration-pill Milestone (MilestoneEditorInspector's
     // "Phase-only" subgroup, gated on `hasEndDate`) and a TopLevelItem
     // "phase" — never a point Milestone or TopLevelItem "milestone", which
     // have no phase geometry to shape.

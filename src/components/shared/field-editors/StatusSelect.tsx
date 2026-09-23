@@ -2,7 +2,7 @@
 
 // Status <select> (wayframe#t33's field-editor extraction) — built on
 // SelectField, options fixed to every Status value. Used both by
-// MilestoneEditorModal.tsx (single-item, always a concrete `value`) and
+// MilestoneEditorInspector.tsx (single-item, always a concrete `value`) and
 // SelectionToolbar.tsx's bulk value-editor (`value=""` + `placeholder`,
 // see SelectField's own doc).
 import type { Status } from "@/components/timeline/types";

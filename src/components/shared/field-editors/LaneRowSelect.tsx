@@ -1,14 +1,14 @@
 "use client";
 
 // Lane-row <select> (wayframe#t33's field-editor extraction) — pulled out
-// of MilestoneEditorModal.tsx's ModalForm verbatim (rows 1..maxRow plus a
+// of MilestoneEditorInspector.tsx's ModalForm verbatim (rows 1..maxRow plus a
 // "+ New row" sentinel). `maxRow` is supplied by the caller — computing it
 // (highest row currently used by same-lane duration-pill siblings, or,
 // for SelectionToolbar's bulk editor, the Program-wide max) is entity-
 // specific business logic that stays out of this control.
 //
 // `placeholder` mirrors SelectField's "uncommitted picker" mode (see its
-// own doc) for SelectionToolbar's bulk value-editor; MilestoneEditorModal's
+// own doc) for SelectionToolbar's bulk value-editor; MilestoneEditorInspector's
 // single-item control never passes it, so its behavior/DOM is unchanged.
 export function LaneRowSelect({
   value,

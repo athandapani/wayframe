@@ -96,7 +96,10 @@ export function SelectionToolbar({
   }
 
   return (
-    <div className="fixed bottom-24 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2">
+    // marginLeft: same --wf-dock-w shift CorrectionBox.tsx uses (see its
+    // DOCK_SHIFT doc) — keeps this centered on the chart rather than the
+    // window whenever an editor is docked to the right (wayframe#126).
+    <div style={{ marginLeft: "calc(var(--wf-dock-w, 0px) / -2)" }} className="fixed bottom-24 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2">
       {pendingAction && (
         <DiffBanner
           title={

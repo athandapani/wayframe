@@ -5,14 +5,24 @@
 // wayframe#59, closing the one PROGRAM-band kind that had no manual editor
 // at all). No owner/comment/percent/critical-path/short-label (those don't
 // exist on TopLevelItem) and no dependencies section (TopLevelItem has no
-// dependsOn) — just the fields each variant actually has. Same modal shell
-// as MilestoneEditorModal for a consistent editing surface, and the same
+// dependsOn) — just the fields each variant actually has. Same shell as
+// MilestoneEditorInspector for a consistent editing surface, and the same
 // instant-save behavior (#18).
+//
+// That shared shell is why this followed the milestone editor into the
+// right-hand dock in wayframe#126 rather than staying a modal: the two were
+// deliberately built to the same shape, so leaving one docked and the other
+// centered over the canvas would have reintroduced, between two kinds of
+// item on the SAME surface, exactly the inconsistency #126 docked the
+// milestone editor on both surfaces to avoid. It carries no `locationSlot`:
+// a TopLevelItem belongs to its Program's own band, and #124's move
+// primitive covers milestones and swimlanes only.
 import { useState } from "react";
 import type { RenderableProgram, Status, StyleOverride, TopLevelItem } from "@/components/timeline/types";
 import type { Theme } from "@/components/timeline/theme";
 import type { TopLevelItemPatch } from "@/components/correction-box/use-correction-box";
 import { AppearanceBody, Section, TOP_LEVEL_MILESTONE_CAPABILITIES, TOP_LEVEL_PHASE_CAPABILITIES, overrideCount } from "./AppearanceEditor";
+import { EDITOR_DOCK_CLASS, EDITOR_DOCK_STYLE } from "./editor-dock";
 
 const STATUS_OPTIONS: Status[] = ["not-started", "on-track", "at-risk", "delayed", "complete"];
 
@@ -50,7 +60,7 @@ function toPatch(t: EditableTopLevelItem, draft: Draft): TopLevelItemPatch {
   return { title: draft.title, status: draft.status, date: draft.date, showReferenceLine: draft.showReferenceLine, potentialDate: draft.potentialDate || undefined };
 }
 
-function ModalForm({
+function InspectorForm({
   item,
   data,
   theme,
@@ -80,20 +90,21 @@ function ModalForm({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-lg bg-white shadow-2xl dark:bg-zinc-900" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-700">
-          <input
-            className="w-full bg-transparent text-lg font-semibold outline-none"
-            value={draft.title}
-            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-          />
-          <button onClick={onClose} className="ml-3 shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" aria-label="Close">
-            ✕
-          </button>
-        </div>
+    <aside aria-label="Program-band item editor" className={EDITOR_DOCK_CLASS} style={EDITOR_DOCK_STYLE}>
+      <div className="flex items-center justify-between border-b border-zinc-200 p-3 dark:border-zinc-700">
+        <input
+          aria-label="Title"
+          className="w-full min-w-0 bg-transparent text-base font-semibold outline-none"
+          value={draft.title}
+          onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+        />
+        <button onClick={onClose} className="ml-3 shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" aria-label="Close">
+          ✕
+        </button>
+      </div>
 
-        <div className="grid grid-cols-2 gap-4 p-4 text-sm">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm">
+        <div className="grid grid-cols-2 gap-3">
           {item.type === "phase" && (
             <>
               <label className="block">
@@ -207,49 +218,47 @@ function ModalForm({
             types.ts), so it gets no Appearance section, same as it gets no
             Status field above. */}
         {item.type !== "annotation" && (
-          <div className="px-4 pb-4">
-            <Section title="Appearance" badgeText={appearanceOverrides > 0 ? `${appearanceOverrides} override${appearanceOverrides === 1 ? "" : "s"}` : "default"} badgeActive={appearanceOverrides > 0}>
-              <AppearanceBody
-                item={item}
-                data={data}
-                theme={theme}
-                legendCategoryFillEnabled={legendCategoryFillEnabled}
-                capabilities={item.type === "phase" ? TOP_LEVEL_PHASE_CAPABILITIES : TOP_LEVEL_MILESTONE_CAPABILITIES}
-                onSetStyleOverride={onSetStyleOverride}
-                onClearStyleOverride={onClearStyleOverride}
-              />
-            </Section>
-          </div>
+          <Section title="Appearance" badgeText={appearanceOverrides > 0 ? `${appearanceOverrides} override${appearanceOverrides === 1 ? "" : "s"}` : "default"} badgeActive={appearanceOverrides > 0}>
+            <AppearanceBody
+              item={item}
+              data={data}
+              theme={theme}
+              legendCategoryFillEnabled={legendCategoryFillEnabled}
+              capabilities={item.type === "phase" ? TOP_LEVEL_PHASE_CAPABILITIES : TOP_LEVEL_MILESTONE_CAPABILITIES}
+              onSetStyleOverride={onSetStyleOverride}
+              onClearStyleOverride={onClearStyleOverride}
+            />
+          </Section>
         )}
+      </div>
 
-        <div className="flex items-center justify-between border-t border-zinc-200 p-4 dark:border-zinc-700">
-          {/* No confirm dialog — same instant, undoable delete as
-              MilestoneEditorModal (wayframe#38 item 3 / #58): a mistake is
-              one Undo away from fixed, so a confirm step is just friction. */}
-          <button
-            onClick={() => {
-              onDelete(item.id);
-              onClose();
-            }}
-            className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
-          >
-            Delete
+      <div className="flex items-center justify-between border-t border-zinc-200 p-3 dark:border-zinc-700">
+        {/* No confirm dialog — same instant, undoable delete as
+            MilestoneEditorInspector (wayframe#38 item 3 / #58): a mistake is
+            one Undo away from fixed, so a confirm step is just friction. */}
+        <button
+          onClick={() => {
+            onDelete(item.id);
+            onClose();
+          }}
+          className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+        >
+          Delete
+        </button>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
+            Cancel
           </button>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="rounded border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-600">
-              Cancel
-            </button>
-            <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
-              Save
-            </button>
-          </div>
+          <button onClick={handleSave} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">
+            Save
+          </button>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
 
-export function TopLevelItemEditorModal({
+export function TopLevelItemEditorInspector({
   item,
   data,
   theme,
@@ -272,7 +281,7 @@ export function TopLevelItemEditorModal({
 }) {
   if (!item) return null;
   return (
-    <ModalForm
+    <InspectorForm
       key={item.id}
       item={item}
       data={data}

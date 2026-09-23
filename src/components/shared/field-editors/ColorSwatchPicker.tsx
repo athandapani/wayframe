@@ -1,9 +1,9 @@
 "use client";
 
 // Fixed color-swatch row (wayframe#t33's field-editor extraction) — pulled
-// out of MilestoneEditorModal.tsx's AppearanceBody verbatim. `resolvedValue`
+// out of MilestoneEditorInspector.tsx's AppearanceBody verbatim. `resolvedValue`
 // (the extra trailing reference swatch showing "currently resolved color")
-// is optional: MilestoneEditorModal always has one (resolveMarkerColor never
+// is optional: MilestoneEditorInspector always has one (resolveMarkerColor never
 // fails to resolve something), SelectionToolbar's bulk value-editor has no
 // single resolved color across a mixed selection, so it simply omits it.
 export const DEFAULT_COLOR_SWATCHES = ["#cf222e", "#b5791f", "#1a7f37", "#0969da", "#8250df", "#57606a"];
