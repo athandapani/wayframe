@@ -91,7 +91,7 @@
     "blockers": [
       "g3"
     ],
-    "gist": null
+    "gist": "Picked Option B -- Version History is a right-docked History dock in the SAME slot as the milestone inspector (EDITOR_DOCK_WIDTH, 380px), closed by default and mutually exclusive with it; selecting a row swaps the canvas IN PLACE beneath it with the list still on screen, and arrow up/down steps through Versions, because the real act is comparing until you find the one you meant, not reading one. Entry point is a History toggle next to the sync indicator, not Options (where Export Snapshot lives -- the collision #128 renames away). 'Live document' is a pinned first row rather than a Back button, so entering and leaving read-only are the same click. Read-only is expressed by WITHHOLDING the mutation callbacks (the route's own pre-#126 convention), not a scrim; band collapse stays live since it is viewer-local. Save takes one click and no dialog, always captures the live document (even while reading an old Version) and returns to Live; naming is post-hoc via an inline rename on the new row, label only -- content stays append-only. Row change summaries ('+2 milestones - 12 dates moved') need a diff of consecutive full Program sets: ship counts only if that is not cheap at list time. Rejected A (modal + separate read-only route: no comparison without a round trip; list hidden exactly when deciding -- its zero-pixel virtue survives as the dock's closed-by-default state) and C (ribbon over the axis: a chip has no room for who saved it, degrades past ~10 Versions, and spends left/right arrows on scrubbing). Prototype on branch prototype/version-history-127, not merged."
   },
   {
     "key": "mr9",
