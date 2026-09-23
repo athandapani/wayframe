@@ -109,7 +109,7 @@
     "blockers": [
       "g1"
     ],
-    "gist": null
+    "gist": "Copy-only sweep: every string a user reads — headings, buttons, help text, the invite email, and the API error strings the /p/[id] pages render verbatim from `body.error` — now says \"Roadmap\"; the `Portfolio` type, the /p/ and /api/portfolios/ routes and the portfolios/portfolio_* tables are untouched. Renaming the error copy also closed a split #128 opened: the `versions` routes already shipped \"No access to this Roadmap.\" while every older route still said \"Portfolio\", so the same 403 read differently depending on which panel you hit it from. Three surfaces weren't obvious from the ticket: PortfolioRollupBar rendered a literal \"Portfolio\" badge above the All-Programs timeline; the generic deck name was \"Portfolio Roadmap\", so an export with no single Program to name itself after downloaded as portfolio-roadmap-deck.pptx (now roadmap-deck.pptx); and schema.ts's referential-integrity problems render to the user as a bullet list under the file-open error banner, so their prose moved while the literal `portfolioId` field name they quote stayed. One string is COMPARED, not just displayed (page.tsx's \"This Roadmap has no Program yet.\" owner/editor branch) and moved with its producer. Deliberately left: the .wayframeportfolio.json export extension — a file-format identifier, and renaming it would stop already-exported files from matching. CONTEXT.md's Portfolio glossary entry now spells out the domain-name/user-facing-name split, same move #128 made for Export Snapshot."
   },
   {
     "key": "mr11",
