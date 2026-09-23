@@ -68,3 +68,70 @@ export function gcScenario(program: Program, scenario: Scenario): Scenario {
 
   return { ...scenario, milestoneOverrides, topLevelItemOverrides };
 }
+
+/**
+ * Re-points override keys a cross-Program move renamed (wayframe#131).
+ *
+ * `idMap` is the old-id -> new-id map a move plan produces —
+ * `SwimlaneMovePlan.idMap` verbatim for a swimlane move, or
+ * `{ [sourceId]: plan.clonedMilestone.id }` for a single milestone
+ * (src/lib/corrections/cross-program-move.ts). Relocating an item across
+ * Programs mints a genuinely new, storage-durable id in the destination's own
+ * id space rather than carrying the old one over (CONTEXT.md's Cross-Program
+ * id namespacing section), which would otherwise leave every Scenario
+ * override on that item pointing at an id no longer in any Program.
+ * `resolveScenario` already reports that safely as an `orphaned` conflict —
+ * nothing is lost silently, and that safety net stays exactly as it is — but
+ * the override's *intent* survives the move just fine, since both Programs
+ * share one Portfolio and therefore one set of Scenarios. This preserves it.
+ *
+ * Three things deliberately NOT rewritten:
+ *
+ *  - `topLevelItemOverrides`. A milestone id and a topLevelItem id are
+ *    separate id spaces that can collide without naming the same target (see
+ *    Scenario's own doc), and the move primitive relocates milestones and
+ *    swimlanes only — so an `idMap` hit on a topLevelItem id would be a
+ *    coincidence, not a match. The lane id `SwimlaneMovePlan.idMap` carries
+ *    is harmless here for the same reason: nothing is keyed by lane id.
+ *  - A `milestoneAdditions` entry's `dependsOn` edge onto a moved milestone.
+ *    Re-pointing that would manufacture exactly the cross-Program dependency
+ *    edge the move primitive drops on purpose (#124); it stays a
+ *    `dangling-reference` conflict for the scenario owner to resolve.
+ *  - Anything about the override's own content, except `baseRevAtCreation`
+ *    (below) — the patch is the intent being preserved.
+ *
+ * `baseRevAtCreation` restarts at 1 on a `modify` override, because the
+ * clone's `rev` does: both move planners build the destination copy with
+ * `rev: undefined`, which every rev-comparison site reads as 1 (`currentRev`,
+ * types.ts). Carrying a pre-move `baseRevAtCreation` of, say, 5 across would
+ * silently suppress `plan-moved` for the clone's next four real edits.
+ *
+ * What this does NOT buy, and shouldn't be read as buying: an override that
+ * no longer produces an `orphaned` conflict anywhere. `resolveScenario` takes
+ * one Program while a Scenario is Portfolio-scoped, so a multi-Program
+ * Portfolio already reports `orphaned` for every override targeting a sibling
+ * Program's milestone, move or no move — pre-existing, and a
+ * resolver/ownership question rather than this one's. The honest statement is
+ * a swap: before the move exactly one Program applied the override and its
+ * siblings called it orphaned; after, exactly one still does — the one the
+ * milestone is now in. Without this, none does. See the end-to-end cases in
+ * apply.test.ts, which run the real planner and the real resolver.
+ *
+ * Returns `scenario` unchanged (by identity) when `idMap` names no override
+ * this Scenario holds, so a caller can skip a no-op write cheaply.
+ */
+export function repointScenarioOverrides(scenario: Scenario, idMap: Record<string, string>): Scenario {
+  const entries = Object.entries(scenario.milestoneOverrides);
+  if (!entries.some(([targetId]) => idMap[targetId])) return scenario;
+
+  const milestoneOverrides: Record<string, MilestoneOverride> = {};
+  for (const [targetId, override] of entries) {
+    const newId = idMap[targetId];
+    if (!newId) {
+      milestoneOverrides[targetId] = override;
+      continue;
+    }
+    milestoneOverrides[newId] = override.op === "modify" ? { ...override, baseRevAtCreation: 1 } : override;
+  }
+  return { ...scenario, milestoneOverrides };
+}

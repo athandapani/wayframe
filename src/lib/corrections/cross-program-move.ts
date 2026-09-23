@@ -13,9 +13,10 @@ import { removeMilestoneOp, removeSwimlaneOp, topOrderSpaceNextOrder } from "./a
  * Two other modules build on this one, each for a different caller:
  *  - src/components/correction-box/cross-program-move.ts — the box-dispatch
  *    orchestrator #126's dropdowns actually call, wrapping a plan with the
- *    two things a plan alone can't do: refuse a move neither side can
- *    accept, and apply both sides through their own `useCorrectionBox`
- *    (the only sanctioned path to a Program's live Yjs doc).
+ *    three things a plan alone can't do: refuse a move neither side can
+ *    accept, apply both sides through their own `useCorrectionBox` (the
+ *    only sanctioned path to a Program's live Yjs doc), and re-point the
+ *    moved item's Scenario overrides on the shared Portfolio (#131).
  *  - src/lib/realtime/cross-program-move-docs.ts — a doc-level form used
  *    only by tests, applying an already-computed plan straight to two
  *    `Y.Doc`s so the primitive's ordering can be exercised without React.
@@ -33,8 +34,12 @@ import { removeMilestoneOp, removeSwimlaneOp, topOrderSpaceNextOrder } from "./a
  * dropped is reported back on the returned plan so a caller can surface it
  * (a toast, a confirmation dialog) instead of the information just
  * vanishing. Scenario overrides (Portfolio-scoped, keyed by bare milestone
- * id) are deliberately NOT reconciled here — out of scope for #124, see
- * CONTEXT.md's Cross-Program id namespacing section for the follow-up.
+ * id) are deliberately NOT reconciled here — they aren't in Program state at
+ * all, so there is nothing for a planner over two Programs to rewrite. The
+ * plan reports the new ids (`clonedMilestone.id`, `idMap`) and the box-
+ * dispatch orchestrator uses them to re-point the overrides on the shared
+ * Portfolio (#131, `repointScenarios` in
+ * src/components/correction-box/cross-program-move.ts).
  */
 
 /**
