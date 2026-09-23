@@ -282,3 +282,140 @@ describe("AllProgramsPage — New Program (wayframe UX-2026-09-18 §7)", () => {
     await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
   });
 });
+
+describe("AllProgramsPage — Version History (wayframe#128, #127's Variant B)", () => {
+  const savedAt = "2026-09-18T14:14:00Z";
+
+  function versionSummary() {
+    return { id: "ver-1", creatorIdentity: "user-1", creatorName: "Priya N.", createdAt: savedAt, label: null, programCount: 2, milestoneCount: 2 };
+  }
+
+  /** The same two Programs as the live document, except Alpha's milestone was a different one back then — the one fact that makes the canvas swap visible. */
+  function versionPrograms(): Program[] {
+    const a = programA();
+    return [{ ...a, milestones: [{ ...a.milestones[0], id: "m-old", title: "Alpha Charter" }] }, programB()];
+  }
+
+  /** Routes every request the dock makes; anything else keeps the page's own "not handled" shape. */
+  function serveVersions(overrides: { save?: () => unknown } = {}) {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/versions") && init?.method === "POST") {
+        return Promise.resolve(overrides.save?.() ?? { ok: true, json: () => Promise.resolve({ versionId: "ver-2" }) });
+      }
+      if (u.endsWith("/versions")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ versions: [versionSummary()] }) });
+      if (u.endsWith("/versions/ver-1")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ version: { ...versionSummary(), programs: versionPrograms() } }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({ error: `unhandled ${u}` }) });
+    });
+  }
+
+  function dock() {
+    return screen.queryByRole("complementary", { name: "Version history" });
+  }
+
+  async function openHistory(role: "owner" | "editor" | "viewer" = "editor") {
+    await renderPage(role);
+    serveVersions();
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    // The row's own summary line, rather than its saved-at heading — the
+    // heading renders in the runner's local timezone.
+    await waitFor(() => expect(screen.getByText("2 Programs · 2 milestones")).toBeInTheDocument());
+  }
+
+  it("keeps the dock closed by default — it costs the canvas nothing until asked for", async () => {
+    await renderPage("editor");
+    expect(dock()).toBeNull();
+    expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();
+  });
+
+  it("selecting a Version swaps the canvas in place, leaving the list on screen", async () => {
+    await openHistory("editor");
+    expect(marker("program-A::m1")).not.toBeNull();
+
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+    expect(marker("program-A::m1")).toBeNull();
+    // Beta was unchanged in that Version, and is still drawn beside Alpha.
+    expect(marker("program-B::m1")).not.toBeNull();
+    // The list is still there — comparing is the point.
+    expect(dock()).not.toBeNull();
+    expect(screen.getByText(/Read-only — Version of/)).toBeInTheDocument();
+  });
+
+  it("withholds editing while a Version is on screen, on the canvas and in the rail", async () => {
+    await openHistory("editor");
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+
+    expect(screen.queryByRole("button", { name: /^Select mode/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ Lane" })).not.toBeInTheDocument();
+    expect(screen.getByText("Reading a saved Version — the live document is untouched.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ New Program" })).not.toBeInTheDocument();
+
+    // A click on a marker opens nothing: the callback isn't wired at all.
+    fireEvent.click(marker("program-A::m-old")!);
+    expect(screen.queryByRole("complementary", { name: "Milestone editor" })).not.toBeInTheDocument();
+  });
+
+  it("band collapse still works while reading a Version — it's viewer-local, not document content", async () => {
+    await openHistory("editor");
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Program Alpha's band on the canvas" }));
+
+    await waitFor(() => expect(marker("program-A::m-old")).toBeNull());
+    expect(marker("program-B::m1")).not.toBeNull();
+  });
+
+  it("the pinned Live row, and closing the dock, both return to the live document", async () => {
+    await openHistory("editor");
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: /Live document/ }));
+    await waitFor(() => expect(marker("program-A::m1")).not.toBeNull());
+    expect(dock()).not.toBeNull();
+
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Close version history" }));
+    await waitFor(() => expect(marker("program-A::m1")).not.toBeNull());
+    expect(dock()).toBeNull();
+  });
+
+  it("saving posts no document of its own and returns to live even from a read-only view", async () => {
+    await openHistory("editor");
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Save a version" }));
+
+    await waitFor(() => expect(marker("program-A::m1")).not.toBeNull());
+    const post = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "POST");
+    expect(String(post![0])).toContain("/versions");
+    // Nothing client-sent decides a Version's content — the server reads the Programs itself.
+    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({});
+  });
+
+  it("the dock and the inspector share one slot: opening the inspector closes the dock", async () => {
+    await openHistory("editor");
+    expect(dock()).not.toBeNull();
+
+    fireEvent.click(marker("program-A::m1")!);
+
+    await waitFor(() => expect(screen.getByRole("complementary", { name: "Milestone editor" })).toBeInTheDocument());
+    expect(dock()).toBeNull();
+  });
+
+  it("lets a viewer read a Version but never save one", async () => {
+    await openHistory("viewer");
+    expect(screen.queryByRole("button", { name: "Save a version" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
+    await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+  });
+});

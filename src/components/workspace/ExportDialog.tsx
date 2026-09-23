@@ -112,7 +112,7 @@ export function ExportDialog({
   renderPrefs: ExportRenderPrefs;
   onAddScenario: (name: string) => void;
   onClose: () => void;
-  /** Opens the dialog with this destination pre-selected (wayframe UX-2026-09-18 §8) — "Save Snapshot ›" next to "View Snapshots ›" opens straight onto the section-picker with "snapshot" already chosen, one click closer than picking it off the 3-way radio by hand. Defaults to "pptx", same as before this prop existed. */
+  /** Opens the dialog with this destination pre-selected (wayframe UX-2026-09-18 §8) — "Save Export Snapshot ›" next to "View Export Snapshots ›" opens straight onto the section-picker with "snapshot" already chosen, one click closer than picking it off the 3-way radio by hand. Defaults to "pptx", same as before this prop existed. */
   initialDestination?: ExportDestination;
 }) {
   // Sibling Programs for the Combined/Individual sections — a one-shot fetch
@@ -339,7 +339,7 @@ export function ExportDialog({
    * would otherwise silently flatten a `Set` to `{}` over the wire.
    */
   async function saveSnapshot(slides: Slide[], selection: ExportSelection) {
-    setExportStage("Saving Snapshot…");
+    setExportStage("Saving Export Snapshot…");
     const serializedSelection = {
       ...selection,
       individualBaselineProgramIds: [...selection.individualBaselineProgramIds],
@@ -538,7 +538,7 @@ export function ExportDialog({
             </div>
           ) : snapshotSaved ? (
             <div className="flex items-center justify-between gap-3 text-xs">
-              <span>Snapshot saved.</span>
+              <span>Export Snapshot saved.</span>
               <button onClick={onClose} className="rounded-full px-3 py-1.5 text-xs font-medium" style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}>
                 Done
               </button>
@@ -557,7 +557,7 @@ export function ExportDialog({
                 </label>
                 <label className="flex items-center gap-1.5">
                   <input type="radio" name="export-destination" checked={destination === "snapshot"} onChange={() => setDestination("snapshot")} />
-                  Save Snapshot
+                  Save Export Snapshot
                 </label>
                 {destination === "slides" && rememberedFolder && !forcePicker && (
                   <button onClick={() => setForcePicker(true)} className="opacity-70 hover:opacity-100">
@@ -584,7 +584,7 @@ export function ExportDialog({
                   style={{ background: "var(--wf-accent)", color: "var(--wf-panel)" }}
                   className="rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
                 >
-                  {exporting ? (exportStage ?? "Exporting…") : destination === "slides" ? "Send to Slides" : destination === "snapshot" ? "Save Snapshot" : "Export"}
+                  {exporting ? (exportStage ?? "Exporting…") : destination === "slides" ? "Send to Slides" : destination === "snapshot" ? "Save Export Snapshot" : "Export"}
                 </button>
               </div>
             </>

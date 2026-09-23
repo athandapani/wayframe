@@ -60,6 +60,8 @@ export function ProgramRail({
   onReorderProgram,
   reorderErrors,
   footer,
+  readOnlyPrograms,
+  viewOnlyNote,
 }: {
   /** In render order (Program `order`), each with its live box. */
   connections: ProgramConnection[];
@@ -79,7 +81,20 @@ export function ProgramRail({
   reorderErrors: Record<string, string>;
   /** Rendered under the last card — "+ New Program" on the combined surface. */
   footer?: React.ReactNode;
+  /**
+   * Version-History read-only mode (wayframe#128): when set, every card
+   * renders the Program document from THIS map — the Version currently being
+   * read — instead of its live box's, and no card offers editing. A live
+   * Program missing from the map didn't exist yet when that Version was saved,
+   * and its card says so rather than quietly showing live content beside a
+   * frozen canvas. Band collapse stays live either way: it's viewer-local, with
+   * no document field behind it (see this file's header).
+   */
+  readOnlyPrograms?: Map<string, Program>;
+  /** Replaces the structure editor's body whenever a card can't be edited — so "you're reading a saved Version" and "you have viewer access" can say different things. */
+  viewOnlyNote?: string;
 }) {
+  const readingVersion = readOnlyPrograms != null;
   return (
     <aside aria-label="Programs in this Roadmap" className="sticky top-0 flex h-screen w-[320px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="border-b border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
@@ -92,8 +107,11 @@ export function ProgramRail({
             connection={connection}
             theme={theme}
             portfolioId={portfolioId}
-            canEdit={canEdit}
+            canEdit={canEdit && !readingVersion}
             editablePrograms={editablePrograms}
+            displayProgram={readingVersion ? readOnlyPrograms.get(connection.programId) ?? null : null}
+            missingFromVersion={readingVersion && !readOnlyPrograms.has(connection.programId)}
+            viewOnlyNote={viewOnlyNote}
             bandCollapsed={collapsedProgramIds.has(connection.programId)}
             onToggleBand={() => onToggleBand(connection.programId)}
             expanded={expandedProgramId === connection.programId}
@@ -118,6 +136,9 @@ function RailCard({
   portfolioId,
   canEdit,
   editablePrograms,
+  displayProgram,
+  missingFromVersion,
+  viewOnlyNote,
   bandCollapsed,
   onToggleBand,
   expanded,
@@ -134,6 +155,11 @@ function RailCard({
   portfolioId: string;
   canEdit: boolean;
   editablePrograms: Program[];
+  /** The frozen Program document to render instead of the live box's (see ProgramRail's `readOnlyPrograms`), or null in the normal live case. */
+  displayProgram: Program | null;
+  /** This Program exists live but not in the Version being read. */
+  missingFromVersion: boolean;
+  viewOnlyNote?: string;
   bandCollapsed: boolean;
   onToggleBand: () => void;
   expanded: boolean;
@@ -145,7 +171,7 @@ function RailCard({
   canMoveDown: boolean;
   reorderError?: string;
 }) {
-  const program = connection.box.data;
+  const program = displayProgram ?? connection.box.data;
   const lanes = program.swimlanes.filter((l) => l.type === "lane");
   const groups = [...(program.swimlaneGroups ?? [])].sort((a, b) => a.order - b.order);
   const groupById = new Map(groups.map((g) => [g.id, g]));
@@ -171,8 +197,14 @@ function RailCard({
             <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{program.programName}</span>
           </div>
           <div className="truncate text-[11px] text-zinc-500">
-            {lanes.length} lane{lanes.length === 1 ? "" : "s"} · {program.milestones.length} item{program.milestones.length === 1 ? "" : "s"}
-            {program.owner ? ` · ${program.owner}` : ""}
+            {missingFromVersion ? (
+              "Not in this Version"
+            ) : (
+              <>
+                {lanes.length} lane{lanes.length === 1 ? "" : "s"} · {program.milestones.length} item{program.milestones.length === 1 ? "" : "s"}
+                {program.owner ? ` · ${program.owner}` : ""}
+              </>
+            )}
           </div>
         </button>
         <span aria-hidden="true" className="shrink-0 text-xs text-zinc-400">
@@ -210,7 +242,7 @@ function RailCard({
           </div>
 
           {!canEdit ? (
-            <p className="py-1 text-[11px] text-zinc-400">You have view-only access to this Roadmap.</p>
+            <p className="py-1 text-[11px] text-zinc-400">{viewOnlyNote ?? "You have view-only access to this Roadmap."}</p>
           ) : (
             <>
               <ul>

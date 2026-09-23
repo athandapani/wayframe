@@ -188,6 +188,38 @@ export function decodeProgramSnapshot(snapshot: Uint8Array): Program | null {
   }
 }
 
+/**
+ * Every Program of a Portfolio as a plain `Program` object, read at the
+ * FRESHEST state the server can see: each Program's compacted
+ * `programs.snapshot` with every still-pending `program_updates` row applied
+ * on top (`loadMergedProgramDoc`), not the snapshot row alone.
+ *
+ * That distinction is the whole reason this exists next to
+ * `listProgramSnapshotsForPortfolio`: the cheap All-Programs read path reads
+ * `programs` only and can therefore be one compaction behind, which is fine
+ * for seeding rooms that are about to sync anyway. Version History
+ * (wayframe#128) is not — a Version is a durable record of "the document as
+ * it was when I clicked save", so reading a stale row would silently capture
+ * the wrong plan. Modulo a connected room's own flush latency, this is the
+ * live document.
+ *
+ * Programs whose merged doc is unreadable are skipped rather than failing the
+ * whole read, matching the All-Programs route's own "don't let one corrupt
+ * Program take down the view" posture.
+ */
+export async function loadLiveProgramsForPortfolio(portfolioId: string): Promise<Program[]> {
+  const client = getDbClient();
+  await ensureSchema(client);
+  const result = await client.execute({ sql: "SELECT id FROM programs WHERE portfolio_id = ?", args: [portfolioId] });
+  const programs: Program[] = [];
+  for (const row of result.rows) {
+    const merged = await loadMergedProgramDoc(String(row.id));
+    if (!merged || !isProgramDocSeeded(merged.doc)) continue;
+    programs.push(readProgramFromDoc(merged.doc));
+  }
+  return programs.sort((a, b) => a.order - b.order);
+}
+
 /** The cheap All-Programs read path (wayframe#t12) — a single indexed query against `programs` only, never `program_updates`. */
 export async function listProgramSnapshotsForPortfolio(portfolioId: string): Promise<ProgramSnapshotRow[]> {
   const client = getDbClient();

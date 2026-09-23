@@ -150,9 +150,9 @@ describe("ExportDialog (t29/t30)", () => {
     expect(openPlaceholderPopup).not.toHaveBeenCalled();
   });
 
-  it("initialDestination='snapshot' (wayframe UX-2026-09-18 §8's 'Save Snapshot ›' button) opens straight onto the Save Snapshot radio, pre-selected", () => {
+  it("initialDestination='snapshot' (wayframe UX-2026-09-18 §8's 'Save Export Snapshot ›' button) opens straight onto the Save Export Snapshot radio, pre-selected", () => {
     setup({ initialDestination: "snapshot" });
-    expect(screen.getByRole("radio", { name: "Save Snapshot" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Save Export Snapshot" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Download .pptx" })).not.toBeChecked();
   });
 
@@ -252,7 +252,7 @@ describe("ExportDialog (t29/t30)", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: /Open the new Google Slides deck/ })).toBeInTheDocument());
   });
 
-  it("Save Snapshot — posts serialized selection (arrays, not Sets) and the built IR, then shows a success message", async () => {
+  it("Save Export Snapshot — posts serialized selection (arrays, not Sets) and the built IR, then shows a success message", async () => {
     let postedBody: { selection: { individualBaselineProgramIds: unknown; scenarioProgramProgramIds: unknown }; slides: unknown[] } | null = null;
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes("/snapshots") && init?.body) {
@@ -264,10 +264,10 @@ describe("ExportDialog (t29/t30)", () => {
 
     const { onClose } = setup();
     fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Save Snapshot" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Save Export Snapshot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Export Snapshot" }));
 
-    await waitFor(() => expect(screen.getByText("Snapshot saved.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Export Snapshot saved.")).toBeInTheDocument());
     expect(postedBody).not.toBeNull();
     expect(Array.isArray(postedBody!.selection.individualBaselineProgramIds)).toBe(true);
     expect(Array.isArray(postedBody!.selection.scenarioProgramProgramIds)).toBe(true);
@@ -276,7 +276,7 @@ describe("ExportDialog (t29/t30)", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("Save Snapshot — non-ok response shows the error text instead of a silent failure", async () => {
+  it("Save Export Snapshot — non-ok response shows the error text instead of a silent failure", async () => {
     vi.stubGlobal(
       "fetch",
       mockFetch({
@@ -286,8 +286,8 @@ describe("ExportDialog (t29/t30)", () => {
 
     setup();
     fireEvent.click(screen.getByRole("checkbox", { name: "Executive slide" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Save Snapshot" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Save Export Snapshot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Export Snapshot" }));
 
     await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
   });

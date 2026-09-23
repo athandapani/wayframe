@@ -7,6 +7,7 @@
 // demo fixture). Parameterized by `initialData`/`today` so neither caller
 // hand-maintains its own copy.
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { nanoid } from "nanoid";
 import { mergeForRender, type Portfolio, type PortfolioDocument, type Program, type RenderableProgram } from "@/components/timeline/types";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
@@ -895,10 +896,10 @@ export function RoadmapWorkspace({
                 Export to Deck
               </button>
             </OptionsMenuRow>
-            <OptionsMenuRow label="Snapshots">
+            <OptionsMenuRow label="Export Snapshots">
               <span className="flex items-center gap-1.5">
                 <button onClick={() => setSnapshotsOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  View Snapshots ›
+                  View Export Snapshots ›
                 </button>
                 <button
                   onClick={() => {
@@ -908,10 +909,32 @@ export function RoadmapWorkspace({
                   style={PILL_STYLE}
                   className={pillToggle(true)}
                 >
-                  Save Snapshot ›
+                  Save Export Snapshot ›
                 </button>
               </span>
             </OptionsMenuRow>
+            {/* Version History (wayframe#128) lives on the combined All-Programs
+                surface, not here: a Version captures EVERY Program at once, and
+                #127's resolution puts the dock in the same 380px slot as the
+                inspector, beside the Program rail that says which Programs
+                you're looking at. This row exists so the feature is reachable
+                from the single-Program page rather than only findable by
+                someone who already knows where it is. Gated on `realtime`
+                (not on role) — that's the one signal that says "this is a
+                hosted Roadmap with a live room", so the local-only `/` page and
+                the `/dev/demo-roadmap` QA route, which have no `/p/<id>/all` to
+                open, don't offer a dead link. */}
+            {realtime && (
+              <OptionsMenuRow label="Version history">
+                <Link
+                  href={`/p/${box.portfolio.id}/all`}
+                  style={PILL_STYLE}
+                  className="rounded-full border px-2.5 py-1 text-xs"
+                >
+                  Open on All Programs ›
+                </Link>
+              </OptionsMenuRow>
+            )}
             {canManageSharing && (
               <OptionsMenuRow label="Sharing">
                 <button onClick={() => setSharingOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
