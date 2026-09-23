@@ -125,6 +125,38 @@ const SCHEMA_STATEMENTS = [
     slides TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS portfolio_snapshots_portfolio_id ON portfolio_snapshots (portfolio_id)`,
+  // `portfolio_versions` (wayframe#128): a Version — a manual, whole-Roadmap
+  // capture of every Program's document state at one moment, per #119's
+  // "Save a version" semantics. Mirrors `portfolio_snapshots` above (one
+  // append-only row per deliberate user action, JSON-serialized payload) but
+  // is a DIFFERENT concept in three ways, and the three are why this is a
+  // second table rather than a column on that one:
+  //   - it stores full Program DOCUMENTS (`programs`), not a Deck IR, so it
+  //     stays readable/browsable as a roadmap rather than as slides;
+  //   - it always covers the whole Roadmap, so there is no section
+  //     `selection` to record;
+  //   - its `label` is MUTABLE (renaming a Version post-hoc is the naming
+  //     flow #127 picked), while its `programs` content never changes.
+  // `program_count`/`milestone_count` are denormalized at write time on
+  // purpose: the list view wants a per-row "what changed" line, and #127's
+  // resolution explicitly said to ship counts rather than make the list
+  // endpoint read (and diff) every Version's full document blob.
+  // `creator_name` is the display name the session carried when the Version
+  // was saved — a convenience for the list, never an identity: only
+  // `creator_identity` is authoritative, and it is what any access check
+  // would use.
+  `CREATE TABLE IF NOT EXISTS portfolio_versions (
+    id TEXT PRIMARY KEY,
+    portfolio_id TEXT NOT NULL,
+    creator_identity TEXT NOT NULL,
+    creator_name TEXT,
+    created_at TEXT NOT NULL,
+    label TEXT,
+    program_count INTEGER NOT NULL,
+    milestone_count INTEGER NOT NULL,
+    programs TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS portfolio_versions_portfolio_id ON portfolio_versions (portfolio_id)`,
 ];
 
 // Memoized per-Client instance (not module-global) so tests pointing

@@ -70,12 +70,12 @@ describe("SnapshotsPanel (t31)", () => {
 
     render(<SnapshotsPanel portfolioId="p1" onClose={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText("No Snapshots saved yet.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No Export Snapshots saved yet.")).toBeInTheDocument());
     // No onCreate passed here — the fast-path button must not appear unprompted.
-    expect(screen.queryByRole("button", { name: "Save Snapshot ›" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save Export Snapshot ›" })).not.toBeInTheDocument();
   });
 
-  it("wayframe UX-2026-09-18 §8 — the empty state's 'Save Snapshot ›' button calls onCreate when provided", async () => {
+  it("wayframe UX-2026-09-18 §8 — the empty state's 'Save Export Snapshot ›' button calls onCreate when provided", async () => {
     vi.stubGlobal(
       "fetch",
       mockFetch({
@@ -86,8 +86,8 @@ describe("SnapshotsPanel (t31)", () => {
 
     render(<SnapshotsPanel portfolioId="p1" onClose={vi.fn()} onCreate={onCreate} />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save Snapshot ›" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot ›" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Export Snapshot ›" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save Export Snapshot ›" }));
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
 

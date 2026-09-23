@@ -10,7 +10,7 @@
 // rail's own header explains the two-affordance card; this file is about the
 // data plumbing underneath.
 //
-// Three seams worth understanding before editing this file:
+// Four seams worth understanding before editing this file:
 //
 // 1. One live room per Program (#118: "typical scale is 3-4 Programs, so
 //    connect all of them rather than building viewport-based lazy
@@ -43,6 +43,18 @@
 //    Portfolio-level editing; that stays on the single-Program page, which
 //    has exactly one box. Worth fixing properly one day (a Portfolio-scoped
 //    room), but silently letting the edits be lost is not the fix.
+//
+// 4. Version History (#128) reads through the SAME canvas, not a second one.
+//    Selecting a Version swaps `displayedPrograms` from the live boxes over to
+//    that Version's frozen documents and withholds every mutation callback —
+//    the convention this route used to express read-only before #126 made it
+//    editable, and the one #127's resolution picked over a scrim. Two things
+//    stay live while a Version is on screen, both deliberately: the rooms
+//    themselves (the live document keeps syncing behind you, so leaving
+//    read-only needs no reload), and band collapse (viewer-local state held
+//    right here, with no document field behind it). Everything else, including
+//    a REAL Swimlane Group's `collapsed`, is inert — writing document content
+//    while looking at a frozen document would edit a plan you can't see.
 
 import { useCallback, useState } from "react";
 import type { Portfolio, Program } from "@/components/timeline/types";
@@ -63,6 +75,8 @@ import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 import { moveMilestoneBetweenPrograms, moveSwimlaneBetweenPrograms } from "@/components/correction-box/cross-program-move";
 import type { RoomAccess } from "@/lib/realtime/provider";
 import type { ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
+import { VersionHistoryDock, formatSavedAt } from "@/components/workspace/VersionHistoryDock";
+import type { PortfolioVersion } from "@/lib/db/versions";
 import { ProgramRoomHost, type ProgramConnection } from "./ProgramRoomHost";
 import { ProgramRail } from "./ProgramRail";
 import { CrossProgramMovePicker } from "./CrossProgramMovePicker";
@@ -142,13 +156,24 @@ export function CombinedProgramEditor({
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const selection = useSelection();
+  // Version History (#128). The dock is closed by default and shares the
+  // inspector's slot, so opening one closes the other; `viewingVersion` is null
+  // whenever the live document is on screen.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewingVersion, setViewingVersion] = useState<PortfolioVersion | null>(null);
+  const readingVersion = viewingVersion !== null;
+  /** Every gate that used to read `canEdit` alone: reading a Version is read-only regardless of role. */
+  const canMutate = canEdit && !readingVersion;
 
   const theme = resolvePortfolioTheme(portfolio.theme ?? defaultPortfolioTheme);
 
   // Every Program that has actually published a box, in the caller's order.
   const orderedConnections = programs.map((p) => connections.get(p.id)).filter((c): c is ProgramConnection => c != null);
   const livePrograms = orderedConnections.map((c) => c.box.data);
-  const editablePrograms = canEdit ? livePrograms : [];
+  const editablePrograms = canMutate ? livePrograms : [];
+  /** What the canvas renders: the live boxes, or the Version being read. */
+  const displayedPrograms = viewingVersion ? viewingVersion.programs : livePrograms;
+  const versionProgramsById = viewingVersion ? new Map(viewingVersion.programs.map((p) => [p.id, p])) : undefined;
 
   function toggleBand(programId: string) {
     setCollapsedProgramIds((prev) => {
@@ -161,11 +186,66 @@ export function CombinedProgramEditor({
 
   const canvasHandlers = buildMergedCanvasHandlers(lookup, toggleBand);
 
+  /**
+   * While a Version is on screen, a group-header click may only toggle a
+   * Program BAND (viewer-local). A real Swimlane Group's `collapsed` is
+   * document content, and routing it to a live box here would edit the live
+   * plan from inside a read-only view of an old one — so it's dropped.
+   */
+  function toggleBandOnly(groupId: string) {
+    if (!isProgramBandId(groupId)) return;
+    const split = splitNamespacedId(groupId);
+    if (split) toggleBand(split.programId);
+  }
+
+  /** Opening the inspector closes the History dock: #127 put them in the same slot, mutually exclusive. */
+  function openMilestone(mergedId: string | null) {
+    setHistoryOpen(false);
+    setSelectedMilestoneId(mergedId);
+  }
+
+  function openTopLevelItem(mergedId: string | null) {
+    setHistoryOpen(false);
+    setSelectedTopLevelItemId(mergedId);
+  }
+
+  function handleViewVersion(version: PortfolioVersion | null) {
+    setViewingVersion(version);
+    // A marquee/tree selection names ids in whichever document was on screen
+    // when it was made; carrying it across the swap would leave the bulk-edit
+    // toolbar pointed at markers that aren't there. Same for an armed
+    // placement, a trace root, and the per-Program lane modal — all of them
+    // address the document that was on screen a moment ago.
+    selection.clear();
+    setPlacement(null);
+    setTrace(null);
+    setSelectedMilestoneId(null);
+    setSelectedTopLevelItemId(null);
+    setLaneOptionsProgramId(null);
+  }
+
+  /** Closing the dock always returns to live: a read-only canvas with the list gone would have nothing on screen saying why it can't be edited. */
+  function closeHistory() {
+    setHistoryOpen(false);
+    handleViewVersion(null);
+  }
+
+  /** ...and opening the dock closes the inspector, since #127 put them in the same slot. */
+  function toggleHistory() {
+    if (historyOpen) {
+      closeHistory();
+      return;
+    }
+    setHistoryOpen(true);
+    setSelectedMilestoneId(null);
+    setSelectedTopLevelItemId(null);
+  }
+
   // Recomputed every render rather than memoized, exactly as the read-only
   // merged view already did: the merge is a couple of array passes over 3-4
   // Programs, and it mints a fresh object either way (see
   // mergeProgramsForAllView's `generatedAt`), so a memo would buy nothing.
-  const merged = mergeProgramsForAllView(portfolio.id, livePrograms);
+  const merged = mergeProgramsForAllView(portfolio.id, displayedPrograms);
   const renderable = mergeForRender(portfolio, merged);
   const canvasData = {
     ...renderable,
@@ -253,7 +333,7 @@ export function CombinedProgramEditor({
           // centered on the canvas rather than under the dock — same
           // mechanism RoadmapWorkspace publishes (see CorrectionBox's
           // DOCK_SHIFT). The rail is a flex sibling, so it needs no shift.
-          "--wf-dock-w": selectedMilestone || selectedTopLevelItem ? `${EDITOR_DOCK_WIDTH}px` : "0px",
+          "--wf-dock-w": selectedMilestone || selectedTopLevelItem || historyOpen ? `${EDITOR_DOCK_WIDTH}px` : "0px",
         } as React.CSSProperties
       }
     >
@@ -283,15 +363,17 @@ export function CombinedProgramEditor({
         onExpandProgram={setExpandedProgramId}
         onMoveSwimlane={handleMoveSwimlane}
         onOpenLaneOptions={setLaneOptionsProgramId}
-        onReorderProgram={onReorderProgram}
+        onReorderProgram={readingVersion ? undefined : onReorderProgram}
         reorderErrors={reorderErrors}
-        footer={railFooter}
+        footer={readingVersion ? null : railFooter}
+        readOnlyPrograms={versionProgramsById}
+        viewOnlyNote={readingVersion ? "Reading a saved Version — the live document is untouched." : undefined}
       />
 
       <main className="min-w-0 flex-1 overflow-x-auto p-4">
         <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
           {topBar}
-          {canEdit && (
+          {canMutate && (
             <button
               onClick={() => setSelectMode((v) => !v)}
               aria-pressed={selectMode}
@@ -301,7 +383,23 @@ export function CombinedProgramEditor({
               Select mode: {selectMode ? "On" : "Off"}
             </button>
           )}
+          {viewingVersion && (
+            <span className="rounded-full border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">
+              Read-only — Version of {formatSavedAt(viewingVersion.createdAt)}
+            </span>
+          )}
           {connecting && <span className="text-xs text-zinc-500">Connecting to {programs.length - orderedConnections.length} more Program…</span>}
+          {/* Next to the persistence/connection state on purpose (#127): "is my
+              work safe" and "what did this look like last month" are the same
+              question asked at two timescales. Not in an Options menu — that's
+              where Export Snapshot lives, the collision #128 renamed away. */}
+          <button
+            onClick={toggleHistory}
+            aria-pressed={historyOpen}
+            className={"ml-auto rounded-full border px-2.5 py-1 text-xs " + (historyOpen ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-500")}
+          >
+            History
+          </button>
         </div>
 
         {placement && (
@@ -313,21 +411,21 @@ export function CombinedProgramEditor({
           </div>
         )}
 
-        <PortfolioRollupBar programs={livePrograms} today={today} />
+        <PortfolioRollupBar programs={displayedPrograms} today={today} />
 
         <RoadmapTimeline
           data={canvasData}
           today={today}
           theme={theme}
-          onMilestoneClick={canEdit ? (m) => setSelectedMilestoneId(m.id) : undefined}
-          onTopLevelItemClick={canEdit ? (t) => setSelectedTopLevelItemId(t.id) : undefined}
-          onMilestoneDateChange={canEdit ? canvasHandlers.onMilestoneDateChange : undefined}
-          onMilestoneDateRangeChange={canEdit ? canvasHandlers.onMilestoneDateRangeChange : undefined}
-          onToggleGroupCollapsed={canvasHandlers.onToggleGroupCollapsed}
-          onPickShape={canEdit ? (laneId, shape) => setPlacement({ laneId, shape }) : undefined}
+          onMilestoneClick={canMutate ? (m) => openMilestone(m.id) : undefined}
+          onTopLevelItemClick={canMutate ? (t) => openTopLevelItem(t.id) : undefined}
+          onMilestoneDateChange={canMutate ? canvasHandlers.onMilestoneDateChange : undefined}
+          onMilestoneDateRangeChange={canMutate ? canvasHandlers.onMilestoneDateRangeChange : undefined}
+          onToggleGroupCollapsed={readingVersion ? toggleBandOnly : canvasHandlers.onToggleGroupCollapsed}
+          onPickShape={canMutate ? (laneId, shape) => setPlacement({ laneId, shape }) : undefined}
           placementMode={placement}
           onAddMilestone={
-            canEdit
+            canMutate
               ? (laneId, date, endDate) => {
                   const split = splitNamespacedId(laneId);
                   const connection = split ? connections.get(split.programId) : undefined;
@@ -336,12 +434,12 @@ export function CombinedProgramEditor({
                   // Straight into the inspector, same "create empty, open
                   // for editing" contract the single-Program surface has —
                   // an untitled marker with no follow-up is a dead end.
-                  setSelectedMilestoneId(namespaceId(split.programId, connection.box.addMilestone(split.localId, date, endDate)));
+                  openMilestone(namespaceId(split.programId, connection.box.addMilestone(split.localId, date, endDate)));
                 }
               : undefined
           }
           tracedIds={tracedIds}
-          selectionModeEnabled={canEdit && selectMode}
+          selectionModeEnabled={canMutate && selectMode}
           selectedIds={selection.selectedIds}
           onToggleSelect={selection.toggle}
           onMarqueeSelect={selection.addAll}
@@ -370,7 +468,7 @@ export function CombinedProgramEditor({
         )}
       </main>
 
-      {canEdit && selection.selectedIds.size > 0 && (
+      {canMutate && selection.selectedIds.size > 0 && (
         // t33's cross-Program toolbar, now applying through the live boxes
         // rather than its old REST route (see its own header). It groups the
         // merged selection by Program itself and hands back each Program's
@@ -439,6 +537,16 @@ export function CombinedProgramEditor({
           }}
           onSetStyleOverride={topLevelSelection.connection.box.setTopLevelItemStyleOverride}
           onClearStyleOverride={topLevelSelection.connection.box.clearTopLevelItemStyleOverride}
+        />
+      )}
+
+      {historyOpen && (
+        <VersionHistoryDock
+          portfolioId={portfolio.id}
+          canEdit={canEdit}
+          viewingVersionId={viewingVersion?.id ?? null}
+          onViewVersion={handleViewVersion}
+          onClose={closeHistory}
         />
       )}
 

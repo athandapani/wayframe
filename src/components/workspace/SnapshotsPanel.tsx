@@ -1,15 +1,21 @@
 "use client";
 
-// Snapshot list/viewer (wayframe#t31) — same modal shape SharePanel.tsx
+// Export Snapshot list/viewer (wayframe#t31) — same modal shape SharePanel.tsx
 // already established (fixed backdrop, --wf-* themed card, role="dialog",
-// scrollable body, ✕ close). Read-only: Snapshots are append-only/
+// scrollable body, ✕ close). Read-only: Export Snapshots are append-only/
 // undeletable per #t11, so unlike SharePanel there's no mutation here at
 // all, just a list plus a per-row "Download .pptx" action that recompiles
 // the stored IR through the existing t28/t30 pptxgenjs path — no new
 // IR-to-screen renderer needed. Wired in via RoadmapWorkspace's Options
 // menu, NOT gated by canManageSharing — any member (viewer included) can
-// view Snapshots, since a Snapshot is document content, not an owner-only
+// view Export Snapshots, since one is document content, not an owner-only
 // setting.
+//
+// The UI copy here says "Export Snapshot" throughout, never bare "Snapshot"
+// (wayframe#128): a Version (VersionHistoryDock.tsx) is now a real, separate
+// concept — a whole-Roadmap capture of the Program DOCUMENTS, browsable as a
+// roadmap — and the two used to collide on one word. The type names, routes
+// and table are untouched; only what a user reads changed.
 import { useEffect, useState } from "react";
 import { exportNativeDeckFromSlides } from "@/lib/export/export-native-deck";
 import type { PortfolioSnapshotSummary, PortfolioSnapshot } from "@/lib/db/snapshots";
@@ -37,7 +43,7 @@ const SECTION_LABELS: { key: keyof Pick<PortfolioSnapshotSummary["selection"], "
   { key: "scenarioProgram", label: "Scenario: Program view" },
 ];
 
-/** Human-readable summary of which of the 5 export-dialog sections a Snapshot's `selection` had checked, comma-separated. */
+/** Human-readable summary of which of the 5 export-dialog sections an Export Snapshot's `selection` had checked, comma-separated. */
 export function summarizeSelection(selection: PortfolioSnapshotSummary["selection"]): string {
   const labels = SECTION_LABELS.filter(({ key }) => selection[key]).map(({ label }) => label);
   return labels.length > 0 ? labels.join(", ") : "No sections";
@@ -50,7 +56,7 @@ export function SnapshotsPanel({
 }: {
   portfolioId: string;
   onClose: () => void;
-  /** "Save Snapshot ›" affordance on the empty state (wayframe UX-2026-09-18 §8) — this panel itself stays read-only (Snapshots are append-only per #t11), so creating one closes this panel and reopens ExportDialog pre-set to the "snapshot" destination instead of adding a mutation here. Optional: a caller with nowhere to route this yet just gets the plain "No Snapshots saved yet." message unchanged. */
+  /** "Save Export Snapshot ›" affordance on the empty state (wayframe UX-2026-09-18 §8) — this panel itself stays read-only (Export Snapshots are append-only per #t11), so creating one closes this panel and reopens ExportDialog pre-set to the "snapshot" destination instead of adding a mutation here. Optional: a caller with nowhere to route this yet just gets the plain "No Export Snapshots saved yet." message unchanged. */
   onCreate?: () => void;
 }) {
   const [state, setState] = useState<ListState>({ status: "loading" });
@@ -91,7 +97,7 @@ export function SnapshotsPanel({
         return;
       }
       const body = (await res.json()) as { snapshot: PortfolioSnapshot };
-      await exportNativeDeckFromSlides(body.snapshot.slides, deckFileName(`Snapshot ${formatCreatedAt(createdAt)}`));
+      await exportNativeDeckFromSlides(body.snapshot.slides, deckFileName(`Export Snapshot ${formatCreatedAt(createdAt)}`));
     } catch {
       setDownloadErrors((e) => ({ ...e, [id]: "Download failed." }));
     } finally {
@@ -106,12 +112,12 @@ export function SnapshotsPanel({
         className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-xl border shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="Snapshots"
+        aria-label="Export Snapshots"
       >
         <div className="flex items-start justify-between gap-4 border-b p-5" style={{ borderColor: "var(--wf-border)" }}>
           <div>
-            <h1 className="text-base font-semibold">Snapshots</h1>
-            <p className="text-xs opacity-60">Immutable, view-only records saved from the Export dialog.</p>
+            <h1 className="text-base font-semibold">Export Snapshots</h1>
+            <p className="text-xs opacity-60">Immutable, view-only deck records saved from the Export dialog. For a browsable capture of the plan itself, use Version history.</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="shrink-0 text-lg leading-none opacity-50 hover:opacity-100">
             ✕
@@ -125,14 +131,14 @@ export function SnapshotsPanel({
           <div className="p-5">
             {state.snapshots.length === 0 ? (
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-xs opacity-60">No Snapshots saved yet.</p>
+                <p className="text-xs opacity-60">No Export Snapshots saved yet.</p>
                 {onCreate && (
                   <button
                     onClick={onCreate}
                     style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
                     className="rounded-full border px-2.5 py-1 text-[11px] opacity-80 hover:opacity-100"
                   >
-                    Save Snapshot ›
+                    Save Export Snapshot ›
                   </button>
                 )}
               </div>

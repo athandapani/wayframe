@@ -256,22 +256,22 @@ describe("RoadmapWorkspace export to deck (t29)", () => {
     expect(fileName).toBe("portfolio-roadmap-deck.pptx");
   });
 
-  it("'Save Snapshot ›' (wayframe UX-2026-09-18 §8) opens the same Export dialog with 'Save Snapshot' pre-selected, one click closer than the Export row", async () => {
+  it("'Save Export Snapshot ›' (wayframe UX-2026-09-18 §8) opens the same Export dialog with 'Save Export Snapshot' pre-selected, one click closer than the Export row", async () => {
     render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
 
     openOptionsMenu();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save Snapshot ›" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot ›" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Export Snapshot ›" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save Export Snapshot ›" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Export to Deck" });
-    expect(within(dialog).getByRole("radio", { name: "Save Snapshot" })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: "Save Export Snapshot" })).toBeChecked();
   });
 
-  it("'Export to Deck' still defaults to 'Download .pptx' after a prior 'Save Snapshot ›' open — the pre-selection doesn't leak between opens", async () => {
+  it("'Export to Deck' still defaults to 'Download .pptx' after a prior 'Save Export Snapshot ›' open — the pre-selection doesn't leak between opens", async () => {
     render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
 
     openOptionsMenu();
-    fireEvent.click(screen.getByRole("button", { name: "Save Snapshot ›" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Export Snapshot ›" }));
     fireEvent.click((await screen.findByRole("dialog", { name: "Export to Deck" })).querySelector('[aria-label="Close"]')!);
 
     // The Options menu itself never closed (this app's OptionsMenu only
@@ -546,5 +546,31 @@ describe("RoadmapWorkspace sync status indicator + relabeled Save (wayframe#121)
     openOptionsMenu();
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Download a copy" })).not.toBeInTheDocument();
+  });
+});
+
+describe("RoadmapWorkspace → Version history pointer (wayframe#128)", () => {
+  // Own handle on the mocked hook (the block above leaves it with a
+  // mockImplementation set) so these two renders don't try to open a real
+  // room connection.
+  const mockedUseProgramRoom = useProgramRoom as unknown as Mock;
+
+  beforeEach(() => {
+    mockedUseProgramRoom.mockReset();
+    mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
+  });
+
+  it("offers a way to reach Version history on a hosted Roadmap — the dock itself lives on the All-Programs surface", () => {
+    render(
+      <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
+    );
+    openOptionsMenu();
+    expect(screen.getByRole("link", { name: "Open on All Programs ›" })).toHaveAttribute("href", "/p/portfolio-1/all");
+  });
+
+  it("offers no such link with no live room — the local-only '/' page and the demo route have no All-Programs view to open", () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openOptionsMenu();
+    expect(screen.queryByRole("link", { name: "Open on All Programs ›" })).not.toBeInTheDocument();
   });
 });

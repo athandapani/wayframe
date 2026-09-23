@@ -139,6 +139,37 @@ describe("program-storage", () => {
     expect(decodeProgramSnapshot(snapshot!)).toEqual(program);
   });
 
+  it("loadLiveProgramsForPortfolio (wayframe#128) sees a pending Yjs update the compacted snapshot row doesn't", async () => {
+    const { createProgramFromData, loadLiveProgramsForPortfolio, appendProgramUpdate, decodeProgramSnapshot, getProgramSnapshot } = await import("./program-storage");
+    const { applyProgramPatch } = await import("@/lib/realtime/program-ydoc");
+    const program = { ...demoRoadmap, id: "prog-1", portfolioId: "portfolio-1", order: 0 };
+    await createProgramFromData(program);
+
+    // An edit that only ever reached `program_updates` — exactly the state a
+    // connected room leaves behind between compactions. The whole reason
+    // Version History reads through this function rather than the cheap
+    // All-Programs path is that the cheap path cannot see this yet.
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, (await getProgramSnapshot("prog-1"))!);
+    const before = Y.encodeStateVector(doc);
+    applyProgramPatch(doc, program, { ...program, programName: "Renamed live" });
+    await appendProgramUpdate("prog-1", Y.encodeStateAsUpdate(doc, before));
+
+    expect(decodeProgramSnapshot((await getProgramSnapshot("prog-1"))!)?.programName).toBe(program.programName);
+    const live = await loadLiveProgramsForPortfolio("portfolio-1");
+    expect(live.map((p) => p.programName)).toEqual(["Renamed live"]);
+  });
+
+  it("loadLiveProgramsForPortfolio is scoped to one Portfolio and ordered by Program order", async () => {
+    const { createProgramFromData, loadLiveProgramsForPortfolio } = await import("./program-storage");
+    await createProgramFromData({ ...demoRoadmap, id: "prog-second", portfolioId: "portfolio-1", order: 1 });
+    await createProgramFromData({ ...demoRoadmap, id: "prog-first", portfolioId: "portfolio-1", order: 0 });
+    await createProgramFromData({ ...demoRoadmap, id: "prog-elsewhere", portfolioId: "portfolio-2", order: 0 });
+
+    expect((await loadLiveProgramsForPortfolio("portfolio-1")).map((p) => p.id)).toEqual(["prog-first", "prog-second"]);
+    expect(await loadLiveProgramsForPortfolio("portfolio-3")).toEqual([]);
+  });
+
   it("decodeProgramSnapshot returns null for an empty/garbage snapshot", async () => {
     const { decodeProgramSnapshot } = await import("./program-storage");
     const emptyDoc = new Y.Doc();
