@@ -61,7 +61,7 @@ describe("PortfolioLandingPage — empty Portfolio (wayframe#123)", () => {
         if (url.includes("/view")) {
           viewCallCount += 1;
           if (viewCallCount === 1) {
-            return { ok: false, json: async () => ({ error: "This Portfolio has no Program yet.", role: "owner" }) } as Response;
+            return { ok: false, json: async () => ({ error: "This Roadmap has no Program yet.", role: "owner" }) } as Response;
           }
           return { ok: true, json: async () => ({ role: "owner", portfolio: portfolio(), program: program() }) } as Response;
         }
@@ -86,7 +86,7 @@ describe("PortfolioLandingPage — empty Portfolio (wayframe#123)", () => {
         const url = String(input);
         if (url.includes("/accept-invites")) return { ok: true, json: async () => ({}) } as Response;
         if (url.includes("/view")) {
-          return { ok: false, json: async () => ({ error: "This Portfolio has no Program yet.", role: "viewer" }) } as Response;
+          return { ok: false, json: async () => ({ error: "This Roadmap has no Program yet.", role: "viewer" }) } as Response;
         }
         return { ok: true, json: async () => ({}) } as Response;
       }),
@@ -94,7 +94,7 @@ describe("PortfolioLandingPage — empty Portfolio (wayframe#123)", () => {
 
     render(<PortfolioLandingPage />);
 
-    await waitFor(() => expect(screen.getByText("This Portfolio has no Program yet.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("This Roadmap has no Program yet.")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /Start from a blank template/ })).not.toBeInTheDocument();
     vi.unstubAllGlobals();
   });
@@ -106,10 +106,10 @@ describe("PortfolioLandingPage — empty Portfolio (wayframe#123)", () => {
         const url = String(input);
         if (url.includes("/accept-invites")) return { ok: true, json: async () => ({}) } as Response;
         if (url.includes("/programs/extract")) {
-          return { ok: false, json: async () => ({ error: "No edit access to this Portfolio." }) } as Response;
+          return { ok: false, json: async () => ({ error: "No edit access to this Roadmap." }) } as Response;
         }
         if (url.includes("/view")) {
-          return { ok: false, json: async () => ({ error: "This Portfolio has no Program yet.", role: "owner" }) } as Response;
+          return { ok: false, json: async () => ({ error: "This Roadmap has no Program yet.", role: "owner" }) } as Response;
         }
         return { ok: true, json: async () => ({}) } as Response;
       }),
@@ -119,7 +119,7 @@ describe("PortfolioLandingPage — empty Portfolio (wayframe#123)", () => {
     const blankButton = await screen.findByRole("button", { name: /Start from a blank template/ });
     fireEvent.click(blankButton);
 
-    await waitFor(() => expect(screen.getByText("No edit access to this Portfolio.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No edit access to this Roadmap.")).toBeInTheDocument());
     vi.unstubAllGlobals();
   });
 });

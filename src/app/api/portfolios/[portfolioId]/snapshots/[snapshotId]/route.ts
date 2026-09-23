@@ -12,7 +12,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
   const { portfolioId, snapshotId } = await params;
   const role = await getRole(portfolioId, identity);
   if (!role) {
-    return NextResponse.json({ error: "No access to this Portfolio." }, { status: 403 });
+    return NextResponse.json({ error: "No access to this Roadmap." }, { status: 403 });
   }
 
   const snapshot = await getSnapshot(portfolioId, snapshotId);

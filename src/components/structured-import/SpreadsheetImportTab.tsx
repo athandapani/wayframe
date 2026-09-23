@@ -356,7 +356,7 @@ export function SpreadsheetImportTab({
             <div className="space-y-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={createAsNewProgram} onChange={(e) => setCreateAsNewProgram(e.target.checked)} />
-                Add as a new Program in my Portfolio (instead of updating this one)
+                Add as a new Program in my Roadmap (instead of updating this one)
               </label>
               {createAsNewProgram && (
                 <input
@@ -374,7 +374,7 @@ export function SpreadsheetImportTab({
 
           {createdConfirmation ? (
             <div className="space-y-2">
-              <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Added as a new Program in your Portfolio.</p>
+              <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Added as a new Program in your Roadmap.</p>
               <button onClick={onClose} className="w-full rounded-lg bg-zinc-900 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">
                 Done
               </button>

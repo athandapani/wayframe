@@ -28,19 +28,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ por
 
   if (!role) {
     if (!session) {
-      return NextResponse.json({ error: "Sign in to view every Program in this Portfolio." }, { status: 401 });
+      return NextResponse.json({ error: "Sign in to view every Program in this Roadmap." }, { status: 401 });
     }
-    return NextResponse.json({ error: "No access to this Portfolio." }, { status: 403 });
+    return NextResponse.json({ error: "No access to this Roadmap." }, { status: 403 });
   }
 
   const content = await getPortfolioContent(portfolioId);
   if (!content) {
-    return NextResponse.json({ error: "Portfolio not found." }, { status: 404 });
+    return NextResponse.json({ error: "Roadmap not found." }, { status: 404 });
   }
 
   const snapshots = await listProgramSnapshotsForPortfolio(portfolioId);
   if (snapshots.length === 0) {
-    return NextResponse.json({ error: "This Portfolio has no Program yet." }, { status: 404 });
+    return NextResponse.json({ error: "This Roadmap has no Program yet." }, { status: 404 });
   }
 
   // Unlike /view (which 500s if its single Program fails to decode), a
@@ -48,7 +48,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ por
   // view for every other Program in the Portfolio — skip it and keep going.
   const programs = snapshots.map((row) => decodeProgramSnapshot(row.snapshot)).filter((p) => p !== null);
   if (programs.length === 0) {
-    return NextResponse.json({ error: "This Portfolio's Program data is unreadable." }, { status: 500 });
+    return NextResponse.json({ error: "This Roadmap's Program data is unreadable." }, { status: 500 });
   }
 
   return NextResponse.json({ role, portfolio: content, programs });

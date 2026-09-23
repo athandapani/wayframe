@@ -66,10 +66,10 @@ async function fetchAllProgramsData(portfolioId: string): Promise<FetchOutcome> 
   try {
     const res = await fetch(`/api/portfolios/${portfolioId}/all-programs`);
     const body = await res.json();
-    if (!res.ok) return { ok: false, error: body.error ?? "Something went wrong loading this Portfolio." };
+    if (!res.ok) return { ok: false, error: body.error ?? "Something went wrong loading this Roadmap." };
     return { ok: true, data: { role: body.role, portfolio: { ...body.portfolio, id: portfolioId }, programs: body.programs } };
   } catch {
-    return { ok: false, error: "Something went wrong loading this Portfolio." };
+    return { ok: false, error: "Something went wrong loading this Roadmap." };
   }
 }
 
@@ -202,7 +202,7 @@ export default function AllProgramsPage() {
       <>
         <AuthControls />
         <div className="flex min-h-screen items-center justify-center bg-white p-6 text-center text-sm text-gray-700">
-          <p>Sign in to view every Program in this Portfolio.</p>
+          <p>Sign in to view every Program in this Roadmap.</p>
         </div>
       </>
     );
@@ -238,7 +238,7 @@ export default function AllProgramsPage() {
           topBar={
             <>
               <Link href={`/p/${portfolioId}`} className="text-blue-600 hover:underline">
-                &larr; Back to Portfolio
+                &larr; Back to Roadmap
               </Link>
               <span className="font-semibold text-gray-800">All Programs</span>
             </>

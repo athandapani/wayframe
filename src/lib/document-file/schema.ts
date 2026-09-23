@@ -508,10 +508,10 @@ function referentialProblems(doc: PortfolioDocument): string[] {
 
   const programIds = new Set<string>();
   for (const program of doc.programs) {
-    if (programIds.has(program.id)) problems.push(`Program "${program.programName}" reuses id "${program.id}", which another Program in this Portfolio already has`);
+    if (programIds.has(program.id)) problems.push(`Program "${program.programName}" reuses id "${program.id}", which another Program in this Roadmap already has`);
     programIds.add(program.id);
     if (program.portfolioId !== doc.portfolio.id) {
-      problems.push(`Program "${program.programName}" has portfolioId "${program.portfolioId}", which doesn't match this Portfolio's id "${doc.portfolio.id}"`);
+      problems.push(`Program "${program.programName}" has portfolioId "${program.portfolioId}", which doesn't match this Roadmap's id "${doc.portfolio.id}"`);
     }
 
     const laneIds = new Set(program.swimlanes.map((l) => l.id));

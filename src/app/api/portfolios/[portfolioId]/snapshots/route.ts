@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
   const { portfolioId } = await params;
   const role = await getRole(portfolioId, identity);
   if (!role) {
-    return NextResponse.json({ error: "No access to this Portfolio." }, { status: 403 });
+    return NextResponse.json({ error: "No access to this Roadmap." }, { status: 403 });
   }
 
   const snapshots = await listSnapshots(portfolioId);
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ por
   const { portfolioId } = await params;
   const role = await getRole(portfolioId, identity);
   if (role !== "owner" && role !== "editor") {
-    return NextResponse.json({ error: "No edit access to this Portfolio." }, { status: 403 });
+    return NextResponse.json({ error: "No edit access to this Roadmap." }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);

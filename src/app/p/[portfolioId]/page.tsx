@@ -190,7 +190,7 @@ export default function PortfolioLandingPage() {
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) {
-          setResult({ status: "error", error: body.error ?? "Something went wrong loading this Portfolio.", role: body.role });
+          setResult({ status: "error", error: body.error ?? "Something went wrong loading this Roadmap.", role: body.role });
           return;
         }
         setResult({
@@ -199,7 +199,7 @@ export default function PortfolioLandingPage() {
         });
       })
       .catch(() => {
-        if (!cancelled) setResult({ status: "error", error: "Something went wrong loading this Portfolio." });
+        if (!cancelled) setResult({ status: "error", error: "Something went wrong loading this Roadmap." });
       });
     return () => {
       cancelled = true;
@@ -219,7 +219,7 @@ export default function PortfolioLandingPage() {
       <>
         <AuthControls />
         <div className="flex min-h-screen items-center justify-center bg-white p-6 text-center text-sm text-gray-700">
-          <p>Sign in with the Google account this Portfolio was shared with to view it.</p>
+          <p>Sign in with the Google account this Roadmap was shared with to view it.</p>
         </div>
       </>
     );
@@ -231,7 +231,7 @@ export default function PortfolioLandingPage() {
 
   if (result.status === "error") {
     const canAddFirstProgram =
-      result.error === "This Portfolio has no Program yet." && (result.role === "owner" || result.role === "editor");
+      result.error === "This Roadmap has no Program yet." && (result.role === "owner" || result.role === "editor");
     if (canAddFirstProgram) {
       return (
         <>

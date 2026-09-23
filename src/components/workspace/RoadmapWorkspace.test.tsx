@@ -253,7 +253,7 @@ describe("RoadmapWorkspace export to deck (t29)", () => {
 
     await waitFor(() => expect(exportNativeDeckFromSlides).toHaveBeenCalledTimes(1));
     const [, fileName] = vi.mocked(exportNativeDeckFromSlides).mock.calls[0];
-    expect(fileName).toBe("portfolio-roadmap-deck.pptx");
+    expect(fileName).toBe("roadmap-deck.pptx");
   });
 
   it("'Save Export Snapshot ›' (wayframe UX-2026-09-18 §8) opens the same Export dialog with 'Save Export Snapshot' pre-selected, one click closer than the Export row", async () => {
