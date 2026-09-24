@@ -142,6 +142,17 @@ export interface ChartLegendProps {
   /** Category ids currently unpainted for this viewer (t22 viewer preference) — a category swatch shows this state and toggles it. */
   hiddenCategoryIds?: Set<string>;
   onToggleCategory?: (id: string) => void;
+  /**
+   * Whether marks are currently COLOURED by category at all
+   * (use-legend-category-style.ts). Supplied, the category section says so
+   * in place — wayframe#147: with the encoding off, a row of coloured
+   * category swatches describes nothing on the chart, and a reader was left
+   * to guess why the marks weren't tinted. Omit it on a surface that has no
+   * such preference and the section reads exactly as it always did.
+   */
+  categoryFillEnabled?: boolean;
+  /** Flips `categoryFillEnabled` from the legend itself — the one place a reader is already looking at the categories. Omit for a read-only legend, which then just states the encoding's state. */
+  onToggleCategoryFill?: () => void;
   /** One-click category creation — calls straight into RoadmapWorkspace's box.addCategory, same handler CategoryManager.tsx's "Add a category" button uses. Omit to hide the add affordance (e.g. no document loaded yet). */
   onAddCategory?: (name: string, color: string) => void;
   /** Fast-path per-category rename/recolor via CategoryPopover (wayframe UX-2026-09-18 §9) — both optional together; omitting either hides the pencil edit affordance entirely (e.g. `all/page.tsx`'s read-only legend never passes these). */
@@ -159,6 +170,8 @@ export function ChartLegend({
   categories,
   hiddenCategoryIds,
   onToggleCategory,
+  categoryFillEnabled,
+  onToggleCategoryFill,
   onAddCategory,
   onRenameCategory,
   onRecolorCategory,
@@ -227,6 +240,25 @@ export function ChartLegend({
 
           {showCategories && (
             <>
+              {/* What the swatches actually mean right now (wayframe#147) —
+                  either as a live toggle, or as plain text on a read-only
+                  legend, and said nothing at all on a surface with no such
+                  preference to report. */}
+              {categoryFillEnabled !== undefined &&
+                (onToggleCategoryFill ? (
+                  <button
+                    type="button"
+                    onClick={onToggleCategoryFill}
+                    aria-pressed={categoryFillEnabled}
+                    aria-label={`Colour marks by category: ${categoryFillEnabled ? "On" : "Off"}`}
+                    className="rounded-full border px-2 py-0.5 text-[11px]"
+                    style={{ borderColor: "var(--wf-border)", opacity: categoryFillEnabled ? 1 : 0.7 }}
+                  >
+                    Colour by category: {categoryFillEnabled ? "On" : "Off"}
+                  </button>
+                ) : (
+                  !categoryFillEnabled && <span className="opacity-70">Colour by category is off — marks show status</span>
+                ))}
               {(categories ?? []).map((c) => (
                 <CategorySwatch
                   key={c.id}

@@ -1370,3 +1370,252 @@ describe("category fill and status outline (wayframe#143)", () => {
     expect(container.querySelector('[data-testid="pill-pill-1"] rect')!.getAttribute("fill")).toBe("#ff00ff");
   });
 });
+
+describe("per-Program program-level strips (wayframe#152)", () => {
+  // Two Program bands, each with its own lane and its own pair of
+  // program-level items — the shape mergeProgramsForAllView produces, minus
+  // the id-namespacing (which the render layer deliberately knows nothing
+  // about: it reads ownership off `topLevelItemBandGroupIds`, nothing else).
+  const twoProgramRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlaneGroups: [
+      { id: "band-p1", order: 0, name: "Program One", accentHue: 0 },
+      { id: "band-p2", order: 1, name: "Program Two", accentHue: 180 },
+    ],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Lane A", groupId: "band-p1" },
+      { id: "lane-b", order: 1, type: "lane", name: "Lane B", groupId: "band-p2" },
+    ],
+    topLevelItems: [
+      { id: "p1-phase", type: "phase", title: "P1 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+      { id: "p2-phase", type: "phase", title: "P2 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+    ],
+  };
+  const strips = new Map([
+    ["p1-phase", "band-p1"],
+    ["p2-phase", "band-p2"],
+  ]);
+
+  function phaseY(container: HTMLElement, id: string): number {
+    return Number(container.querySelector(`[data-testid="toplevel-glyph-${id}"] rect`)!.getAttribute("y"));
+  }
+  function stripRectY(container: HTMLElement, bandId: string): number {
+    return Number(container.querySelector(`[data-scene-kind="program-strip"][data-scene-band-id="${bandId}"] rect`)!.getAttribute("y"));
+  }
+
+  it("draws each Program's own top-level items on that Program's strip, not all of them in the one shared top band", () => {
+    const { container } = render(
+      <RoadmapTimeline data={twoProgramRoadmap} today={new Date("2026-01-20T00:00:00Z")} topLevelItemBandGroupIds={strips} />,
+    );
+    // Both phases cover the identical date range: in the shared top band
+    // they would overstrike (or, post-#142, stack on two sub-rows of the
+    // same band). On their own strips they're separated by a whole Program
+    // band instead — each sitting on its own band's strip.
+    const p1Strip = stripRectY(container, "band-p1");
+    const p2Strip = stripRectY(container, "band-p2");
+    expect(p1Strip).toBeLessThan(p2Strip);
+    expect(phaseY(container, "p1-phase")).toBeGreaterThan(p1Strip);
+    expect(phaseY(container, "p1-phase")).toBeLessThan(p2Strip);
+    expect(phaseY(container, "p2-phase")).toBeGreaterThan(p2Strip);
+  });
+
+  it("keeps a top-level item the map doesn't name in the shared top band, above every Program band", () => {
+    const { container } = render(
+      <RoadmapTimeline
+        data={{ ...twoProgramRoadmap, topLevelItems: [...twoProgramRoadmap.topLevelItems, { id: "shared", type: "phase", title: "Shared", startDate: "2026-01-01", endDate: "2026-02-01", status: "on-track" }] }}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={strips}
+      />,
+    );
+    expect(phaseY(container, "shared")).toBeLessThan(stripRectY(container, "band-p1"));
+  });
+
+  it("keeps a collapsed Program's own program-level items on screen — collapse folds away its lanes, not its plan", () => {
+    // #125's own description of this control: "collapsed = only that
+    // Program's own top-level band visible". A collapse that left an empty
+    // strip of colour behind would say nothing about the Program just
+    // folded up, which is the whole reason to fold it.
+    const { container } = render(
+      <RoadmapTimeline
+        data={{ ...twoProgramRoadmap, swimlaneGroups: [{ id: "band-p1", order: 0, name: "Program One", accentHue: 0, collapsed: true }, { id: "band-p2", order: 1, name: "Program Two", accentHue: 180 }] }}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={strips}
+      />,
+    );
+    expect(container.querySelector('[data-testid="toplevel-glyph-p1-phase"]')).not.toBeNull();
+    expect(container.querySelector('[data-scene-kind="program-strip"][data-scene-band-id="band-p1"]')).not.toBeNull();
+    // Its LANE is what went away.
+    expect(container.querySelector('[data-scene-lane-id="lane-a"]')).toBeNull();
+    // Program Two is untouched.
+    expect(container.querySelector('[data-testid="toplevel-glyph-p2-phase"]')).not.toBeNull();
+    expect(container.querySelector('[data-scene-lane-id="lane-b"]')).not.toBeNull();
+  });
+
+  it("keeps every band on the canvas when EVERY Program is collapsed, instead of drawing them past the chart's own height", () => {
+    // The chart's height used to be the sum of its lane ROW heights, which
+    // excludes each band's own header — so with every Program collapsed the
+    // content was entirely bands, the computed height collapsed to the
+    // margins, and every band but the first was painted outside the svg and
+    // clipped away with no way to expand it again (found 2026-09-24).
+    const { container } = render(
+      <RoadmapTimeline
+        data={{
+          ...twoProgramRoadmap,
+          swimlaneGroups: [
+            { id: "band-p1", order: 0, name: "Program One", accentHue: 0, collapsed: true },
+            { id: "band-p2", order: 1, name: "Program Two", accentHue: 180, collapsed: true },
+          ],
+        }}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={strips}
+      />,
+    );
+    const svgHeight = Number(container.querySelector("svg")!.getAttribute("height"));
+    const bands = [...container.querySelectorAll('[data-scene-kind="band"] rect')];
+    expect(bands.length).toBeGreaterThan(0);
+    for (const rect of bands) {
+      const bottom = Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
+      expect(bottom).toBeLessThanOrEqual(svgHeight);
+    }
+  });
+
+  it("renders a single-Program document byte-identically to one that never had the concept, with the prop omitted", () => {
+    const { container: base } = render(<RoadmapTimeline data={twoProgramRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const { container: withEmptyMap } = render(
+      <RoadmapTimeline data={twoProgramRoadmap} today={new Date("2026-01-20T00:00:00Z")} topLevelItemBandGroupIds={new Map()} />,
+    );
+    expect(withEmptyMap.querySelector("svg")!.outerHTML).toBe(base.querySelector("svg")!.outerHTML);
+    // No strip is reserved at all, so nothing moved: both bands' items stay
+    // in the top band above the lanes.
+    expect(base.querySelector('[data-scene-kind="program-strip"]')).toBeNull();
+  });
+
+  it("grows one Program's strip for its own overlapping phases without moving another Program's items", () => {
+    const crowded: RenderableProgram = {
+      ...twoProgramRoadmap,
+      topLevelItems: [
+        { id: "p1-phase", type: "phase", title: "P1 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+        { id: "p1-overlap", type: "phase", title: "P1 Overlap", startDate: "2026-02-01", endDate: "2026-04-01", status: "on-track" },
+        { id: "p2-phase", type: "phase", title: "P2 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+      ],
+    };
+    const { container } = render(
+      <RoadmapTimeline
+        data={crowded}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={new Map([...strips, ["p1-overlap", "band-p1"]])}
+      />,
+    );
+    // #142's row allocator now runs per strip: P1's two overlapping phases
+    // stack within P1's own strip...
+    expect(phaseY(container, "p1-overlap")).toBeGreaterThan(phaseY(container, "p1-phase"));
+    // ...and P2's single phase still sits on its own strip's first sub-row,
+    // rather than being pushed down by a neighbour's crowding.
+    const p2Strip = stripRectY(container, "band-p2");
+    expect(phaseY(container, "p2-phase") - p2Strip).toBe(phaseY(container, "p1-phase") - stripRectY(container, "band-p1"));
+  });
+});
+
+describe("PROGRAM-band point items separate on label width (wayframe#148)", () => {
+  function labelY(container: HTMLElement, id: string): number {
+    return Number(container.querySelector(`[data-testid="toplevel-glyph-${id}"] text`)!.getAttribute("y"));
+  }
+
+  // The real collision this whole line of work was about: four top-level
+  // milestones days apart, whose titles read as one smear because a point
+  // item had no interval to be separated by.
+  const crowded: RenderableProgram = {
+    ...sampleRoadmap,
+    topLevelItems: [
+      { id: "a", type: "milestone", title: "DTO SteerCo", date: "2026-01-05", status: "on-track" },
+      { id: "b", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-12", status: "on-track" },
+      { id: "c", type: "milestone", title: "Close", date: "2026-01-20", status: "on-track" },
+    ],
+  };
+
+  it("stacks point items whose titles overlap, instead of overstriking them", () => {
+    const { container } = render(<RoadmapTimeline data={crowded} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    const ys = ["a", "b", "c"].map((id) => labelY(container, id));
+    expect(new Set(ys).size).toBeGreaterThan(1);
+    // Adjacent titles — the ones that actually overlap — never share a line.
+    expect(ys[0]).not.toBe(ys[1]);
+    expect(ys[1]).not.toBe(ys[2]);
+  });
+
+  it("leaves point items with room between their titles on one line — the band still only grows when it has to", () => {
+    const sparse: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Go", date: "2026-01-02", status: "on-track" },
+        { id: "b", type: "milestone", title: "End", date: "2026-02-28", status: "on-track" },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={sparse} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).toBe(labelY(container, "b"));
+  });
+
+  it("still honours an explicit bandRow over the automatic separation", () => {
+    const assigned: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "DTO SteerCo", date: "2026-01-05", status: "on-track", bandRow: 2 },
+        { id: "b", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-12", status: "on-track", bandRow: 1 },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={assigned} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).toBeGreaterThan(labelY(container, "b"));
+  });
+});
+
+describe("band point items with an 'inside' title still separate (wayframe#148, found in the real four-Program file)", () => {
+  function labelY(container: HTMLElement, id: string): number {
+    return Number(container.querySelector(`[data-testid="toplevel-glyph-${id}"] text`)!.getAttribute("y"));
+  }
+
+  // `titleLabelPosition: "inside"` paints the title at font-size 8 CENTRED on
+  // the marker — and does not clip it to the glyph, so a title longer than
+  // the marker spills straight over its neighbours. Every top-level milestone
+  // in the real file carries this override, which is why treating "inside" as
+  // glyph-width left the exact overstrike #148 is about still on screen.
+  const inside = { styleOverride: { titleLabelPosition: "inside" as const } };
+
+  it("stacks two 'inside'-titled milestones whose titles overlap", () => {
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-20", status: "on-track", ...inside },
+        { id: "b", type: "milestone", title: "2027 DT Initiatives SteerCo", date: "2026-01-28", status: "on-track", ...inside },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).not.toBe(labelY(container, "b"));
+  });
+
+  it("keeps two short 'inside' titles that clear each other on one line", () => {
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Go", date: "2026-01-05", status: "on-track", ...inside },
+        { id: "b", type: "milestone", title: "End", date: "2026-02-20", status: "on-track", ...inside },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).toBe(labelY(container, "b"));
+  });
+
+  it("measures a left-anchored title on the side it actually hangs off, not straddling the marker", () => {
+    // Two markers close together, each with its title running LEFT: the
+    // labels collide to the left of the glyphs, which a centred estimate
+    // would half-miss.
+    const left = { styleOverride: { titleLabelPosition: "left" as const } };
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-20", status: "on-track", ...left },
+        { id: "b", type: "milestone", title: "2027 DT Initiatives SteerCo", date: "2026-01-24", status: "on-track", ...left },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).not.toBe(labelY(container, "b"));
+  });
+});

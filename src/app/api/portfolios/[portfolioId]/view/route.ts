@@ -75,5 +75,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ port
     return NextResponse.json({ error: "This Roadmap's Program data is unreadable." }, { status: 500 });
   }
 
-  return NextResponse.json({ role, portfolio: content, program });
+  // Every sibling Program's id + name (wayframe#144) — what the Programs
+  // picker needs to offer the rest of the Roadmap from this page. Decoded
+  // from snapshots this route has already read, rather than a second
+  // round-trip: `programs` here is deliberately a NAME LIST, not documents
+  // (that's what /all-programs is for). A snapshot that won't decode is
+  // skipped rather than failing the whole read — the page it feeds is a
+  // picker, and one unreadable sibling shouldn't take down a Program that
+  // reads fine.
+  const siblings = snapshots
+    .map((s) => {
+      const decoded = s.id === row.id ? program : decodeProgramSnapshot(s.snapshot);
+      return decoded ? { id: s.id, programName: decoded.programName, order: decoded.order ?? 0 } : null;
+    })
+    .filter((p): p is { id: string; programName: string; order: number } => p !== null)
+    .sort((a, b) => a.order - b.order);
+
+  return NextResponse.json({ role, portfolio: content, program, programs: siblings });
 }

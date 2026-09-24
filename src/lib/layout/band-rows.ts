@@ -22,17 +22,24 @@ import { stackIntervals } from "./stack-intervals";
  *     "assignment overrides which row, never turns off automatic collision
  *     safety there."
  *
- * Only date-RANGE items (phases) participate in stacking; a point item
- * (top-level milestone, annotation) has no interval to overlap with and
- * sits on its row's own line — the same reason point milestones don't
- * stack inside a lane.
+ * Items are separated by the span they OCCUPY, in whatever unit the caller
+ * measures in — the caller decides what "occupied" means for each kind, and
+ * this module never looks at dates, pixels or titles itself. Since
+ * wayframe#148 the caller (RoadmapTimeline) measures in pixels precisely so
+ * that a point item can take part: a top-level milestone's glyph is a dot
+ * with no interval, but its floating title is an interval, and the titles
+ * were what piled up into unreadable overstrike. An item with `end: null`
+ * occupies nothing and still sits on its row's first sub-row (an
+ * annotation, whose own label is laid out by the reference-line pass
+ * instead).
  */
 export interface BandLayoutItem {
   id: string;
   /** Explicit row assignment; `undefined` means row 1, never written explicitly (mirrors Milestone.laneRow). */
   bandRow?: number;
+  /** Start of the span this item occupies, in the caller's own unit (RoadmapTimeline measures pixels — see wayframe#148). */
   start: number;
-  /** `null` for a point item — it occupies its row's line but never opens a sub-row. */
+  /** End of that span, or `null` for an item that occupies nothing and so can never collide — it takes its row's first sub-row without opening one. */
   end: number | null;
 }
 
@@ -68,9 +75,9 @@ export function layoutBandRows(items: readonly BandLayoutItem[]): BandLayout {
     const ranges = inRow.filter((i) => i.end !== null).map((i) => ({ id: i.id, start: i.start, end: i.end! }));
     const stacked = stackIntervals(ranges);
 
-    // Point items all sit on the row's first sub-row: they can't overlap
-    // anything by area, and pushing them down would make a band of nothing
-    // but top-level milestones taller for no reason.
+    // An item that occupies no span at all (end: null) falls back to the
+    // row's first sub-row: it can't overlap anything, and pushing it down
+    // would make a band taller for no reason.
     for (const item of inRow) subRowById.set(item.id, nextSubRow + (stacked.subRowById.get(item.id) ?? 0));
     nextSubRow += Math.max(1, stacked.subRowCount);
   }

@@ -8,15 +8,15 @@
 // nothing but a share link, and a signed-out guest following a share link
 // (name-prompted once per Portfolio per browser session) or a signed-out
 // invite-email recipient (nothing to fetch yet — just a sign-in prompt).
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { nanoid } from "nanoid";
 import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
 import { AuthControls } from "@/components/auth/AuthControls";
+import { ProgramsPicker } from "@/components/workspace/ProgramsPicker";
 import { GuestNamePrompt } from "./GuestNamePrompt";
 import type { RoomAccess } from "@/lib/realtime/provider";
 import type { ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
@@ -27,6 +27,8 @@ interface ViewSuccess {
   role: MemberRole;
   portfolio: Portfolio;
   program: Program;
+  /** Every Program in this Roadmap, id + name only (wayframe#144) — what the Programs picker offers. Absent from an older response body, which the picker reads as "nothing to choose between". */
+  programs?: { id: string; programName: string }[];
 }
 
 /**
@@ -104,32 +106,47 @@ type FetchState =
   | { status: "success"; data: ViewSuccess }
   | { status: "error"; error: string; role?: MemberRole };
 
+/**
+ * `useSearchParams` needs a Suspense boundary above it (Next's own
+ * requirement for a client component that reads the query string), so the
+ * route's default export is this wrapper and the page proper sits under it.
+ */
 export default function PortfolioLandingPage() {
+  return (
+    <Suspense fallback={null}>
+      <PortfolioLandingPageContent />
+    </Suspense>
+  );
+}
+
+function PortfolioLandingPageContent() {
   const params = useParams<{ portfolioId: string }>();
   const portfolioId = params.portfolioId;
   const { data: session, status } = useSession();
   const [today] = useState(() => new Date());
 
-  // Mirrors page.tsx's own "check something client-only post-mount, render
-  // nothing until checked" pattern (storageCheck.checked) — avoids an
-  // SSR/first-client-paint mismatch, and avoids useSearchParams' Suspense
-  // boundary requirement.
-  const [shareCheck, setShareCheck] = useState<{ checked: boolean; token: string | null; programId: string | null }>({ checked: false, token: null, programId: null });
-  useEffect(() => {
-    let token: string | null = null;
-    let programId: string | null = null;
-    try {
-      const search = new URLSearchParams(window.location.search);
-      token = search.get("share");
-      // A Portfolio's 2nd+ Program (wayframe UX-2026-09-18 §7) — the
-      // All-Programs page's per-Program "Open" links pass this so /view
-      // knows which Program to load instead of always defaulting to the
-      // first one. Omitted = today's unchanged default.
-      programId = search.get("programId");
-    } finally {
-      setShareCheck({ checked: true, token, programId });
-    }
-  }, []);
+  // Read REACTIVELY, not once post-mount (wayframe#144). This used to be a
+  // mount-only effect over `window.location.search`, which is correct for a
+  // fresh load and wrong for everything else: the Programs picker switches
+  // Program with a client-side `router.push` to this same route, so the URL
+  // changed, the component never remounted, the effect never re-ran, and the
+  // page went on showing the Program it first loaded — "switching from one
+  // Program to another doesn't change the Program displayed". `share` is
+  // read from the same place, so it moves with it.
+  //
+  // `searchParams` is a stable, navigation-driven value, which is what makes
+  // the fetch effect below re-run on a switch. Its Suspense boundary is the
+  // wrapper above.
+  const searchParams = useSearchParams();
+  const shareCheck = {
+    checked: true,
+    token: searchParams.get("share"),
+    // A Portfolio's 2nd+ Program (wayframe UX-2026-09-18 §7) — the
+    // All-Programs page's per-Program "Open" links and the Programs picker
+    // both pass this so /view knows which Program to load instead of always
+    // defaulting to the first one. Omitted = today's unchanged default.
+    programId: searchParams.get("programId"),
+  };
 
   const [guestIdentity, setGuestIdentity] = useState<{ checked: boolean; identity: GuestIdentity | null }>({ checked: false, identity: null });
   useEffect(() => {
@@ -195,7 +212,7 @@ export default function PortfolioLandingPage() {
         }
         setResult({
           status: "success",
-          data: { role: body.role, portfolio: { ...body.portfolio, id: portfolioId }, program: body.program },
+          data: { role: body.role, portfolio: { ...body.portfolio, id: portfolioId }, program: body.program, programs: body.programs },
         });
       })
       .catch(() => {
@@ -273,26 +290,11 @@ export default function PortfolioLandingPage() {
 
     return (
       <>
-        <AuthControls />
-        {/* wayframe t26 — unobtrusive, unconditional link to the All-Programs
-            merged view. Rendered unconditionally rather than only when this
-            Portfolio has more than one Program: detecting that here would
-            need an extra fetch just to decide whether to show a link, and
-            the /all page itself already handles the single-Program case
-            gracefully (mergeProgramsForAllView works correctly for N=1).
-            top-16 (not top-2) — RoadmapWorkspace's own logo/caption block
-            sits at top-3 left-4 and, being a later sibling in the DOM at
-            the same z-50, painted directly over this link at its old
-            top-2 left-2 position, making it effectively invisible/
-            unclickable (found 2026-09-19 — a real bug, not something this
-            session's own toolbar redesign introduced: the logo's position
-            was never touched by that work). top-16 clears the logo
-            block's full height (icon + title + the long caption line). */}
-        <div className="fixed top-16 left-4 z-50 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
-          <Link href={`/p/${portfolioId}/all`} className="text-blue-600 hover:underline">
-            View all Programs
-          </Link>
-        </div>
+        {/* t26's "View all Programs" link is gone (wayframe#150): it framed
+            the combined canvas as a special mode of this page, when a
+            Roadmap is the container and this page is one Program inside it.
+            The Programs picker in the top strip says that instead — and it
+            names where it goes, which the link never did. */}
         <RoadmapWorkspace
           initialData={result.data.program}
           initialPortfolio={result.data.portfolio}
@@ -300,6 +302,21 @@ export default function PortfolioLandingPage() {
           persist={false}
           canManageSharing={result.data.role === "owner"}
           realtime={realtime}
+          // Inside the workspace's own top strip (wayframe#149) rather than a
+          // fourth `fixed` island in the same corner, which is what made
+          // "Updated … · Syncing…" overlap it.
+          accountSlot={<AuthControls variant="avatar" />}
+          // The Roadmap's own Program picker (wayframe#144), beside the
+          // Executive/Program toggle. Renders nothing for a single-Program
+          // Roadmap, which is why it can be passed unconditionally.
+          programCount={(result.data.programs ?? []).length}
+          navigationSlot={
+            <ProgramsPicker
+              portfolioId={portfolioId}
+              programs={(result.data.programs ?? []).map((p) => ({ id: p.id, name: p.programName }))}
+              selected={result.data.program.id}
+            />
+          }
         />
       </>
     );

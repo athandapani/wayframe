@@ -37,7 +37,7 @@ import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
 import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, MIN_GAP, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker } from "./label-layout";
 import { allocate, type Demand, type Zone } from "@/lib/layout/tier-allocator";
-import { layoutBandRows } from "@/lib/layout/band-rows";
+import { layoutBandRows, type BandLayout } from "@/lib/layout/band-rows";
 import { sweepMidX } from "./connector-router";
 import {
   ghostsForMilestone,
@@ -121,6 +121,8 @@ export const PILL_PHASE_HEIGHT: Record<PhaseSize, number> = { lean: 14, normal: 
  * (PILL_HEIGHT_LG at its `tall` multiplier) plus a line of label.
  */
 const BAND_SUB_ROW_HEIGHT = 34;
+/** Breathing room between two band items' label extents (wayframe#148) — abutting labels read as one string, so "not overlapping" isn't enough. */
+const BAND_LABEL_GAP = 8;
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
 /** Gap between the marker and the bottom line of its label block. */
@@ -148,6 +150,15 @@ const LABEL_TIER_LIFT = 27;
 const LANE_ROW1_FLOOR = PILL_PHASE_HEIGHT.tall + LABEL_LINE_H + (DATE_TIER_DY[1] - DATE_TIER_DY[0]);
 const SEPARATOR_HEIGHT = 30;
 const TOP_BAND_HEIGHT = 90;
+/**
+ * A Program band's own program-level strip (wayframe#152) — the height one
+ * sub-row of that strip gets, reserved under the band's header row. Shorter
+ * than TOP_BAND_HEIGHT because the chart's top band doubles as the
+ * document's masthead (programName, owner, the PROGRAM chip) while a strip
+ * carries nothing but its Program's own items; it still has to clear a
+ * tall-variant pill plus a label above it.
+ */
+const PROGRAM_STRIP_HEIGHT = 52;
 /** Company-logo header slot (wayframe#46/#54) — reserved above the programName block only when data.companyLogo is set. */
 const COMPANY_LOGO_HEIGHT = 26;
 const COMPANY_LOGO_MAX_WIDTH = 140;
@@ -196,6 +207,22 @@ interface GroupBandInfo {
   group: SwimlaneGroup;
   relY: number;
   height: number;
+  /**
+   * Extra height this band reserves, under its header line, for its own
+   * program-level items (wayframe#152) — 0 for every band in a
+   * single-Program document. Kept separate from `height` rather than folded
+   * into it because the header's own chrome (caret, label, rail) centres
+   * itself in `height`, and a strip growing under it must not drag that
+   * text down with it; the band PAINTS as one block spanning both.
+   *
+   * Reserved whether or not the band is collapsed, deliberately: collapsing
+   * a Program hides its lanes, and what stays behind is that Program's own
+   * top-level plan — "collapsed = only that Program's own top-level band
+   * visible" was #125's original description of this control, and a collapse
+   * that leaves an empty strip of colour tells a reader nothing about the
+   * Program they just folded up.
+   */
+  stripHeight: number;
   depth: number;
 }
 
@@ -245,7 +272,16 @@ function computeRowsAndBands(
    * default here only remains as a defensive fallback.
    */
   heightByLaneId?: Map<string, number>,
-): { rows: RowInfo[]; bands: GroupBandInfo[] } {
+  /**
+   * Per-group program-level strip height (wayframe#152), keyed by group id —
+   * the room a Program band needs for its OWN top-level items, reserved
+   * under its header row and above its lanes. Omitted (or empty) for a
+   * single-Program document, where every top-level item still lives in the
+   * chart's one shared top band and every band reserves exactly its header
+   * row, byte-identically to before this existed.
+   */
+  stripHeightByGroupId?: Map<string, number>,
+): { rows: RowInfo[]; bands: GroupBandInfo[]; contentHeight: number } {
   const groupById = new Map(groups.map((g) => [g.id, g]));
   // A group's *resolved* parent — undefined (the implicit root) for a
   // top-level group, or for one whose parentGroupId points nowhere real
@@ -292,9 +328,13 @@ function computeRowsAndBands(
   };
   const layoutGroup = (group: SwimlaneGroup, depth: number) => {
     const bandY = y;
-    y += separatorHeight;
-    bands.push({ group, relY: bandY, height: separatorHeight, depth });
-    if (collapsedGroupIds.has(group.id)) return;
+    const collapsed = collapsedGroupIds.has(group.id);
+    // Reserved either way — a collapsed Program keeps its own program-level
+    // items on screen and folds away only its lanes (see GroupBandInfo).
+    const stripHeight = stripHeightByGroupId?.get(group.id) ?? 0;
+    y += separatorHeight + stripHeight;
+    bands.push({ group, relY: bandY, height: separatorHeight, stripHeight, depth });
+    if (collapsed) return;
     for (const item of childrenOf(group.id)) {
       if (item.kind === "swimlane") pushSwimlane(item.sl);
       else layoutGroup(item.group, depth + 1);
@@ -304,7 +344,16 @@ function computeRowsAndBands(
     if (item.kind === "swimlane") pushSwimlane(item.sl);
     else layoutGroup(item.group, 0);
   }
-  return { rows, bands };
+  // The full laid-out height, bands included — NOT the sum of `rows`
+  // heights. A group band's header row lives in `bands`, not `rows`, so a
+  // caller adding up row heights silently loses every band's own height:
+  // the chart then renders shorter than its content and clips whatever
+  // falls past the end. Invisible while lanes dominate the total (it cost
+  // the last ~30px per band), fatal once bands ARE the content — collapse
+  // every Program in a multi-Program Roadmap and the sum of row heights is
+  // zero, so every band but the first was drawn outside the svg and
+  // vanished, with no way to expand them again (found 2026-09-24).
+  return { rows, bands, contentHeight: y };
 }
 
 /** Exported for use-zoom-window.ts (wayframe t10) — the full-document domain a zoom window clamps against. */
@@ -1526,6 +1575,26 @@ export interface RoadmapTimelineProps {
   /** Fired when a swimlane group's header band is clicked, with that group's id (t21) — the caller flips SwimlaneGroup.collapsed in response. Omit to render group bands non-interactive. */
   onToggleGroupCollapsed?: (groupId: string) => void;
   /**
+   * TopLevelItem id -> the SwimlaneGroup band that item belongs ON
+   * (wayframe#152). Omitted, every top-level item draws in the chart's one
+   * shared top band, exactly as it always has — which is the whole of a
+   * single-Program document, and why one renders pixel-identically to
+   * before this prop existed.
+   *
+   * Supplied (by the merged All-Programs canvas, see
+   * `programStripGroupIds` in merge-programs.ts), each named item instead
+   * draws on a program-level strip reserved under its own band's header and
+   * above that band's lanes. That is the same containment t26 already gave
+   * lanes, applied one tier up: the merge scoped lanes per Program from the
+   * start but concatenated `topLevelItems` flat, so four Programs' phases
+   * and milestones competed for one strip.
+   *
+   * RoadmapTimeline stays merge-agnostic — it never parses a namespaced id
+   * or knows a Program exists; it is handed the ownership it should honour,
+   * the same convention `remoteSelections` uses for presence.
+   */
+  topLevelItemBandGroupIds?: ReadonlyMap<string, string>;
+  /**
    * Off-screen export-capture mode (export-pipeline-rewrite-2026-09-18):
    * forces `rowVirtualizationEnabled` off (a virtualized-out lane must never
    * silently vanish from a harvested scene) and `fitRatio` to 1 (export
@@ -1592,6 +1661,7 @@ export function RoadmapTimeline({
   domainOverride,
   remoteSelections,
   onToggleGroupCollapsed,
+  topLevelItemBandGroupIds,
   exportCapture = false,
 }: RoadmapTimelineProps) {
   // Fit to screen (wayframe#94/t20) — expand-only, replacing the old
@@ -1648,6 +1718,131 @@ export function RoadmapTimeline({
     }
     return depth;
   }
+  // The chart's own width and x-scale, both needed BEFORE the row/band pass
+  // below: a band's height depends on how its items stack, and since
+  // wayframe#148 a point item stacks by the pixel width of its LABEL, which
+  // only the x-scale can express. Everything here is derived from props and
+  // this component's own measurement, never from rows.
+  //
+  // Measured from the container, not from the window: the chart sits inside
+  // a padded, max-width wrapper, so window width would overshoot by exactly
+  // the padding and reintroduce the overflow this removes.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (fixedWidth !== undefined) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const apply = () => setMeasuredWidth(el.clientWidth);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fixedWidth]);
+  const width = fixedWidth ?? Math.max(measuredWidth ?? MIN_CHART_WIDTH, MIN_CHART_WIDTH);
+  const { domainMin, domainMax } = domainOverride ? { domainMin: domainOverride.min, domainMax: domainOverride.max } : computeDomain(data);
+  const todayTs = today.getTime();
+
+  const innerWidth = width - MARGIN.left - MARGIN.right;
+  function x(dateStr: string): number {
+    return MARGIN.left + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
+  }
+  function xTs(ts: number): number {
+    return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
+  }
+
+  // PROGRAM strips (wayframe#152) — `topLevelItemBandGroupIds` names the
+  // band each top-level item belongs ON; anything it doesn't name stays in
+  // the chart's one shared top band, which is every item in a
+  // single-Program document. Computed here, ahead of the row/band pass
+  // below, because that pass has to reserve each strip's height.
+  const bandGroupIdOf = (t: TopLevelItem): string | undefined => {
+    const groupId = topLevelItemBandGroupIds?.get(t.id);
+    // An id pointing at a group that doesn't exist falls back to the top
+    // band rather than vanishing — same defensive treatment
+    // computeRowsAndBands gives a lane's unresolvable `groupId`.
+    return groupId && groupById.has(groupId) ? groupId : undefined;
+  };
+  const stripItemsByGroupId = new Map<string, TopLevelItem[]>();
+  const topBandItems: TopLevelItem[] = [];
+  for (const t of data.topLevelItems) {
+    const groupId = bandGroupIdOf(t);
+    if (!groupId) {
+      topBandItems.push(t);
+      continue;
+    }
+    const bucket = stripItemsByGroupId.get(groupId);
+    if (bucket) bucket.push(t);
+    else stripItemsByGroupId.set(groupId, [t]);
+  }
+  /**
+   * A band item's occupied span, in PIXELS (wayframe#148). Pixel space, not
+   * date space, because what collides is not always the shape: a phase
+   * occupies its pill (labels are clipped inside it), but a top-level
+   * MILESTONE is a dot with a title floating over it, and it was the titles
+   * that piled up — `DTO SteerCo / Integration Plan Kickoff / Close` reading
+   * as one unreadable smear on real data. A point has no date interval to
+   * separate by, but its label is an interval, so this measures that instead
+   * and hands band-rows.ts a real span to stack.
+   *
+   * Deliberately NOT tier-allocator.ts, though it solves the same shape of
+   * problem for in-lane labels: that primitive allocates into a FIXED tier
+   * budget and then degrades, overflows or hides what doesn't fit, which is
+   * the right trade for decoration (a date chip, a slip ghost). A top-level
+   * milestone's title is the content, so the band grows for it instead —
+   * exactly what #142 chose for phases, and reusing #142's allocator keeps
+   * one mechanism deciding vertical placement in a band rather than two.
+   */
+  const bandSpanPx = (t: TopLevelItem): { start: number; end: number | null } => {
+    if (t.type === "phase") {
+      const px = x(t.startDate);
+      const phaseSize = resolvePhaseSize(t, data, theme);
+      const h = PILL_HEIGHT_LG * boxScale * (phaseSize === "lean" ? 0.75 : phaseSize === "tall" ? 1.35 : 1);
+      // Same floor the render applies, so a very short phase occupies the
+      // pill actually drawn rather than a hairline.
+      return { start: px, end: px + Math.max(h, x(t.endDate) - px) };
+    }
+    if (t.type === "milestone") {
+      const cx = x(t.date);
+      const r = 10 * resolveMarkerScale(t, data, theme);
+      const titlePos = resolveTitleLabelPosition(t);
+      // Measured at the size the render loop below actually paints it: 8 for
+      // an "inside" title, 11 everywhere else. "inside" is NOT clipped to
+      // the marker — a title longer than the glyph spills straight over its
+      // neighbours, which is why it has to be measured rather than treated
+      // as glyph-width. Every top-level milestone in the real four-Program
+      // file carries `titleLabelPosition: "inside"`, so this is the case
+      // #148 was reported against, not an edge one.
+      const labelW = t.title.length * CHAR_W * metricsScale * resolveFontScale(t, data) * ((titlePos === "inside" ? 8 : 11) / 11);
+      const gap = BAND_LABEL_GAP * metricsScale;
+      // A side-anchored title hangs off one edge of the marker instead of
+      // straddling it (same +/-6 offsets the render loop uses).
+      if (titlePos === "left") return { start: cx - r - 6 - labelW - gap, end: cx + r + gap };
+      if (titlePos === "right") return { start: cx - r - gap, end: cx + r + 6 + labelW + gap };
+      const half = Math.max(r, labelW / 2) + gap;
+      return { start: cx - half, end: cx + half };
+    }
+    // An annotation draws a full-height reference line plus a small flag;
+    // its own label is laid out by reference-line-layout.ts, so it occupies
+    // no span of its own here.
+    return { start: x(t.date), end: null };
+  };
+  /** One band's items in the shape band-rows.ts takes — t19-hidden items drop out of layout entirely, exactly as they did when the top band was the only band. */
+  const bandLayoutInput = (items: readonly TopLevelItem[]) =>
+    items
+      .filter((t) => t.type === "annotation" || !resolveHidden(t, data))
+      .map((t) => ({ id: t.id, bandRow: t.type === "annotation" ? undefined : t.bandRow, ...bandSpanPx(t) }));
+  const bandSubRowHeight = BAND_SUB_ROW_HEIGHT * boxScale;
+  // Per-strip, not global: #142's row allocator now runs once per strip, so
+  // one Program's crowded band can't push another Program's items down.
+  const stripLayoutByGroupId = new Map<string, BandLayout>();
+  const stripHeightByGroupId = new Map<string, number>();
+  for (const [groupId, items] of stripItemsByGroupId) {
+    const layout = layoutBandRows(bandLayoutInput(items));
+    stripLayoutByGroupId.set(groupId, layout);
+    stripHeightByGroupId.set(groupId, PROGRAM_STRIP_HEIGHT * boxScale + (layout.subRowCount - 1) * bandSubRowHeight);
+  }
+
   // Lane-hide (t22) — excluded from layout entirely, not just unpainted: a hidden
   // lane reserves no row slot, so it's filtered out before any row computation.
   const visibleSwimlanes = data.swimlanes.filter(
@@ -1702,15 +1897,18 @@ export function RoadmapTimeline({
   const heightByLaneId = new Map<string, number>();
   for (const [laneId, natural] of naturalHeightByLaneId) heightByLaneId.set(laneId, natural * fitRatio);
 
-  const { rows, bands: groupBands } = computeRowsAndBands(
+  const { rows, bands: groupBands, contentHeight } = computeRowsAndBands(
     visibleSwimlanes,
     swimlaneGroups,
     collapsedGroupIds,
     LANE_HEIGHT * boxScale,
     SEPARATOR_HEIGHT * boxScale,
     heightByLaneId,
+    stripHeightByGroupId,
   );
-  const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
+  // Every row AND every band header/strip — see computeRowsAndBands's own
+  // note on why summing `rows` alone is wrong.
+  const bodyHeight = contentHeight;
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   // Lane-hide (t22) — rowById only contains visible lanes as a side effect
   // of filtering above; use this to guard direct data.milestones iteration
@@ -1843,22 +2041,6 @@ export function RoadmapTimeline({
   // again once a resize gesture completes or the pointer leaves.
   const [logoHovered, setLogoHovered] = useState(false);
 
-  // Measured from the container, not from the window: the chart sits inside
-  // a padded, max-width wrapper, so window width would overshoot by exactly
-  // the padding and reintroduce the overflow this removes.
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    if (fixedWidth !== undefined) return;
-    const el = containerRef.current;
-    if (!el) return;
-    const apply = () => setMeasuredWidth(el.clientWidth);
-    apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [fixedWidth]);
-  const width = fixedWidth ?? Math.max(measuredWidth ?? MIN_CHART_WIDTH, MIN_CHART_WIDTH);
   const laneCount = rows.filter((r) => r.swimlane.type === "lane").length;
   // t41 — only past the budget does the container become its own scroll
   // region with row virtualization active; below it this hook's own
@@ -1879,17 +2061,6 @@ export function RoadmapTimeline({
     if (!row) return laneColorAt(theme.laneRamp, 0, laneCount);
     return laneColor(row.swimlane, row.laneIndex);
   }
-  const { domainMin, domainMax } = domainOverride ? { domainMin: domainOverride.min, domainMax: domainOverride.max } : computeDomain(data);
-  const todayTs = today.getTime();
-
-  const innerWidth = width - MARGIN.left - MARGIN.right;
-  function x(dateStr: string): number {
-    return MARGIN.left + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
-  }
-  function xTs(ts: number): number {
-    return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
-  }
-
   // Every reference line (Today, annotations, showReferenceLine milestones/
   // top-level-items) collected into one list so a shared layout pass
   // (reference-line-layout.ts, decided in wayframe#51) can see all of them
@@ -1952,16 +2123,10 @@ export function RoadmapTimeline({
   // each other; now each gets a sub-row from the same explicit-row +
   // automatic-stacking model lanes use (see band-rows.ts), and the band
   // grows to fit instead of staying at a fixed 90px that can't.
-  const bandLayout = layoutBandRows(
-    data.topLevelItems
-      .filter((t) => t.type === "annotation" || !resolveHidden(t, data))
-      .map((t) =>
-        t.type === "phase"
-          ? { id: t.id, bandRow: t.bandRow, start: +parseDate(t.startDate), end: +parseDate(t.endDate) }
-          : { id: t.id, bandRow: t.type === "milestone" ? t.bandRow : undefined, start: +parseDate(t.date), end: null },
-      ),
-  );
-  const bandSubRowHeight = BAND_SUB_ROW_HEIGHT * boxScale;
+  // Only the items that stayed in the shared top band — anything handed to
+  // a Program strip (wayframe#152) was laid out per strip further up, so a
+  // strip's rows never inflate the top band's own height.
+  const bandLayout = layoutBandRows(bandLayoutInput(topBandItems));
   // The first sub-row keeps the original band's full height so a
   // single-row document renders pixel-identically to before; every extra
   // sub-row adds its own strip.
@@ -1969,6 +2134,33 @@ export function RoadmapTimeline({
   const topBandY = chartTopMargin + axisHeight;
   const lanesTop = topBandY + topBandHeight;
   const height = lanesTop + bodyHeight + MARGIN.bottom;
+
+  const bandByGroupId = new Map(groupBands.map((band) => [band.group.id, band]));
+  /**
+   * Every band item's centreline y — the shared top band's items and each
+   * Program strip's alike (wayframe#152), so the render loop below asks one
+   * question instead of branching on which band an item came from.
+   *
+   * A band with no strip reserved (every band in a single-Program document)
+   * has no entry here and the loop below skips it. A COLLAPSED band still
+   * has one: folding a Program away hides its lanes, not its own
+   * program-level plan.
+   */
+  const bandItemY = new Map<string, number>();
+  for (const t of topBandItems) {
+    // The top band's first sub-row keeps the original single-row centreline
+    // exactly, so nothing moves in a document that never needed rows.
+    bandItemY.set(t.id, topBandY + (TOP_BAND_HEIGHT * boxScale) / 2 + (bandLayout.subRowById.get(t.id) ?? 0) * bandSubRowHeight);
+  }
+  for (const [groupId, items] of stripItemsByGroupId) {
+    const band = bandByGroupId.get(groupId);
+    if (!band || band.stripHeight === 0) continue;
+    const stripTop = lanesTop + band.relY + band.height;
+    const layout = stripLayoutByGroupId.get(groupId);
+    for (const t of items) {
+      bandItemY.set(t.id, stripTop + (PROGRAM_STRIP_HEIGHT * boxScale) / 2 + (layout?.subRowById.get(t.id) ?? 0) * bandSubRowHeight);
+    }
+  }
 
   function laneY(laneId: string): number {
     const row = rowById.get(laneId);
@@ -2132,32 +2324,40 @@ export function RoadmapTimeline({
    * same conservative "only the labeled ghost gets real collision math"
    * treatment lane milestones already have, not a "full fusion" of every
    * ghost.
+   *
+   * One pass per BAND since wayframe#152, not one across the whole chart:
+   * two items on different Programs' strips are no longer neighbours at
+   * all, so allocating them against each other would spend a tier avoiding
+   * a collision that cannot happen. A single-Program document has exactly
+   * one bucket (the top band), which is the same single pass as before.
    */
   const programBandGhostPlacement = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
   if (deltaAnnotationsEnabled) {
-    const perItem = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
-    const labeledDemands: Demand[] = [];
-    for (const t of data.topLevelItems) {
-      if (t.type !== "phase" && t.type !== "milestone") continue;
-      if (resolveHidden(t, data)) continue;
-      const ghosts = t.type === "phase" ? ghostsForTopLevelItemPhase(t) : ghostsForTopLevelItemMilestone(t);
-      if (ghosts.length === 0) continue;
-      const result = layoutItemGhosts(ghosts);
-      perItem.set(t.id, result);
-      const labeled = result.placed.find((g) => g.labeled);
-      if (!labeled) continue;
-      const cx = t.type === "phase" ? phaseGhostAnchorX(t) : x(t.date);
-      const label = labelForDeltaGhost(labeled);
-      labeledDemands.push({ id: t.id, x: cx, priority: 0, variants: [{ key: "only", width: widthForDeltaGhostLabel(label, metricsScale) }] });
-    }
-    if (labeledDemands.length > 0) {
-      const { results } = allocate(labeledDemands, { tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
-      for (const [id, placement] of results) {
-        const result = perItem.get(id)!;
-        result.placed = result.placed.map((g) => (g.labeled ? { ...g, tier: placement.tier as 0 | 1 | 2 } : g));
+    for (const bandItems of [topBandItems, ...stripItemsByGroupId.values()]) {
+      const perItem = new Map<string, { placed: PlacedDeltaGhost[]; overflowCount: number }>();
+      const labeledDemands: Demand[] = [];
+      for (const t of bandItems) {
+        if (t.type !== "phase" && t.type !== "milestone") continue;
+        if (resolveHidden(t, data)) continue;
+        const ghosts = t.type === "phase" ? ghostsForTopLevelItemPhase(t) : ghostsForTopLevelItemMilestone(t);
+        if (ghosts.length === 0) continue;
+        const result = layoutItemGhosts(ghosts);
+        perItem.set(t.id, result);
+        const labeled = result.placed.find((g) => g.labeled);
+        if (!labeled) continue;
+        const cx = t.type === "phase" ? phaseGhostAnchorX(t) : x(t.date);
+        const label = labelForDeltaGhost(labeled);
+        labeledDemands.push({ id: t.id, x: cx, priority: 0, variants: [{ key: "only", width: widthForDeltaGhostLabel(label, metricsScale) }] });
       }
+      if (labeledDemands.length > 0) {
+        const { results } = allocate(labeledDemands, { tierCount: 2, gap: MIN_GAP, onExhausted: "overflow" });
+        for (const [id, placement] of results) {
+          const result = perItem.get(id)!;
+          result.placed = result.placed.map((g) => (g.labeled ? { ...g, tier: placement.tier as 0 | 1 | 2 } : g));
+        }
+      }
+      for (const [id, result] of perItem) programBandGhostPlacement.set(id, result);
     }
-    for (const [id, result] of perItem) programBandGhostPlacement.set(id, result);
   }
 
   /** Inverse of x(): a pixel position back to an ISO date, snapped to a day. */
@@ -2693,11 +2893,37 @@ export function RoadmapTimeline({
             </text>
           )
         )}
+        {/* The program-level part of each Program band (wayframe#152) — the
+            band is ONE block: its header line, and under it that Program's
+            own top-level items. Drawn here, immediately before the items
+            themselves, and with pointer events off: the band's header `<g>`
+            toggles collapse on click, so painting this inside it would
+            collapse the Program on every attempt to click one of its own
+            phases. */}
+        {groupBands
+          .filter((band) => band.stripHeight > 0)
+          .map((band) => {
+            const stripY = lanesTop + band.relY + band.height;
+            // The same tint the header line above it carries, at a fraction
+            // of the weight — this has to read as the band continuing, not
+            // as a second band under it.
+            const stripColor = band.group.accentHue != null ? laneColorAt({ ...theme.laneRamp, startHue: band.group.accentHue }, 0, 1) : band.group.color ?? theme.inkMuted;
+            return (
+              <g key={`strip-${band.group.id}`} data-scene-kind="program-strip" data-scene-band-id={band.group.id} style={{ pointerEvents: "none" }}>
+                <rect x={0} y={stripY} width={width} height={band.stripHeight} fill={stripColor} fillOpacity={0.1} />
+                <rect x={0} y={stripY} width={band.depth === 0 ? 8 : 4} height={band.stripHeight} fill={stripColor} fillOpacity={0.55} />
+                {/* Closes the hairline between the header line's own rect and
+                    this one so the two read as a single band edge. */}
+                <rect x={0} y={stripY + band.stripHeight - 1} width={width} height={1} fill={stripColor} fillOpacity={0.35} />
+              </g>
+            );
+          })}
         {data.topLevelItems.map((t: TopLevelItem) => {
-          // Centre of this item's own sub-row (wayframe#142) — the band's
-          // first sub-row keeps the original single-row centreline exactly,
-          // so nothing moves in a document that never needed rows.
-          const y = topBandY + (TOP_BAND_HEIGHT * boxScale) / 2 + (bandLayout.subRowById.get(t.id) ?? 0) * bandSubRowHeight;
+          // This item's own centreline — the shared top band's, or its own
+          // Program strip's (wayframe#152). No entry means its band is
+          // collapsed: nothing was reserved for it, so nothing is painted.
+          const y = bandItemY.get(t.id);
+          if (y === undefined) return null;
           if (t.type === "phase") {
             if (resolveHidden(t, data)) return null;
             const px = x(t.startDate);

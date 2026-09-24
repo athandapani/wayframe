@@ -68,3 +68,35 @@ describe("layoutBandRows (wayframe#142)", () => {
     expect(layout.subRowCount).toBe(1);
   });
 });
+
+describe("point items separated by their occupied span (wayframe#148)", () => {
+  it("stacks two items whose spans overlap, even with no date range between them", () => {
+    // Two top-level milestones on nearly the same date: the caller measures
+    // their LABEL extents, which overlap, so they can no longer both sit on
+    // the row's first sub-row the way they did when only date ranges counted.
+    const layout = layoutBandRows([
+      { id: "a", start: 100, end: 220 },
+      { id: "b", start: 180, end: 300 },
+    ]);
+    expect(layout.subRowById.get("a")).not.toBe(layout.subRowById.get("b"));
+    expect(layout.subRowCount).toBe(2);
+  });
+
+  it("leaves two items whose spans clear each other on the same sub-row", () => {
+    const layout = layoutBandRows([
+      { id: "a", start: 100, end: 200 },
+      { id: "b", start: 210, end: 300 },
+    ]);
+    expect(layout.subRowById.get("a")).toBe(layout.subRowById.get("b"));
+    expect(layout.subRowCount).toBe(1);
+  });
+
+  it("keeps a span-less item (end: null) on its row's first sub-row rather than growing the band", () => {
+    const layout = layoutBandRows([
+      { id: "annotation", start: 150, end: null },
+      { id: "other", start: 140, end: 160 },
+    ]);
+    expect(layout.subRowById.get("annotation")).toBe(0);
+    expect(layout.subRowCount).toBe(1);
+  });
+});

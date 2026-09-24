@@ -4,11 +4,20 @@
 // multi-Program surface, replacing the read-only merged view `/all` has
 // shown since t26.
 //
-// Layout is #125's Variant B: a permanent left Program rail that doubles as
+// Layout was #125's Variant B: a PERMANENT left Program rail that doubles as
 // the structure editor, the merged canvas always showing EVERY Program
-// beside it, and a right-docked inspector for whatever is being edited. The
-// rail's own header explains the two-affordance card; this file is about the
-// data plumbing underneath.
+// beside it, and a right-docked inspector for whatever is being edited.
+// wayframe#144 revised one word of that — permanent — and the reasoning is
+// recorded in docs/research/multi-program-navigation-2026-09-23.md rather
+// than left as a silent contradiction of a resolved verdict. In short:
+// #125's argument for the rail over tabs and drawers still holds and the
+// rail keeps every job it had, but it now starts collapsed, the surface
+// carries the same Executive/Program toggle the single-Program page has (it
+// had none at all), the Programs picker in the top strip replaces the two
+// links that each mis-described where they went (#150), and the
+// cross-Program rollup moved off the editing canvas into the Executive view
+// where a summary belongs. The rail's own header explains the
+// two-affordance card; this file is about the data plumbing underneath.
 //
 // Four seams worth understanding before editing this file:
 //
@@ -59,18 +68,21 @@
 import { useCallback, useState } from "react";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { mergeForRender } from "@/components/timeline/types";
-import { isProgramBandId, mergeProgramsForAllView, namespaceId, splitNamespacedId } from "@/lib/portfolio/merge-programs";
+import { isProgramBandId, mergeProgramsForAllView, namespaceId, programStripGroupIds, splitNamespacedId } from "@/lib/portfolio/merge-programs";
 import { buildMergedCanvasHandlers } from "@/lib/portfolio/merged-dispatch";
 import { resolvePortfolioTheme, defaultPortfolioTheme } from "@/components/timeline/theme";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
-import { PortfolioRollupBar } from "@/components/executive-view/PortfolioRollupBar";
+import { PortfolioExecutiveView } from "@/components/executive-view/PortfolioExecutiveView";
 import { MilestoneEditorInspector } from "@/components/milestone-editor/MilestoneEditorInspector";
 import { TopLevelItemEditorInspector, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorInspector";
 import { EDITOR_DOCK_WIDTH } from "@/components/milestone-editor/editor-dock";
 import { SwimlaneManager } from "@/components/workspace/SwimlaneManager";
 import { CrossProgramSelectionToolbar } from "@/components/workspace/CrossProgramSelectionToolbar";
 import { useSelection } from "@/components/timeline/use-selection";
+import { TopStrip } from "@/components/workspace/TopStrip";
+import { ModeToggle, type Mode } from "@/components/workspace/ModeToggle";
+import { useLegendCategoryStyle } from "@/components/timeline/use-legend-category-style";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 import { moveMilestoneBetweenPrograms, moveSwimlaneBetweenPrograms } from "@/components/correction-box/cross-program-move";
 import type { RoomAccess } from "@/lib/realtime/provider";
@@ -106,7 +118,8 @@ export function CombinedProgramEditor({
   onReorderProgram,
   reorderErrors = {},
   railFooter,
-  topBar,
+  accountSlot,
+  navigationSlot,
 }: {
   /** The fetched Portfolio — the single source for theme/legend on this surface (see this file's header, seam 3). */
   portfolio: Portfolio;
@@ -121,7 +134,10 @@ export function CombinedProgramEditor({
   onReorderProgram?: (programId: string, direction: "up" | "down") => void;
   reorderErrors?: Record<string, string>;
   railFooter?: React.ReactNode;
-  topBar?: React.ReactNode;
+  /** The signed-in-account chip, placed in this surface's own top strip (wayframe#149) rather than positioning itself into the same corner. */
+  accountSlot?: React.ReactNode;
+  /** The Programs picker (wayframe#144), beside the Executive/Program toggle — it replaces this surface's old "← Back to Roadmap" link, which went to a single Program (#150). */
+  navigationSlot?: React.ReactNode;
 }) {
   const [connections, setConnections] = useState<Map<string, ProgramConnection>>(() => new Map());
 
@@ -147,6 +163,11 @@ export function CombinedProgramEditor({
 
   const lookup = useCallback((programId: string) => connections.get(programId)?.box, [connections]);
 
+  const [mode, setMode] = useState<Mode>("program");
+  // Starts collapsed (wayframe#144): the rail is worth ~320px when you're
+  // restructuring Programs and nothing the rest of the time, so the canvas
+  // gets the width until it's asked for. Viewer-local, like band collapse.
+  const [railCollapsed, setRailCollapsed] = useState(true);
   const [collapsedProgramIds, setCollapsedProgramIds] = useState<Set<string>>(new Set());
   const [expandedProgramId, setExpandedProgramId] = useState<string | null>(programs[0]?.id ?? null);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
@@ -166,6 +187,11 @@ export function CombinedProgramEditor({
   const canMutate = canEdit && !readingVersion;
 
   const theme = resolvePortfolioTheme(portfolio.theme ?? defaultPortfolioTheme);
+  // The SAME viewer preference the single-Program page reads (#147). This
+  // surface used to hardcode the encoding off at every call site, so the
+  // All-Programs canvas could never category-tint at all — no preference, no
+  // toggle, and no way for a reader to tell that was why.
+  const legendCategoryStyle = useLegendCategoryStyle();
 
   // Every Program that has actually published a box, in the caller's order.
   const orderedConnections = programs.map((p) => connections.get(p.id)).filter((c): c is ProgramConnection => c != null);
@@ -321,7 +347,7 @@ export function CombinedProgramEditor({
 
   return (
     <div
-      className="flex min-h-screen"
+      className="flex min-h-screen flex-col"
       style={
         {
           background: theme.pageBg,
@@ -351,6 +377,51 @@ export function CombinedProgramEditor({
         />
       ))}
 
+      {/* One strip across the top (wayframe#149's TopStrip, in its in-flow
+          variant) carrying what this surface's chrome actually is: which
+          reading of the plan (Executive/Program — it had NO toggle at all
+          before #144), which Program (the picker, which replaced the
+          mis-described "← Back to Roadmap" link, #150), and the
+          session-level controls on the right. */}
+      <TopStrip
+        variant="flow"
+        left={<span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{mode === "executive" ? "Roadmap summary" : "All Programs"}</span>}
+        center={<ModeToggle mode={mode} onChange={setMode} plural={programs.length > 1} trailing={navigationSlot} />}
+        right={
+          <>
+            {canMutate && mode === "program" && (
+              <button
+                onClick={() => setSelectMode((v) => !v)}
+                aria-pressed={selectMode}
+                aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
+                className={"rounded-full border px-2.5 py-1 text-xs " + (selectMode ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-500")}
+              >
+                Select mode: {selectMode ? "On" : "Off"}
+              </button>
+            )}
+            {viewingVersion && (
+              <span className="rounded-full border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">
+                Read-only — Version of {formatSavedAt(viewingVersion.createdAt)}
+              </span>
+            )}
+            {connecting && <span className="text-xs text-zinc-500">Connecting to {programs.length - orderedConnections.length} more Program…</span>}
+            {/* Next to the persistence/connection state on purpose (#127): "is my
+                work safe" and "what did this look like last month" are the same
+                question asked at two timescales. Not in an Options menu — that's
+                where Export Snapshot lives, the collision #128 renamed away. */}
+            <button
+              onClick={toggleHistory}
+              aria-pressed={historyOpen}
+              className={"rounded-full border px-2.5 py-1 text-xs " + (historyOpen ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-500")}
+            >
+              History
+            </button>
+            {accountSlot}
+          </>
+        }
+      />
+
+      <div className="flex min-h-0 min-w-0 flex-1">
       <ProgramRail
         connections={orderedConnections}
         theme={theme}
@@ -368,40 +439,22 @@ export function CombinedProgramEditor({
         footer={readingVersion ? null : railFooter}
         readOnlyPrograms={versionProgramsById}
         viewOnlyNote={readingVersion ? "Reading a saved Version — the live document is untouched." : undefined}
+        collapsed={railCollapsed}
+        onToggleCollapsed={() => setRailCollapsed((v) => !v)}
       />
 
       <main className="min-w-0 flex-1 overflow-x-auto p-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-          {topBar}
-          {canMutate && (
-            <button
-              onClick={() => setSelectMode((v) => !v)}
-              aria-pressed={selectMode}
-              aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
-              className={"rounded-full border px-2.5 py-1 text-xs " + (selectMode ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-500")}
-            >
-              Select mode: {selectMode ? "On" : "Off"}
-            </button>
-          )}
-          {viewingVersion && (
-            <span className="rounded-full border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">
-              Read-only — Version of {formatSavedAt(viewingVersion.createdAt)}
-            </span>
-          )}
-          {connecting && <span className="text-xs text-zinc-500">Connecting to {programs.length - orderedConnections.length} more Program…</span>}
-          {/* Next to the persistence/connection state on purpose (#127): "is my
-              work safe" and "what did this look like last month" are the same
-              question asked at two timescales. Not in an Options menu — that's
-              where Export Snapshot lives, the collision #128 renamed away. */}
-          <button
-            onClick={toggleHistory}
-            aria-pressed={historyOpen}
-            className={"ml-auto rounded-full border px-2.5 py-1 text-xs " + (historyOpen ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-500")}
-          >
-            History
-          </button>
-        </div>
+        {/* The cross-Program summary's home (wayframe#144/#145). It used to
+            be a rollup bar directly above the editing canvas, where a summary
+            of every Program competes with the one thing you came here to
+            change; the Executive reading is where "how is each Program doing"
+            belongs, and #145 answers it Program by Program instead of as one
+            flattened set of numbers. Reads `displayedPrograms`, so it
+            summarises a Version being read exactly as it does the live plan. */}
+        {mode === "executive" && <PortfolioExecutiveView portfolio={portfolio} programs={displayedPrograms} today={today} />}
 
+        {mode === "program" && (
+          <>
         {placement && (
           <div className="mb-2 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs text-blue-800">
             <span>Click a point on the lane to place this {placement.shape === "phase" ? "pill (drag for its length)" : "milestone"}.</span>
@@ -411,12 +464,16 @@ export function CombinedProgramEditor({
           </div>
         )}
 
-        <PortfolioRollupBar programs={displayedPrograms} today={today} />
-
         <RoadmapTimeline
           data={canvasData}
           today={today}
           theme={theme}
+          // Each Program's program-level items on that Program's own strip
+          // (#152), not all four Programs' piled into the chart's one top
+          // band. The canvas is the only surface that needs this: a
+          // single-Program document names no bands and renders unchanged.
+          topLevelItemBandGroupIds={programStripGroupIds(canvasData)}
+          legendCategoryFillEnabled={legendCategoryStyle.enabled}
           onMilestoneClick={canMutate ? (m) => openMilestone(m.id) : undefined}
           onTopLevelItemClick={canMutate ? (t) => openTopLevelItem(t.id) : undefined}
           onMilestoneDateChange={canMutate ? canvasHandlers.onMilestoneDateChange : undefined}
@@ -463,8 +520,12 @@ export function CombinedProgramEditor({
             deltaAnnotationsEnabled={false}
             tracing={trace !== null}
             hasDurations={renderable.milestones.some((m) => !!m.endDate)}
+            categoryFillEnabled={legendCategoryStyle.enabled}
+            onToggleCategoryFill={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
             categories={renderable.legendCategories}
           />
+        )}
+          </>
         )}
       </main>
 
@@ -490,7 +551,7 @@ export function CombinedProgramEditor({
           data={milestoneScope}
           theme={theme}
           milestone={selectedMilestone}
-          legendCategoryFillEnabled={false}
+          legendCategoryFillEnabled={legendCategoryStyle.enabled}
           locationSlot={
             <CrossProgramMovePicker
               compact
@@ -528,7 +589,7 @@ export function CombinedProgramEditor({
           item={selectedTopLevelItem}
           data={topLevelScope}
           theme={theme}
-          legendCategoryFillEnabled={false}
+          legendCategoryFillEnabled={legendCategoryStyle.enabled}
           onSave={topLevelSelection.connection.box.editTopLevelItem}
           onClose={() => setSelectedTopLevelItemId(null)}
           onDelete={(id) => {
@@ -575,6 +636,7 @@ export function CombinedProgramEditor({
           onClose={() => setLaneOptionsProgramId(null)}
         />
       )}
+      </div>
     </div>
   );
 }

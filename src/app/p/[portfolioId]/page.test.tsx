@@ -7,8 +7,16 @@ vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
 }));
 
+let searchParamsMock = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ portfolioId: "portfolio-1" }),
+  // The Programs picker in the top strip (wayframe#144) navigates rather
+  // than filtering in place, so this page now uses the router.
+  useRouter: () => ({ push: vi.fn() }),
+  // The page reads `programId`/`share` reactively from here since #144, so a
+  // Program switch (a client-side push to this same route) actually reloads
+  // the Program.
+  useSearchParams: () => searchParamsMock,
 }));
 
 // This page's own tests only care about the empty-Portfolio behavior below
@@ -121,5 +129,54 @@ describe("PortfolioLandingPage — empty Portfolio (wayframe#123)", () => {
 
     await waitFor(() => expect(screen.getByText("No edit access to this Roadmap.")).toBeInTheDocument());
     vi.unstubAllGlobals();
+  });
+});
+
+describe("PortfolioLandingPage — which Program it loads (wayframe#144)", () => {
+  beforeEach(() => {
+    useSessionMock.mockReturnValue({ data: { user: { id: "user-1", email: "a@b.com" } }, status: "authenticated" });
+    searchParamsMock = new URLSearchParams();
+  });
+
+  function stubView() {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/accept-invites")) return { ok: true, json: async () => ({}) } as Response;
+      return {
+        ok: true,
+        json: async () => ({
+          role: "owner",
+          portfolio: portfolio(),
+          program: program(),
+          programs: [
+            { id: "program-1", programName: "Program 1" },
+            { id: "program-2", programName: "Program 2" },
+          ],
+        }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("asks /view for the Program named in the URL, so the picker's switch actually changes what's on screen", async () => {
+    // The regression: this page used to read the query string ONCE in a
+    // mount effect, and the picker switches Program with a client-side push
+    // to this same route — the URL changed, nothing remounted, and the page
+    // kept showing the Program it first loaded.
+    searchParamsMock = new URLSearchParams("programId=program-2");
+    const fetchMock = stubView();
+    render(<PortfolioLandingPage />);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/view"))).toBe(true));
+    const viewUrl = fetchMock.mock.calls.map(([u]) => String(u)).find((u) => u.includes("/view"))!;
+    expect(viewUrl).toContain("programId=program-2");
+  });
+
+  it("asks for no Program in particular when the URL names none, keeping /view's own first-Program default", async () => {
+    const fetchMock = stubView();
+    render(<PortfolioLandingPage />);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/view"))).toBe(true));
+    const viewUrl = fetchMock.mock.calls.map(([u]) => String(u)).find((u) => u.includes("/view"))!;
+    expect(viewUrl).not.toContain("programId=");
   });
 });

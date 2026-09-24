@@ -39,8 +39,11 @@ import { CorrectionBoxSwitcher, type CorrectionBoxMode } from "@/components/corr
 import { MilestoneEditorInspector } from "@/components/milestone-editor/MilestoneEditorInspector";
 import { TopLevelItemEditorInspector, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorInspector";
 import { EDITOR_DOCK_WIDTH } from "@/components/milestone-editor/editor-dock";
+import { TopStrip } from "./TopStrip";
+import { ModeToggle, type Mode } from "./ModeToggle";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
+import { Popover } from "./Popover";
 import { useOptionsSections } from "./use-options-sections";
 import { NewDocumentBanner } from "./NewDocumentBanner";
 import { ExportDialog, type ExportDestination } from "./ExportDialog";
@@ -72,8 +75,6 @@ import { PresenceAvatars, remoteSelectionsFromPeers } from "./PresenceAvatars";
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
 import { ConflictBanner } from "./ConflictBanner";
 
-type Mode = "executive" | "program";
-
 // Export always ships both views regardless of the toggle (wayframe#27/#28). The
 // inactive one is only mounted, off-screen and aria-hidden, for the duration of
 // an export — ExecutiveView repeats the BLUF statement as subtext (per #8), so
@@ -89,23 +90,6 @@ const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 export function deckFileName(programName: string): string {
   const slug = programName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${slug || "roadmap"}-deck.pptx`;
-}
-
-function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
-  return (
-    <div className="flex overflow-hidden rounded-full border text-sm shadow" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
-      {(["executive", "program"] as const).map((m) => (
-        <button
-          key={m}
-          onClick={() => onChange(m)}
-          style={mode === m ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
-          className={"px-4 py-1.5 capitalize " + (mode === m ? "font-semibold" : "opacity-60")}
-        >
-          {m}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 export function RoadmapView({
@@ -357,13 +341,20 @@ function formatLastUpdated(iso: string): string {
  * `status`/`showOfflineBadge` pair ConnectionStatusBadge already renders, so
  * there's no new connection-state tracking here — just a second, differently
  * shaped read of it: "Offline — changes pending" once showOfflineBadge's own
- * ~2.5s debounce (use-program-room.ts) has confirmed a real drop, "Saved"
- * once truly connected, and "Syncing…" for everything in between (initial
- * connect, or a drop still inside that debounce window) — the same "no
- * flicker on a brief blip" behavior the badge already gives the offline case.
+ * ~2.5s debounce (use-program-room.ts) has confirmed a real drop, and
+ * "Syncing…" for everything in between (initial connect, or a drop still
+ * inside that debounce window) — the same "no flicker on a brief blip"
+ * behavior the badge already gives the offline case.
+ *
+ * It says NOTHING while genuinely connected (#144 feedback: "don't need the
+ * syncing"). A permanent "Saved" is the state a reader assumes anyway, and
+ * spending the widest strip in the app on it helped push real controls onto
+ * a second row. The "Updated <time>" badge beside it already carries the
+ * persistence story for the good case; this is here for the bad one.
  */
 function SyncStatusIndicator({ status, showOfflineBadge }: { status: ConnectionStatus; showOfflineBadge: boolean }) {
-  const label = showOfflineBadge ? "Offline — changes pending" : status === "connected" ? "Saved" : "Syncing…";
+  if (!showOfflineBadge && status === "connected") return null;
+  const label = showOfflineBadge ? "Offline — changes pending" : "Syncing…";
   const color = showOfflineBadge ? "#b45309" : "var(--wf-ink)";
   return (
     <span role="status" className="text-xs font-medium whitespace-nowrap opacity-70" style={{ color }}>
@@ -394,6 +385,9 @@ export function RoadmapWorkspace({
   canManageSharing = false,
   newDocumentOrigin,
   realtime,
+  accountSlot,
+  navigationSlot,
+  programCount = 1,
 }: {
   initialData: Program;
   initialPortfolio: Portfolio;
@@ -413,6 +407,26 @@ export function RoadmapWorkspace({
    * `enabled: realtime != null`.
    */
   realtime?: { programId: string; access: RoomAccess; identity: ProgramRoomIdentity };
+  /**
+   * The signed-in-account chip, rendered at the end of this surface's own top
+   * strip (wayframe#149). The page owns it — it's the only thing there that
+   * knows about the session — but it can't own its POSITION: as its own
+   * `fixed top-2 right-2` island it landed inside the right cluster's
+   * rectangle, which is how "Updated … · Syncing…" ended up painted through
+   * the account chip. Omit it (the `/dev` routes, the root entry page) and
+   * the strip simply ends after the Options menu.
+   */
+  accountSlot?: React.ReactNode;
+  /**
+   * Roadmap-level navigation for this surface's top strip (wayframe#144) —
+   * the Programs picker, rendered INSIDE the Executive/Program toggle. The
+   * page owns it (only the page knows the Roadmap's other Programs), the
+   * strip owns where it sits. Omit it and the toggle stands alone, exactly
+   * as before.
+   */
+  navigationSlot?: React.ReactNode;
+  /** How many Programs this Roadmap holds — the toggle says "Programs" past one (wayframe#144 feedback). Defaults to 1, which is every caller that doesn't know. */
+  programCount?: number;
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
@@ -723,21 +737,767 @@ export function RoadmapWorkspace({
           now sits in flow at the end of the content and would otherwise run
           underneath it. */}
       <div className="min-w-0 flex-1 pb-56">
-        <div className="fixed top-3 left-4 z-50 flex items-center gap-2" style={{ color: "var(--wf-ink)" }}>
-          <WayframeLogo accent={theme.accent} caption="AI drafts it. You shape it. Leaders act on it." />
-          <button
-            onClick={() => setHelpOpen(true)}
-            aria-label="What Wayframe can do"
-            title="What Wayframe can do"
-            style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
-            className="ml-1 h-5 w-5 rounded-full border text-[11px] leading-none font-semibold opacity-70 hover:opacity-100"
-          >
-            ?
-          </button>
-        </div>
-        <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2">
-          <ModeToggle mode={mode} onChange={setMode} />
-        </div>
+        {/* One top strip, not four independent `fixed` islands (wayframe#149)
+            — see TopStrip.tsx for why the old left/centre/right trio
+            overlapped rather than reflowed. */}
+        <TopStrip
+          left={
+            <>
+              <WayframeLogo accent={theme.accent} caption="AI drafts it. You shape it. Leaders act on it." />
+              <button
+                onClick={() => setHelpOpen(true)}
+                aria-label="What Wayframe can do"
+                title="What Wayframe can do"
+                style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
+                className="ml-1 h-5 w-5 rounded-full border text-[11px] leading-none font-semibold opacity-70 hover:opacity-100"
+              >
+                ?
+              </button>
+            </>
+          }
+          center={<ModeToggle mode={mode} onChange={setMode} plural={programCount > 1} trailing={navigationSlot} />}
+          right={
+            <>
+              {/* One icon, not a ~180px cluster (#144 feedback) — the
+                  slider, the range label, ± and the steppers all moved into
+                  its panel. The block variant below the chart is unchanged
+                  and is still this control's <lg fallback. */}
+              {mode === "program" && zoom && (
+                <div className="hidden lg:block">
+                  <Popover label="Timeframe" trigger="⇤⇥" panelClassName="w-auto">
+                    <ZoomControls state={zoom} variant="compact" />
+                  </Popover>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() =>
+                    setSelectMode((v) => {
+                      // Clearing stale selection on mode-off (wayframe UX-2026-09-18
+                      // §4) — selection itself no longer depends on this mode being
+                      // on (Cmd/Ctrl-click and the Outline tree both drive it
+                      // independently now), but turning the mode off still reads as
+                      // "done selecting," so leftover selected ids from either path
+                      // shouldn't linger silently.
+                      if (v) selection.clear();
+                      return !v;
+                    })
+                  }
+                  disabled={isViewMode}
+                  aria-pressed={selectMode}
+                  aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
+                  title="Select mode"
+                  style={PILL_STYLE}
+                  className={iconToggle(selectMode) + " disabled:opacity-40"}
+                >
+                  ⬚
+                </button>
+                <button onClick={() => setOutlineOpen(true)} aria-label="Open outline" title="Outline" style={PILL_STYLE} className={iconToggle(true)}>
+                  ▤
+                </button>
+                <button onClick={() => setLanesOpen(true)} aria-label="Add / edit lanes" title="Swimlanes" style={PILL_STYLE} className={iconToggle(true)}>
+                  ▦
+                </button>
+              </div>
+              {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
+              {realtime && <SyncStatusIndicator status={room.status} showOfflineBadge={room.showOfflineBadge} />}
+              <PresenceAvatars peers={room.peers} />
+              <OptionsMenu>
+                <OptionsMenuRow label="Help">
+                  <button onClick={() => setHelpOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                    What can this do?
+                  </button>
+                </OptionsMenuRow>
+                <OptionsMenuRow label="File">
+                  {confirmingNew ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          saveDocumentFile(portfolioDocument);
+                          onStartNew?.();
+                        }}
+                        style={PILL_STYLE}
+                        className={pillToggle(true)}
+                      >
+                        {realtime ? "Download a copy & Start New" : "Save & Start New"}
+                      </button>
+                      <button onClick={() => setConfirmingNew(false)} className="text-[11px] opacity-60 hover:opacity-100">
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => saveDocumentFile(portfolioDocument)} style={PILL_STYLE} className={pillToggle(true)}>
+                        {/* On a realtime-connected page (wayframe#121) this file-download action is not what saves the edit —
+                            useProgramRoom's live sync is — so it reads as "Download a copy" here, never "Save". */}
+                        {realtime ? "Download a copy" : "Save"}
+                      </button>
+                      <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
+                        Open
+                      </button>
+                      {onStartNew && (
+                        <button onClick={handleStartNew} style={PILL_STYLE} className={pillToggle(true)}>
+                          New
+                        </button>
+                      )}
+                      <input
+                        ref={openFileRef}
+                        type="file"
+                        accept=".json,application/json"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleOpenFile(f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </>
+                  )}
+                </OptionsMenuRow>
+                <OptionsMenuRow label="Export">
+                  <button
+                    onClick={() => {
+                      setExportInitialDestination(undefined);
+                      setExportDialogOpen(true);
+                    }}
+                    style={PILL_STYLE}
+                    className={pillToggle(true)}
+                  >
+                    Export to Deck
+                  </button>
+                </OptionsMenuRow>
+                <OptionsMenuRow label="Export Snapshots">
+                  <span className="flex items-center gap-1.5">
+                    <button onClick={() => setSnapshotsOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                      View Export Snapshots ›
+                    </button>
+                    <button
+                      onClick={() => {
+                        setExportInitialDestination("snapshot");
+                        setExportDialogOpen(true);
+                      }}
+                      style={PILL_STYLE}
+                      className={pillToggle(true)}
+                    >
+                      Save Export Snapshot ›
+                    </button>
+                  </span>
+                </OptionsMenuRow>
+                {/* Version History (wayframe#128) lives on the combined All-Programs
+                    surface, not here: a Version captures EVERY Program at once, and
+                    #127's resolution puts the dock in the same 380px slot as the
+                    inspector, beside the Program rail that says which Programs
+                    you're looking at. This row exists so the feature is reachable
+                    from the single-Program page rather than only findable by
+                    someone who already knows where it is. Gated on `realtime`
+                    (not on role) — that's the one signal that says "this is a
+                    hosted Roadmap with a live room", so the local-only `/` page and
+                    the `/dev/demo-roadmap` QA route, which have no `/p/<id>/all` to
+                    open, don't offer a dead link. */}
+                {realtime && (
+                  <OptionsMenuRow label="Version history">
+                    <Link
+                      href={`/p/${box.portfolio.id}/all`}
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2.5 py-1 text-xs"
+                    >
+                      Open on All Programs ›
+                    </Link>
+                  </OptionsMenuRow>
+                )}
+                {canManageSharing && (
+                  <OptionsMenuRow label="Sharing">
+                    <button onClick={() => setSharingOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                      Invite / share ›
+                    </button>
+                  </OptionsMenuRow>
+                )}
+                <OptionsMenuSection id="appearance" label="Appearance" open={sections.isOpen("appearance")} onToggle={() => sections.toggle("appearance")}>
+                  <div>
+                    <p className="mb-1.5 opacity-70">Theme</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {THEME_LIST.map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => box.setThemeBase(t.id)}
+                          aria-pressed={themeId === t.id}
+                          title={t.tagline}
+                          style={{
+                            // Selection has to come from the theme's own accent —
+                            // an OS-dark-mode class here rendered the *inactive*
+                            // themes as the highlighted ones on a dark panel.
+                            borderColor: themeId === t.id ? "var(--wf-accent)" : "var(--wf-border)",
+                            borderWidth: themeId === t.id ? 2 : 1,
+                          }}
+                          className="rounded-lg border p-1.5 text-left text-[11px]"
+                        >
+                          {/* a real swatch of the theme, not just its name */}
+                          <span className="mb-1 flex h-6 overflow-hidden rounded" style={{ background: t.ground }}>
+                            {laneColors(t.laneRamp, 3).map((c) => (
+                              <span key={c} className="flex-1" style={{ background: c }} />
+                            ))}
+                            <span className="flex-1" style={{ background: t.statusColor.delayed }} />
+                          </span>
+                          <span className={themeId === t.id ? "font-semibold" : ""}>{t.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setThemeCustomizeOpen((o) => !o)}
+                      aria-expanded={themeCustomizeOpen}
+                      className="mt-1.5 text-[11px] opacity-70 hover:opacity-100"
+                    >
+                      {themeCustomizeOpen ? "Hide customization ›" : "Customize ›"}
+                    </button>
+                    {themeCustomizeOpen && (
+                      <div className="mt-1.5 space-y-2 rounded-lg border p-2" style={{ borderColor: "var(--wf-border)" }}>
+                        <OptionsMenuRow label="Accent">
+                          <input
+                            type="color"
+                            value={theme.accent}
+                            onChange={(e) => box.setThemeOverride({ accent: e.target.value })}
+                            aria-label="Theme accent color"
+                            className="h-6 w-9 rounded border"
+                            style={{ borderColor: "var(--wf-border)" }}
+                          />
+                        </OptionsMenuRow>
+                        <OptionsMenuRow label="Today line">
+                          <input
+                            type="color"
+                            value={theme.todayColor}
+                            onChange={(e) => box.setThemeOverride({ todayColor: e.target.value })}
+                            aria-label="Theme today-line color"
+                            className="h-6 w-9 rounded border"
+                            style={{ borderColor: "var(--wf-border)" }}
+                          />
+                        </OptionsMenuRow>
+                        <OptionsMenuRow label="Lane wash">
+                          <input
+                            type="range"
+                            min={0}
+                            max={0.3}
+                            step={0.005}
+                            value={theme.laneWashOpacity}
+                            onChange={(e) => box.setThemeOverride({ laneWashOpacity: parseFloat(e.target.value) })}
+                            aria-label="Lane wash opacity"
+                            className="w-20"
+                          />
+                          <span className="w-10 text-right font-mono opacity-70">{theme.laneWashOpacity.toFixed(3)}</span>
+                        </OptionsMenuRow>
+                        <OptionsMenuRow label="Lane gutter">
+                          <input
+                            type="range"
+                            min={0}
+                            max={20}
+                            step={1}
+                            value={theme.laneGutter}
+                            onChange={(e) => box.setThemeOverride({ laneGutter: parseFloat(e.target.value) })}
+                            aria-label="Lane gutter px"
+                            className="w-20"
+                          />
+                          <span className="w-10 text-right font-mono opacity-70">{theme.laneGutter}px</span>
+                        </OptionsMenuRow>
+                        {/* Lightness/chroma/start-hue are edited and saved as one atomic
+                            laneRamp override (wayframe#88/t18's "colour family" control),
+                            never as three independently-overridable fields. */}
+                        <OptionsMenuRow label="Lane colour family">
+                          <span className="flex items-center gap-1 font-mono text-[10px] opacity-70">
+                            L
+                            <input
+                              type="number"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={theme.laneRamp.L}
+                              onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, L: parseFloat(e.target.value) } })}
+                              aria-label="Lane ramp lightness"
+                              className="w-12 rounded border px-1"
+                              style={{ borderColor: "var(--wf-border)" }}
+                            />
+                            C
+                            <input
+                              type="number"
+                              min={0}
+                              max={0.4}
+                              step={0.005}
+                              value={theme.laneRamp.C}
+                              onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, C: parseFloat(e.target.value) } })}
+                              aria-label="Lane ramp chroma"
+                              className="w-12 rounded border px-1"
+                              style={{ borderColor: "var(--wf-border)" }}
+                            />
+                            hue
+                            <input
+                              type="number"
+                              min={0}
+                              max={360}
+                              step={1}
+                              value={theme.laneRamp.startHue}
+                              onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, startHue: parseFloat(e.target.value) } })}
+                              aria-label="Lane ramp start hue"
+                              className="w-12 rounded border px-1"
+                              style={{ borderColor: "var(--wf-border)" }}
+                            />
+                          </span>
+                        </OptionsMenuRow>
+                        {portfolioTheme.overrides && Object.keys(portfolioTheme.overrides).length > 0 && (
+                          <button onClick={box.clearThemeOverrides} style={PILL_STYLE} className={pillToggle(true)}>
+                            Reset overrides
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <OptionsMenuRow label="Company logo">
+                    <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
+                      {box.portfolio.companyLogo ? "Replace" : "Upload"}
+                    </button>
+                    {box.portfolio.companyLogo && (
+                      <button onClick={box.clearCompanyLogo} style={PILL_STYLE} className={pillToggle(true)}>
+                        Remove
+                      </button>
+                    )}
+                    {box.portfolio.companyLogo && (box.portfolio.companyLogo.dx || box.portfolio.companyLogo.dy || (box.portfolio.companyLogo.scale && box.portfolio.companyLogo.scale !== 1)) && (
+                      <button onClick={() => box.setCompanyLogoGeometry(0, 0, 1)} style={PILL_STYLE} className={pillToggle(true)}>
+                        Reset position
+                      </button>
+                    )}
+                    <input
+                      ref={logoFileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleUploadLogo(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Font size">
+                    <input
+                      type="range"
+                      min={FONT_SCALE_MIN}
+                      max={FONT_SCALE_MAX}
+                      step={FONT_SCALE_STEP}
+                      value={fontScale.scale}
+                      onChange={(e) => fontScale.setScale(parseFloat(e.target.value))}
+                      aria-label="Font size"
+                      className="w-24"
+                    />
+                    <span className="w-9 text-right font-mono opacity-70">{fontScale.scale.toFixed(2)}×</span>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Font family">
+                    <select
+                      value={fontFamily.familyId}
+                      onChange={(e) => fontFamily.setFamily(e.target.value as (typeof FONT_FAMILY_CHOICES)[number]["id"])}
+                      aria-label="Font family"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {FONT_FAMILY_CHOICES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Program band">
+                    <select
+                      value={topBand.style}
+                      onChange={(e) => topBand.setStyle(e.target.value as TopBandStyle)}
+                      aria-label="Program band style"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {TOP_BAND_STYLES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Year color">
+                    <input
+                      type="color"
+                      aria-label="Axis Year color"
+                      value={axisTiers.yearColor}
+                      onChange={(e) => axisTiers.setYearColor(e.target.value)}
+                      style={{ borderColor: "var(--wf-border)" }}
+                      className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
+                    />
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Gridlines">
+                    <select
+                      value={gridlines.style}
+                      onChange={(e) => gridlines.setStyle(e.target.value as PeriodGridlineStyle)}
+                      aria-label="Period gridline style"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {PERIOD_GRIDLINE_STYLES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="So what">
+                    <button
+                      onClick={() => setBlufOpen((v) => !v)}
+                      aria-pressed={blufOpen}
+                      aria-label={`So what: ${blufOpen ? "Shown" : "Hidden"}`}
+                      style={PILL_STYLE} className={pillToggle(blufOpen)}
+                    >
+                      {blufOpen ? "Shown" : "Hidden"}
+                    </button>
+                  </OptionsMenuRow>
+                  {blufOpen && (
+                    <OptionsMenuRow label="So-what fill">
+                      <input
+                        type="color"
+                        aria-label="So-what fill color"
+                        value={soWhat.color ?? theme.panelBg}
+                        onChange={(e) => soWhat.setColor(e.target.value)}
+                        style={{ borderColor: "var(--wf-border)" }}
+                        className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
+                      />
+                    </OptionsMenuRow>
+                  )}
+                  {blufOpen && (
+                    <OptionsMenuRow label="So-what transparency">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={soWhat.transparency}
+                        onChange={(e) => soWhat.setTransparency(parseInt(e.target.value, 10))}
+                        aria-label="So-what transparency"
+                        className="w-24"
+                      />
+                    </OptionsMenuRow>
+                  )}
+                  {blufOpen && (soWhat.color !== null || soWhat.transparency !== 0) && (
+                    <OptionsMenuRow label="So-what reset">
+                      <button onClick={soWhat.reset} style={PILL_STYLE} className={pillToggle(true)}>
+                        Reset to theme
+                      </button>
+                    </OptionsMenuRow>
+                  )}
+                </OptionsMenuSection>
+                <OptionsMenuSection id="views" label="Views" open={sections.isOpen("views")} onToggle={() => sections.toggle("views")}>
+                  {savedViews.views.map((v) => (
+                    <OptionsMenuRow key={v.id} label={v.name}>
+                      <button onClick={() => applyView(v.snapshot)} style={PILL_STYLE} className={pillToggle(true)}>
+                        Apply
+                      </button>
+                      {!v.builtin && (
+                        <button onClick={() => savedViews.removeView(v.id)} className="text-[11px] opacity-60 hover:opacity-100">
+                          Delete
+                        </button>
+                      )}
+                    </OptionsMenuRow>
+                  ))}
+                  <OptionsMenuRow label="Save current as…">
+                    {savingViewName !== null ? (
+                      <span className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={savingViewName}
+                          onChange={(e) => setSavingViewName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && savingViewName.trim()) {
+                              savedViews.addView(savingViewName.trim(), currentSnapshot(), nanoid());
+                              setSavingViewName(null);
+                            }
+                            if (e.key === "Escape") setSavingViewName(null);
+                          }}
+                          aria-label="New view name"
+                          style={{ borderColor: "var(--wf-border)" }}
+                          className="w-24 rounded border bg-transparent px-1.5 py-0.5 text-xs"
+                        />
+                        <button
+                          onClick={() => {
+                            if (savingViewName.trim()) {
+                              savedViews.addView(savingViewName.trim(), currentSnapshot(), nanoid());
+                              setSavingViewName(null);
+                            }
+                          }}
+                          style={PILL_STYLE}
+                          className={pillToggle(true)}
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setSavingViewName(null)} className="text-[11px] opacity-60 hover:opacity-100">
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setSavingViewName("")} style={PILL_STYLE} className={pillToggle(true)}>
+                        Save view…
+                      </button>
+                    )}
+                  </OptionsMenuRow>
+                </OptionsMenuSection>
+                <OptionsMenuSection id="symbols" label="Chart symbols" open={sections.isOpen("symbols")} onToggle={() => sections.toggle("symbols")}>
+                  <OptionsMenuRow label="Marker labels">
+                    <select
+                      value={labels.density}
+                      onChange={(e) => labels.setDensity(e.target.value as LabelDensity)}
+                      aria-label="Marker label density"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {LABEL_DENSITIES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Delta annotations">
+                    <button
+                      onClick={() => deltaAnnotations.setEnabled(!deltaAnnotations.enabled)}
+                      aria-pressed={deltaAnnotations.enabled}
+                      aria-label={`Delta annotations: ${deltaAnnotations.enabled ? "On" : "Off"}`}
+                      style={PILL_STYLE} className={pillToggle(deltaAnnotations.enabled)}
+                    >
+                      {deltaAnnotations.enabled ? "On" : "Off"}
+                    </button>
+                  </OptionsMenuRow>
+                  {(() => {
+                    const ghostedCount = box.data.milestones.filter((m) => m.originalDate).length;
+                    if (ghostedCount === 0) return null;
+                    // Inline count-based confirm (wayframe#62) — mirrors
+                    // SwimlaneManager's confirmingId pattern for lane delete: a
+                    // single click mutating many milestones at once gets a named
+                    // warning, not a silent bulk action.
+                    return (
+                      <OptionsMenuRow label="Slipped milestones">
+                        {confirmingAcceptAll ? (
+                          <span className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                box.acceptAllBaselines();
+                                setConfirmingAcceptAll(false);
+                              }}
+                              style={PILL_STYLE}
+                              className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                            >
+                              {`Accept ${ghostedCount}?`}
+                            </button>
+                            <button onClick={() => setConfirmingAcceptAll(false)} className="text-[11px] opacity-60 hover:opacity-100">
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setConfirmingAcceptAll(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                            {`Accept all (${ghostedCount})`}
+                          </button>
+                        )}
+                      </OptionsMenuRow>
+                    );
+                  })()}
+                  <OptionsMenuRow label="Critical path">
+                    <button
+                      onClick={() => criticalPath.setVisible(!criticalPath.visible)}
+                      aria-pressed={criticalPath.visible}
+                      aria-label={`Critical path: ${criticalPath.visible ? "Shown" : "Hidden"}`}
+                      style={PILL_STYLE} className={pillToggle(criticalPath.visible)}
+                    >
+                      {criticalPath.visible ? "Shown" : "Hidden"}
+                    </button>
+                  </OptionsMenuRow>
+                  {criticalPath.visible && (
+                    <OptionsMenuRow label="Critical line">
+                      <select
+                        value={criticalPathLine.style}
+                        onChange={(e) => criticalPathLine.setStyle(e.target.value as CriticalPathStyle)}
+                        aria-label="Critical path line style"
+                        style={PILL_STYLE}
+                        className="rounded-full border px-2 py-1 text-xs"
+                      >
+                        {CRITICAL_PATH_STYLES.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </OptionsMenuRow>
+                  )}
+                  <OptionsMenuRow label="Last updated">
+                    <button
+                      onClick={() => lastUpdated.setVisible(!lastUpdated.visible)}
+                      aria-pressed={lastUpdated.visible}
+                      aria-label={`Last updated: ${lastUpdated.visible ? "Shown" : "Hidden"}`}
+                      style={PILL_STYLE} className={pillToggle(lastUpdated.visible)}
+                    >
+                      {lastUpdated.visible ? "Shown" : "Hidden"}
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Connector shape">
+                    <select
+                      value={connectorStyle.style}
+                      onChange={(e) => connectorStyle.setStyle(e.target.value as ConnectorStyle)}
+                      aria-label="Connector shape"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {CONNECTOR_STYLES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Connector line">
+                    <select
+                      value={connectorLineStyle.dash}
+                      onChange={(e) => connectorLineStyle.setDash(e.target.value as ConnectorDash)}
+                      aria-label="Connector line style"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {CONNECTOR_DASHES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Connector arrow">
+                    <select
+                      value={connectorLineStyle.arrow}
+                      onChange={(e) => connectorLineStyle.setArrow(e.target.value as ConnectorArrow)}
+                      aria-label="Connector arrowhead"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {CONNECTOR_ARROWS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Today overlay">
+                    <button
+                      onClick={() => todayOverlay.setEnabled(!todayOverlay.enabled)}
+                      aria-pressed={todayOverlay.enabled}
+                      aria-label={`Today overlay: ${todayOverlay.enabled ? "On" : "Off"}`}
+                      style={PILL_STYLE} className={pillToggle(todayOverlay.enabled)}
+                    >
+                      {todayOverlay.enabled ? "On" : "Off"}
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Pill progress">
+                    <select
+                      value={pillProgress.style}
+                      onChange={(e) => pillProgress.setStyle(e.target.value as PillProgressStyle)}
+                      aria-label="Duration-pill percent-complete style"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {PILL_PROGRESS_STYLES.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Date labels">
+                    <select
+                      value={dateLabelPlacement.placement}
+                      onChange={(e) => dateLabelPlacement.setPlacement(e.target.value as DateLabelPlacement)}
+                      aria-label="Marker date-label placement"
+                      style={PILL_STYLE}
+                      className="rounded-full border px-2 py-1 text-xs"
+                    >
+                      {DATE_LABEL_PLACEMENTS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Category fill">
+                    <button
+                      onClick={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
+                      aria-pressed={legendCategoryStyle.enabled}
+                      aria-label={`Category fill: ${legendCategoryStyle.enabled ? "On" : "Off"}`}
+                      style={PILL_STYLE} className={pillToggle(legendCategoryStyle.enabled)}
+                    >
+                      {legendCategoryStyle.enabled ? "On" : "Off"}
+                    </button>
+                  </OptionsMenuRow>
+                </OptionsMenuSection>
+                <OptionsMenuSection id="layout" label="Layout" open={sections.isOpen("layout")} onToggle={() => sections.toggle("layout")}>
+                  {/* Swimlanes / Outline / Select mode promoted to the top
+                      toolbar's icon cluster (wayframe UX-2026-09-18 §4/§5) —
+                      removed here rather than duplicated, per that ticket's own
+                      "Select mode... buried in options" complaint. */}
+                  <OptionsMenuRow label="Swimlane owners">
+                    <button
+                      onClick={() => swimlaneOwner.setVisible(!swimlaneOwner.visible)}
+                      aria-pressed={swimlaneOwner.visible}
+                      aria-label={`Swimlane owners: ${swimlaneOwner.visible ? "Shown" : "Hidden"}`}
+                      style={PILL_STYLE} className={pillToggle(swimlaneOwner.visible)}
+                    >
+                      {swimlaneOwner.visible ? "Shown" : "Hidden"}
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Categories">
+                    <button onClick={() => setCategoriesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                      Add / edit categories
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Fit to screen">
+                    <button
+                      onClick={() => fitToScreen.setEnabled(!fitToScreen.enabled)}
+                      aria-pressed={fitToScreen.enabled}
+                      aria-label={`Fit to screen: ${fitToScreen.enabled ? "On" : "Off"}`}
+                      style={PILL_STYLE} className={pillToggle(fitToScreen.enabled)}
+                    >
+                      {fitToScreen.enabled ? "On" : "Off"}
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Edit lock">
+                    <button
+                      onClick={() => editLock.setMode(editLock.mode === "edit" ? "view" : "edit")}
+                      aria-pressed={isViewMode}
+                      aria-label={`Edit lock: ${isViewMode ? "View only" : "Editable"}`}
+                      style={PILL_STYLE} className={pillToggle(isViewMode)}
+                    >
+                      {isViewMode ? "View only" : "Editable"}
+                    </button>
+                  </OptionsMenuRow>
+                </OptionsMenuSection>
+                <OptionsMenuSection id="data" label="Data" open={sections.isOpen("data")} onToggle={() => sections.toggle("data")}>
+                  <OptionsMenuRow label="Correction UI">
+                    <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
+                      {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Import">
+                    <button onClick={() => setImportOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
+                      Import a schedule
+                    </button>
+                  </OptionsMenuRow>
+                  <OptionsMenuRow label="Executive timeline">
+                    <button onClick={timelineSummary.update} style={PILL_STYLE} className={pillToggle(true)}>
+                      {timelineSummary.summary ? "Update Executive view" : "Generate"}
+                    </button>
+                  </OptionsMenuRow>
+                </OptionsMenuSection>
+              </OptionsMenu>
+              {/* The account chip, handed in by the page so it sits INSIDE
+                  this row instead of `fixed`-positioned on top of it
+                  (wayframe#149 — "Syncing…" used to run straight through it). */}
+              {accountSlot}
+            </>
+          }
+        />
         {/* Debounced offline badge (wayframe t38) — bottom-right, clear of
             the correction bar's bottom-center real estate and every other
             fixed notice this component renders (see ConnectionStatusBadge's
@@ -828,735 +1588,6 @@ export function RoadmapWorkspace({
             mode / Outline / Swimlanes icon buttons (promoted out of Options
             → Layout, §4/§5 Part A) | Updated badge | presence avatars |
             Options hamburger. */}
-        <div className="fixed top-3 right-4 z-50 flex flex-wrap items-center justify-end gap-2" style={{ maxWidth: "calc(100vw - 2rem)" }}>
-          {mode === "program" && zoom && (
-            <div className="hidden lg:block">
-              <ZoomControls state={zoom} variant="compact" />
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() =>
-                setSelectMode((v) => {
-                  // Clearing stale selection on mode-off (wayframe UX-2026-09-18
-                  // §4) — selection itself no longer depends on this mode being
-                  // on (Cmd/Ctrl-click and the Outline tree both drive it
-                  // independently now), but turning the mode off still reads as
-                  // "done selecting," so leftover selected ids from either path
-                  // shouldn't linger silently.
-                  if (v) selection.clear();
-                  return !v;
-                })
-              }
-              disabled={isViewMode}
-              aria-pressed={selectMode}
-              aria-label={`Select mode: ${selectMode ? "On" : "Off"}`}
-              title="Select mode"
-              style={PILL_STYLE}
-              className={iconToggle(selectMode) + " disabled:opacity-40"}
-            >
-              ⬚
-            </button>
-            <button onClick={() => setOutlineOpen(true)} aria-label="Open outline" title="Outline" style={PILL_STYLE} className={iconToggle(true)}>
-              ▤
-            </button>
-            <button onClick={() => setLanesOpen(true)} aria-label="Add / edit lanes" title="Swimlanes" style={PILL_STYLE} className={iconToggle(true)}>
-              ▦
-            </button>
-          </div>
-          {lastUpdated.visible && <LastUpdatedBadge lastUpdatedAt={box.data.lastUpdatedAt} />}
-          {realtime && <SyncStatusIndicator status={room.status} showOfflineBadge={room.showOfflineBadge} />}
-          <PresenceAvatars peers={room.peers} />
-          <OptionsMenu>
-            <OptionsMenuRow label="Help">
-              <button onClick={() => setHelpOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                What can this do?
-              </button>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="File">
-              {confirmingNew ? (
-                <>
-                  <button
-                    onClick={() => {
-                      saveDocumentFile(portfolioDocument);
-                      onStartNew?.();
-                    }}
-                    style={PILL_STYLE}
-                    className={pillToggle(true)}
-                  >
-                    {realtime ? "Download a copy & Start New" : "Save & Start New"}
-                  </button>
-                  <button onClick={() => setConfirmingNew(false)} className="text-[11px] opacity-60 hover:opacity-100">
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button onClick={() => saveDocumentFile(portfolioDocument)} style={PILL_STYLE} className={pillToggle(true)}>
-                    {/* On a realtime-connected page (wayframe#121) this file-download action is not what saves the edit —
-                        useProgramRoom's live sync is — so it reads as "Download a copy" here, never "Save". */}
-                    {realtime ? "Download a copy" : "Save"}
-                  </button>
-                  <button onClick={() => openFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
-                    Open
-                  </button>
-                  {onStartNew && (
-                    <button onClick={handleStartNew} style={PILL_STYLE} className={pillToggle(true)}>
-                      New
-                    </button>
-                  )}
-                  <input
-                    ref={openFileRef}
-                    type="file"
-                    accept=".json,application/json"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleOpenFile(f);
-                      e.target.value = "";
-                    }}
-                  />
-                </>
-              )}
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Export">
-              <button
-                onClick={() => {
-                  setExportInitialDestination(undefined);
-                  setExportDialogOpen(true);
-                }}
-                style={PILL_STYLE}
-                className={pillToggle(true)}
-              >
-                Export to Deck
-              </button>
-            </OptionsMenuRow>
-            <OptionsMenuRow label="Export Snapshots">
-              <span className="flex items-center gap-1.5">
-                <button onClick={() => setSnapshotsOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  View Export Snapshots ›
-                </button>
-                <button
-                  onClick={() => {
-                    setExportInitialDestination("snapshot");
-                    setExportDialogOpen(true);
-                  }}
-                  style={PILL_STYLE}
-                  className={pillToggle(true)}
-                >
-                  Save Export Snapshot ›
-                </button>
-              </span>
-            </OptionsMenuRow>
-            {/* Version History (wayframe#128) lives on the combined All-Programs
-                surface, not here: a Version captures EVERY Program at once, and
-                #127's resolution puts the dock in the same 380px slot as the
-                inspector, beside the Program rail that says which Programs
-                you're looking at. This row exists so the feature is reachable
-                from the single-Program page rather than only findable by
-                someone who already knows where it is. Gated on `realtime`
-                (not on role) — that's the one signal that says "this is a
-                hosted Roadmap with a live room", so the local-only `/` page and
-                the `/dev/demo-roadmap` QA route, which have no `/p/<id>/all` to
-                open, don't offer a dead link. */}
-            {realtime && (
-              <OptionsMenuRow label="Version history">
-                <Link
-                  href={`/p/${box.portfolio.id}/all`}
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2.5 py-1 text-xs"
-                >
-                  Open on All Programs ›
-                </Link>
-              </OptionsMenuRow>
-            )}
-            {canManageSharing && (
-              <OptionsMenuRow label="Sharing">
-                <button onClick={() => setSharingOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  Invite / share ›
-                </button>
-              </OptionsMenuRow>
-            )}
-            <OptionsMenuSection id="appearance" label="Appearance" open={sections.isOpen("appearance")} onToggle={() => sections.toggle("appearance")}>
-              <div>
-                <p className="mb-1.5 opacity-70">Theme</p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {THEME_LIST.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => box.setThemeBase(t.id)}
-                      aria-pressed={themeId === t.id}
-                      title={t.tagline}
-                      style={{
-                        // Selection has to come from the theme's own accent —
-                        // an OS-dark-mode class here rendered the *inactive*
-                        // themes as the highlighted ones on a dark panel.
-                        borderColor: themeId === t.id ? "var(--wf-accent)" : "var(--wf-border)",
-                        borderWidth: themeId === t.id ? 2 : 1,
-                      }}
-                      className="rounded-lg border p-1.5 text-left text-[11px]"
-                    >
-                      {/* a real swatch of the theme, not just its name */}
-                      <span className="mb-1 flex h-6 overflow-hidden rounded" style={{ background: t.ground }}>
-                        {laneColors(t.laneRamp, 3).map((c) => (
-                          <span key={c} className="flex-1" style={{ background: c }} />
-                        ))}
-                        <span className="flex-1" style={{ background: t.statusColor.delayed }} />
-                      </span>
-                      <span className={themeId === t.id ? "font-semibold" : ""}>{t.name}</span>
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => setThemeCustomizeOpen((o) => !o)}
-                  aria-expanded={themeCustomizeOpen}
-                  className="mt-1.5 text-[11px] opacity-70 hover:opacity-100"
-                >
-                  {themeCustomizeOpen ? "Hide customization ›" : "Customize ›"}
-                </button>
-                {themeCustomizeOpen && (
-                  <div className="mt-1.5 space-y-2 rounded-lg border p-2" style={{ borderColor: "var(--wf-border)" }}>
-                    <OptionsMenuRow label="Accent">
-                      <input
-                        type="color"
-                        value={theme.accent}
-                        onChange={(e) => box.setThemeOverride({ accent: e.target.value })}
-                        aria-label="Theme accent color"
-                        className="h-6 w-9 rounded border"
-                        style={{ borderColor: "var(--wf-border)" }}
-                      />
-                    </OptionsMenuRow>
-                    <OptionsMenuRow label="Today line">
-                      <input
-                        type="color"
-                        value={theme.todayColor}
-                        onChange={(e) => box.setThemeOverride({ todayColor: e.target.value })}
-                        aria-label="Theme today-line color"
-                        className="h-6 w-9 rounded border"
-                        style={{ borderColor: "var(--wf-border)" }}
-                      />
-                    </OptionsMenuRow>
-                    <OptionsMenuRow label="Lane wash">
-                      <input
-                        type="range"
-                        min={0}
-                        max={0.3}
-                        step={0.005}
-                        value={theme.laneWashOpacity}
-                        onChange={(e) => box.setThemeOverride({ laneWashOpacity: parseFloat(e.target.value) })}
-                        aria-label="Lane wash opacity"
-                        className="w-20"
-                      />
-                      <span className="w-10 text-right font-mono opacity-70">{theme.laneWashOpacity.toFixed(3)}</span>
-                    </OptionsMenuRow>
-                    <OptionsMenuRow label="Lane gutter">
-                      <input
-                        type="range"
-                        min={0}
-                        max={20}
-                        step={1}
-                        value={theme.laneGutter}
-                        onChange={(e) => box.setThemeOverride({ laneGutter: parseFloat(e.target.value) })}
-                        aria-label="Lane gutter px"
-                        className="w-20"
-                      />
-                      <span className="w-10 text-right font-mono opacity-70">{theme.laneGutter}px</span>
-                    </OptionsMenuRow>
-                    {/* Lightness/chroma/start-hue are edited and saved as one atomic
-                        laneRamp override (wayframe#88/t18's "colour family" control),
-                        never as three independently-overridable fields. */}
-                    <OptionsMenuRow label="Lane colour family">
-                      <span className="flex items-center gap-1 font-mono text-[10px] opacity-70">
-                        L
-                        <input
-                          type="number"
-                          min={0}
-                          max={1}
-                          step={0.01}
-                          value={theme.laneRamp.L}
-                          onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, L: parseFloat(e.target.value) } })}
-                          aria-label="Lane ramp lightness"
-                          className="w-12 rounded border px-1"
-                          style={{ borderColor: "var(--wf-border)" }}
-                        />
-                        C
-                        <input
-                          type="number"
-                          min={0}
-                          max={0.4}
-                          step={0.005}
-                          value={theme.laneRamp.C}
-                          onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, C: parseFloat(e.target.value) } })}
-                          aria-label="Lane ramp chroma"
-                          className="w-12 rounded border px-1"
-                          style={{ borderColor: "var(--wf-border)" }}
-                        />
-                        hue
-                        <input
-                          type="number"
-                          min={0}
-                          max={360}
-                          step={1}
-                          value={theme.laneRamp.startHue}
-                          onChange={(e) => box.setThemeOverride({ laneRamp: { ...theme.laneRamp, startHue: parseFloat(e.target.value) } })}
-                          aria-label="Lane ramp start hue"
-                          className="w-12 rounded border px-1"
-                          style={{ borderColor: "var(--wf-border)" }}
-                        />
-                      </span>
-                    </OptionsMenuRow>
-                    {portfolioTheme.overrides && Object.keys(portfolioTheme.overrides).length > 0 && (
-                      <button onClick={box.clearThemeOverrides} style={PILL_STYLE} className={pillToggle(true)}>
-                        Reset overrides
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <OptionsMenuRow label="Company logo">
-                <button onClick={() => logoFileRef.current?.click()} style={PILL_STYLE} className={pillToggle(true)}>
-                  {box.portfolio.companyLogo ? "Replace" : "Upload"}
-                </button>
-                {box.portfolio.companyLogo && (
-                  <button onClick={box.clearCompanyLogo} style={PILL_STYLE} className={pillToggle(true)}>
-                    Remove
-                  </button>
-                )}
-                {box.portfolio.companyLogo && (box.portfolio.companyLogo.dx || box.portfolio.companyLogo.dy || (box.portfolio.companyLogo.scale && box.portfolio.companyLogo.scale !== 1)) && (
-                  <button onClick={() => box.setCompanyLogoGeometry(0, 0, 1)} style={PILL_STYLE} className={pillToggle(true)}>
-                    Reset position
-                  </button>
-                )}
-                <input
-                  ref={logoFileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleUploadLogo(f);
-                    e.target.value = "";
-                  }}
-                />
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Font size">
-                <input
-                  type="range"
-                  min={FONT_SCALE_MIN}
-                  max={FONT_SCALE_MAX}
-                  step={FONT_SCALE_STEP}
-                  value={fontScale.scale}
-                  onChange={(e) => fontScale.setScale(parseFloat(e.target.value))}
-                  aria-label="Font size"
-                  className="w-24"
-                />
-                <span className="w-9 text-right font-mono opacity-70">{fontScale.scale.toFixed(2)}×</span>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Font family">
-                <select
-                  value={fontFamily.familyId}
-                  onChange={(e) => fontFamily.setFamily(e.target.value as (typeof FONT_FAMILY_CHOICES)[number]["id"])}
-                  aria-label="Font family"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {FONT_FAMILY_CHOICES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Program band">
-                <select
-                  value={topBand.style}
-                  onChange={(e) => topBand.setStyle(e.target.value as TopBandStyle)}
-                  aria-label="Program band style"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {TOP_BAND_STYLES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Year color">
-                <input
-                  type="color"
-                  aria-label="Axis Year color"
-                  value={axisTiers.yearColor}
-                  onChange={(e) => axisTiers.setYearColor(e.target.value)}
-                  style={{ borderColor: "var(--wf-border)" }}
-                  className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
-                />
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Gridlines">
-                <select
-                  value={gridlines.style}
-                  onChange={(e) => gridlines.setStyle(e.target.value as PeriodGridlineStyle)}
-                  aria-label="Period gridline style"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {PERIOD_GRIDLINE_STYLES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="So what">
-                <button
-                  onClick={() => setBlufOpen((v) => !v)}
-                  aria-pressed={blufOpen}
-                  aria-label={`So what: ${blufOpen ? "Shown" : "Hidden"}`}
-                  style={PILL_STYLE} className={pillToggle(blufOpen)}
-                >
-                  {blufOpen ? "Shown" : "Hidden"}
-                </button>
-              </OptionsMenuRow>
-              {blufOpen && (
-                <OptionsMenuRow label="So-what fill">
-                  <input
-                    type="color"
-                    aria-label="So-what fill color"
-                    value={soWhat.color ?? theme.panelBg}
-                    onChange={(e) => soWhat.setColor(e.target.value)}
-                    style={{ borderColor: "var(--wf-border)" }}
-                    className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
-                  />
-                </OptionsMenuRow>
-              )}
-              {blufOpen && (
-                <OptionsMenuRow label="So-what transparency">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={soWhat.transparency}
-                    onChange={(e) => soWhat.setTransparency(parseInt(e.target.value, 10))}
-                    aria-label="So-what transparency"
-                    className="w-24"
-                  />
-                </OptionsMenuRow>
-              )}
-              {blufOpen && (soWhat.color !== null || soWhat.transparency !== 0) && (
-                <OptionsMenuRow label="So-what reset">
-                  <button onClick={soWhat.reset} style={PILL_STYLE} className={pillToggle(true)}>
-                    Reset to theme
-                  </button>
-                </OptionsMenuRow>
-              )}
-            </OptionsMenuSection>
-            <OptionsMenuSection id="views" label="Views" open={sections.isOpen("views")} onToggle={() => sections.toggle("views")}>
-              {savedViews.views.map((v) => (
-                <OptionsMenuRow key={v.id} label={v.name}>
-                  <button onClick={() => applyView(v.snapshot)} style={PILL_STYLE} className={pillToggle(true)}>
-                    Apply
-                  </button>
-                  {!v.builtin && (
-                    <button onClick={() => savedViews.removeView(v.id)} className="text-[11px] opacity-60 hover:opacity-100">
-                      Delete
-                    </button>
-                  )}
-                </OptionsMenuRow>
-              ))}
-              <OptionsMenuRow label="Save current as…">
-                {savingViewName !== null ? (
-                  <span className="flex items-center gap-1.5">
-                    <input
-                      autoFocus
-                      value={savingViewName}
-                      onChange={(e) => setSavingViewName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && savingViewName.trim()) {
-                          savedViews.addView(savingViewName.trim(), currentSnapshot(), nanoid());
-                          setSavingViewName(null);
-                        }
-                        if (e.key === "Escape") setSavingViewName(null);
-                      }}
-                      aria-label="New view name"
-                      style={{ borderColor: "var(--wf-border)" }}
-                      className="w-24 rounded border bg-transparent px-1.5 py-0.5 text-xs"
-                    />
-                    <button
-                      onClick={() => {
-                        if (savingViewName.trim()) {
-                          savedViews.addView(savingViewName.trim(), currentSnapshot(), nanoid());
-                          setSavingViewName(null);
-                        }
-                      }}
-                      style={PILL_STYLE}
-                      className={pillToggle(true)}
-                    >
-                      Save
-                    </button>
-                    <button onClick={() => setSavingViewName(null)} className="text-[11px] opacity-60 hover:opacity-100">
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button onClick={() => setSavingViewName("")} style={PILL_STYLE} className={pillToggle(true)}>
-                    Save view…
-                  </button>
-                )}
-              </OptionsMenuRow>
-            </OptionsMenuSection>
-            <OptionsMenuSection id="symbols" label="Chart symbols" open={sections.isOpen("symbols")} onToggle={() => sections.toggle("symbols")}>
-              <OptionsMenuRow label="Marker labels">
-                <select
-                  value={labels.density}
-                  onChange={(e) => labels.setDensity(e.target.value as LabelDensity)}
-                  aria-label="Marker label density"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {LABEL_DENSITIES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Delta annotations">
-                <button
-                  onClick={() => deltaAnnotations.setEnabled(!deltaAnnotations.enabled)}
-                  aria-pressed={deltaAnnotations.enabled}
-                  aria-label={`Delta annotations: ${deltaAnnotations.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(deltaAnnotations.enabled)}
-                >
-                  {deltaAnnotations.enabled ? "On" : "Off"}
-                </button>
-              </OptionsMenuRow>
-              {(() => {
-                const ghostedCount = box.data.milestones.filter((m) => m.originalDate).length;
-                if (ghostedCount === 0) return null;
-                // Inline count-based confirm (wayframe#62) — mirrors
-                // SwimlaneManager's confirmingId pattern for lane delete: a
-                // single click mutating many milestones at once gets a named
-                // warning, not a silent bulk action.
-                return (
-                  <OptionsMenuRow label="Slipped milestones">
-                    {confirmingAcceptAll ? (
-                      <span className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            box.acceptAllBaselines();
-                            setConfirmingAcceptAll(false);
-                          }}
-                          style={PILL_STYLE}
-                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                        >
-                          {`Accept ${ghostedCount}?`}
-                        </button>
-                        <button onClick={() => setConfirmingAcceptAll(false)} className="text-[11px] opacity-60 hover:opacity-100">
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <button onClick={() => setConfirmingAcceptAll(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                        {`Accept all (${ghostedCount})`}
-                      </button>
-                    )}
-                  </OptionsMenuRow>
-                );
-              })()}
-              <OptionsMenuRow label="Critical path">
-                <button
-                  onClick={() => criticalPath.setVisible(!criticalPath.visible)}
-                  aria-pressed={criticalPath.visible}
-                  aria-label={`Critical path: ${criticalPath.visible ? "Shown" : "Hidden"}`}
-                  style={PILL_STYLE} className={pillToggle(criticalPath.visible)}
-                >
-                  {criticalPath.visible ? "Shown" : "Hidden"}
-                </button>
-              </OptionsMenuRow>
-              {criticalPath.visible && (
-                <OptionsMenuRow label="Critical line">
-                  <select
-                    value={criticalPathLine.style}
-                    onChange={(e) => criticalPathLine.setStyle(e.target.value as CriticalPathStyle)}
-                    aria-label="Critical path line style"
-                    style={PILL_STYLE}
-                    className="rounded-full border px-2 py-1 text-xs"
-                  >
-                    {CRITICAL_PATH_STYLES.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </OptionsMenuRow>
-              )}
-              <OptionsMenuRow label="Last updated">
-                <button
-                  onClick={() => lastUpdated.setVisible(!lastUpdated.visible)}
-                  aria-pressed={lastUpdated.visible}
-                  aria-label={`Last updated: ${lastUpdated.visible ? "Shown" : "Hidden"}`}
-                  style={PILL_STYLE} className={pillToggle(lastUpdated.visible)}
-                >
-                  {lastUpdated.visible ? "Shown" : "Hidden"}
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Connector shape">
-                <select
-                  value={connectorStyle.style}
-                  onChange={(e) => connectorStyle.setStyle(e.target.value as ConnectorStyle)}
-                  aria-label="Connector shape"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {CONNECTOR_STYLES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Connector line">
-                <select
-                  value={connectorLineStyle.dash}
-                  onChange={(e) => connectorLineStyle.setDash(e.target.value as ConnectorDash)}
-                  aria-label="Connector line style"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {CONNECTOR_DASHES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Connector arrow">
-                <select
-                  value={connectorLineStyle.arrow}
-                  onChange={(e) => connectorLineStyle.setArrow(e.target.value as ConnectorArrow)}
-                  aria-label="Connector arrowhead"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {CONNECTOR_ARROWS.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Today overlay">
-                <button
-                  onClick={() => todayOverlay.setEnabled(!todayOverlay.enabled)}
-                  aria-pressed={todayOverlay.enabled}
-                  aria-label={`Today overlay: ${todayOverlay.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(todayOverlay.enabled)}
-                >
-                  {todayOverlay.enabled ? "On" : "Off"}
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Pill progress">
-                <select
-                  value={pillProgress.style}
-                  onChange={(e) => pillProgress.setStyle(e.target.value as PillProgressStyle)}
-                  aria-label="Duration-pill percent-complete style"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {PILL_PROGRESS_STYLES.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Date labels">
-                <select
-                  value={dateLabelPlacement.placement}
-                  onChange={(e) => dateLabelPlacement.setPlacement(e.target.value as DateLabelPlacement)}
-                  aria-label="Marker date-label placement"
-                  style={PILL_STYLE}
-                  className="rounded-full border px-2 py-1 text-xs"
-                >
-                  {DATE_LABEL_PLACEMENTS.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Category fill">
-                <button
-                  onClick={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
-                  aria-pressed={legendCategoryStyle.enabled}
-                  aria-label={`Category fill: ${legendCategoryStyle.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(legendCategoryStyle.enabled)}
-                >
-                  {legendCategoryStyle.enabled ? "On" : "Off"}
-                </button>
-              </OptionsMenuRow>
-            </OptionsMenuSection>
-            <OptionsMenuSection id="layout" label="Layout" open={sections.isOpen("layout")} onToggle={() => sections.toggle("layout")}>
-              {/* Swimlanes / Outline / Select mode promoted to the top
-                  toolbar's icon cluster (wayframe UX-2026-09-18 §4/§5) —
-                  removed here rather than duplicated, per that ticket's own
-                  "Select mode... buried in options" complaint. */}
-              <OptionsMenuRow label="Swimlane owners">
-                <button
-                  onClick={() => swimlaneOwner.setVisible(!swimlaneOwner.visible)}
-                  aria-pressed={swimlaneOwner.visible}
-                  aria-label={`Swimlane owners: ${swimlaneOwner.visible ? "Shown" : "Hidden"}`}
-                  style={PILL_STYLE} className={pillToggle(swimlaneOwner.visible)}
-                >
-                  {swimlaneOwner.visible ? "Shown" : "Hidden"}
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Categories">
-                <button onClick={() => setCategoriesOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  Add / edit categories
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Fit to screen">
-                <button
-                  onClick={() => fitToScreen.setEnabled(!fitToScreen.enabled)}
-                  aria-pressed={fitToScreen.enabled}
-                  aria-label={`Fit to screen: ${fitToScreen.enabled ? "On" : "Off"}`}
-                  style={PILL_STYLE} className={pillToggle(fitToScreen.enabled)}
-                >
-                  {fitToScreen.enabled ? "On" : "Off"}
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Edit lock">
-                <button
-                  onClick={() => editLock.setMode(editLock.mode === "edit" ? "view" : "edit")}
-                  aria-pressed={isViewMode}
-                  aria-label={`Edit lock: ${isViewMode ? "View only" : "Editable"}`}
-                  style={PILL_STYLE} className={pillToggle(isViewMode)}
-                >
-                  {isViewMode ? "View only" : "Editable"}
-                </button>
-              </OptionsMenuRow>
-            </OptionsMenuSection>
-            <OptionsMenuSection id="data" label="Data" open={sections.isOpen("data")} onToggle={() => sections.toggle("data")}>
-              <OptionsMenuRow label="Correction UI">
-                <button onClick={() => setCorrectionMode((m) => (m === "bar" ? "sidebar" : "bar"))} style={PILL_STYLE} className={pillToggle(true)}>
-                  {correctionMode === "bar" ? "Sidebar mode" : "Bar mode"}
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Import">
-                <button onClick={() => setImportOpen(true)} style={PILL_STYLE} className={pillToggle(true)}>
-                  Import a schedule
-                </button>
-              </OptionsMenuRow>
-              <OptionsMenuRow label="Executive timeline">
-                <button onClick={timelineSummary.update} style={PILL_STYLE} className={pillToggle(true)}>
-                  {timelineSummary.summary ? "Update Executive view" : "Generate"}
-                </button>
-              </OptionsMenuRow>
-            </OptionsMenuSection>
-          </OptionsMenu>
-        </div>
         <div>
           <RoadmapView
             mode={mode}
@@ -1624,6 +1655,14 @@ export function RoadmapWorkspace({
                 categories={renderable.legendCategories}
                 hiddenCategoryIds={hiddenCategories.hiddenIds}
                 onToggleCategory={hiddenCategories.toggle}
+                // #147 — the encoding's state, and its toggle, next to the
+                // swatches it governs. The Options menu keeps its own row;
+                // this is the copy a reader finds without going looking.
+                categoryFillEnabled={legendCategoryStyle.enabled}
+                // Ungated by view mode on purpose: this is a viewer display
+                // preference, not document content — same as the Options
+                // menu's own row for it.
+                onToggleCategoryFill={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
                 onAddCategory={box.addCategory}
                 onRenameCategory={box.renameCategory}
                 onRecolorCategory={box.recolorCategory}
