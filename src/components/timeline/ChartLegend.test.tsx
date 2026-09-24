@@ -188,3 +188,27 @@ describe("ChartLegend", () => {
     });
   });
 });
+
+describe("category-fill state (wayframe#147)", () => {
+  const categories = [{ id: "cat-1", name: "Platform", color: "#2e7af5" }];
+
+  it("says the encoding is off, so a reader isn't left guessing why marks aren't tinted", () => {
+    renderLegend({ categories, categoryFillEnabled: false });
+    expect(screen.getByText(/Colour by category is off/)).toBeInTheDocument();
+  });
+
+  it("offers the toggle in place when the surface has one, reporting its state", () => {
+    const onToggleCategoryFill = vi.fn();
+    renderLegend({ categories, categoryFillEnabled: true, onToggleCategoryFill });
+    const toggle = screen.getByRole("button", { name: "Colour marks by category: On" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(toggle);
+    expect(onToggleCategoryFill).toHaveBeenCalled();
+  });
+
+  it("says nothing at all on a surface with no such preference to report", () => {
+    renderLegend({ categories });
+    expect(screen.queryByText(/Colour by category/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Colour marks by category/)).not.toBeInTheDocument();
+  });
+});

@@ -71,6 +71,7 @@ import { EDITOR_DOCK_WIDTH } from "@/components/milestone-editor/editor-dock";
 import { SwimlaneManager } from "@/components/workspace/SwimlaneManager";
 import { CrossProgramSelectionToolbar } from "@/components/workspace/CrossProgramSelectionToolbar";
 import { useSelection } from "@/components/timeline/use-selection";
+import { useLegendCategoryStyle } from "@/components/timeline/use-legend-category-style";
 import { traceFrom, type TraceDirection } from "@/lib/critical-path/trace";
 import { moveMilestoneBetweenPrograms, moveSwimlaneBetweenPrograms } from "@/components/correction-box/cross-program-move";
 import type { RoomAccess } from "@/lib/realtime/provider";
@@ -166,6 +167,11 @@ export function CombinedProgramEditor({
   const canMutate = canEdit && !readingVersion;
 
   const theme = resolvePortfolioTheme(portfolio.theme ?? defaultPortfolioTheme);
+  // The SAME viewer preference the single-Program page reads (#147). This
+  // surface used to hardcode the encoding off at every call site, so the
+  // All-Programs canvas could never category-tint at all — no preference, no
+  // toggle, and no way for a reader to tell that was why.
+  const legendCategoryStyle = useLegendCategoryStyle();
 
   // Every Program that has actually published a box, in the caller's order.
   const orderedConnections = programs.map((p) => connections.get(p.id)).filter((c): c is ProgramConnection => c != null);
@@ -422,6 +428,7 @@ export function CombinedProgramEditor({
           // band. The canvas is the only surface that needs this: a
           // single-Program document names no bands and renders unchanged.
           topLevelItemBandGroupIds={programStripGroupIds(canvasData)}
+          legendCategoryFillEnabled={legendCategoryStyle.enabled}
           onMilestoneClick={canMutate ? (m) => openMilestone(m.id) : undefined}
           onTopLevelItemClick={canMutate ? (t) => openTopLevelItem(t.id) : undefined}
           onMilestoneDateChange={canMutate ? canvasHandlers.onMilestoneDateChange : undefined}
@@ -468,6 +475,8 @@ export function CombinedProgramEditor({
             deltaAnnotationsEnabled={false}
             tracing={trace !== null}
             hasDurations={renderable.milestones.some((m) => !!m.endDate)}
+            categoryFillEnabled={legendCategoryStyle.enabled}
+            onToggleCategoryFill={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
             categories={renderable.legendCategories}
           />
         )}
@@ -495,7 +504,7 @@ export function CombinedProgramEditor({
           data={milestoneScope}
           theme={theme}
           milestone={selectedMilestone}
-          legendCategoryFillEnabled={false}
+          legendCategoryFillEnabled={legendCategoryStyle.enabled}
           locationSlot={
             <CrossProgramMovePicker
               compact
@@ -533,7 +542,7 @@ export function CombinedProgramEditor({
           item={selectedTopLevelItem}
           data={topLevelScope}
           theme={theme}
-          legendCategoryFillEnabled={false}
+          legendCategoryFillEnabled={legendCategoryStyle.enabled}
           onSave={topLevelSelection.connection.box.editTopLevelItem}
           onClose={() => setSelectedTopLevelItemId(null)}
           onDelete={(id) => {

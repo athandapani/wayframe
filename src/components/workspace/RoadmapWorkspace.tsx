@@ -1624,6 +1624,14 @@ export function RoadmapWorkspace({
                 categories={renderable.legendCategories}
                 hiddenCategoryIds={hiddenCategories.hiddenIds}
                 onToggleCategory={hiddenCategories.toggle}
+                // #147 — the encoding's state, and its toggle, next to the
+                // swatches it governs. The Options menu keeps its own row;
+                // this is the copy a reader finds without going looking.
+                categoryFillEnabled={legendCategoryStyle.enabled}
+                // Ungated by view mode on purpose: this is a viewer display
+                // preference, not document content — same as the Options
+                // menu's own row for it.
+                onToggleCategoryFill={() => legendCategoryStyle.setEnabled(!legendCategoryStyle.enabled)}
                 onAddCategory={box.addCategory}
                 onRenameCategory={box.renameCategory}
                 onRecolorCategory={box.recolorCategory}
