@@ -37,6 +37,7 @@ import type { TopBandStyle } from "./use-top-band-style";
 import type { PeriodGridlineStyle } from "./use-period-gridlines";
 import { DATE_TIER_DY, DATE_CHAR_W, GHOST_TIER_DY, MIN_GAP, layoutDateLabels, layoutGhostBadges, type GhostBadgeItem, type GhostBlocker } from "./label-layout";
 import { allocate, type Demand, type Zone } from "@/lib/layout/tier-allocator";
+import { layoutBandRows } from "@/lib/layout/band-rows";
 import { sweepMidX } from "./connector-router";
 import {
   ghostsForMilestone,
@@ -114,6 +115,12 @@ const PILL_ROW_HEIGHT = 18;
  * computeRowHeight).
  */
 export const PILL_PHASE_HEIGHT: Record<PhaseSize, number> = { lean: 14, normal: PILL_ROW_HEIGHT, tall: 26 };
+/**
+ * Height of one PROGRAM-band sub-row (wayframe#142) — what each extra row
+ * beyond the first adds to the band. Sized to clear the tallest band pill
+ * (PILL_HEIGHT_LG at its `tall` multiplier) plus a line of label.
+ */
+const BAND_SUB_ROW_HEIGHT = 34;
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
 /** Gap between the marker and the bottom line of its label block. */
@@ -1570,7 +1577,11 @@ export function RoadmapTimeline({
   pillProgressStyle = "off",
   fitToScreen = false,
   dateLabelPlacement = "below",
-  legendCategoryFillEnabled = false,
+  // Defaults to ON, matching use-legend-category-style.ts's own default
+  // since wayframe#143 — the two disagreeing is a trap, since a caller
+  // that renders this component directly (the /dev pages, the off-screen
+  // export capture) would then encode colour differently from the app.
+  legendCategoryFillEnabled = true,
   isCategoryHidden,
   swimlaneOwnerVisible = true,
   onMilestoneDateRangeChange,
@@ -1713,6 +1724,18 @@ export function RoadmapTimeline({
   const laneIndexById = new Map(laneRowsOrdered.map((r, i) => [r.swimlane.id, i]));
   const milestoneById = new Map(data.milestones.map((m) => [m.id, m]));
   const categoryById = new Map((data.legendCategories ?? []).map((c) => [c.id, c]));
+
+  /**
+   * The legend category a mark should tint from, or undefined (wayframe#143)
+   * — one gate for every mark kind instead of the per-call-site version
+   * point markers used to have alone. Before this, duration pills painted
+   * from their lane's tint and band phases had no `categoryId` at all, so
+   * "colour by category" silently covered only point milestones.
+   */
+  function tintCategory(item: { categoryId?: string | null }): LegendCategory | undefined {
+    if (!legendCategoryFillEnabled || !item.categoryId) return undefined;
+    return categoryById.get(item.categoryId);
+  }
   /**
    * Vertical offset for a pill's cy within its (possibly grown) lane — 0
    * for every lane with no pills at all. The whole stack of Lane-Row
@@ -1924,7 +1947,25 @@ export function RoadmapTimeline({
   // MARGIN.left) — not a dedicated strip carved out of the top band, so
   // topBandHeight/the PROGRAM chip/programName no longer need pushing down
   // to make room for it (wayframe#64, revising #46/#54's original layout).
-  const topBandHeight = TOP_BAND_HEIGHT * boxScale;
+  // PROGRAM-band vertical allocation (wayframe#142). Every top-level item
+  // used to share one centreline, so two overlapping phases painted over
+  // each other; now each gets a sub-row from the same explicit-row +
+  // automatic-stacking model lanes use (see band-rows.ts), and the band
+  // grows to fit instead of staying at a fixed 90px that can't.
+  const bandLayout = layoutBandRows(
+    data.topLevelItems
+      .filter((t) => t.type === "annotation" || !resolveHidden(t, data))
+      .map((t) =>
+        t.type === "phase"
+          ? { id: t.id, bandRow: t.bandRow, start: +parseDate(t.startDate), end: +parseDate(t.endDate) }
+          : { id: t.id, bandRow: t.type === "milestone" ? t.bandRow : undefined, start: +parseDate(t.date), end: null },
+      ),
+  );
+  const bandSubRowHeight = BAND_SUB_ROW_HEIGHT * boxScale;
+  // The first sub-row keeps the original band's full height so a
+  // single-row document renders pixel-identically to before; every extra
+  // sub-row adds its own strip.
+  const topBandHeight = TOP_BAND_HEIGHT * boxScale + (bandLayout.subRowCount - 1) * bandSubRowHeight;
   const topBandY = chartTopMargin + axisHeight;
   const lanesTop = topBandY + topBandHeight;
   const height = lanesTop + bodyHeight + MARGIN.bottom;
@@ -2653,7 +2694,10 @@ export function RoadmapTimeline({
           )
         )}
         {data.topLevelItems.map((t: TopLevelItem) => {
-          const y = topBandY + topBandHeight / 2;
+          // Centre of this item's own sub-row (wayframe#142) — the band's
+          // first sub-row keeps the original single-row centreline exactly,
+          // so nothing moves in a document that never needed rows.
+          const y = topBandY + (TOP_BAND_HEIGHT * boxScale) / 2 + (bandLayout.subRowById.get(t.id) ?? 0) * bandSubRowHeight;
           if (t.type === "phase") {
             if (resolveHidden(t, data)) return null;
             const px = x(t.startDate);
@@ -2670,13 +2714,18 @@ export function RoadmapTimeline({
             // neighbour instead of the pill growing to make room.
             const labelChars = Math.floor((w - h) / (5.4 * metricsScale));
             const label = labelChars >= 4 ? wrapText(t.title, labelChars, 1)[0] : null;
-            // Color override (wayframe UX-2026-09-18 §2) — a raw
-            // styleOverride.color wins outright, same "full stop" rung
-            // resolveMarkerColor's own rung 1 uses; a Program-band phase's
-            // translucent-wash-plus-matching-stroke treatment is otherwise
-            // unchanged, so this only swaps which color that wash uses, not
-            // the wash itself.
-            const phaseColor = t.styleOverride?.color ?? theme.statusColor[t.status];
+            // Colour ladder (wayframe UX-2026-09-18 §2, extended #143).
+            // styleOverride.color still wins outright — the same "full
+            // stop" rung resolveMarkerColor's rung 1 uses. Below it, a band
+            // phase can now tint from its legend category, which it could
+            // not before (it had no `categoryId` to tint from at all), and
+            // status moves to the STROKE so the encoding reads the same on
+            // every mark: fill says what kind of work, outline says how
+            // it's going. With no category resolved this is byte-identical
+            // to the old single-colour wash.
+            const phaseCategory = tintCategory(t);
+            const phaseColor = t.styleOverride?.color ?? phaseCategory?.color ?? theme.statusColor[t.status];
+            const phaseStroke = t.styleOverride?.color ? phaseColor : theme.statusColor[t.status];
             // Selection (wayframe#t33) — TopLevelItems are now selectable
             // (milestone/phase kinds), sharing the exact same selectedIds
             // Set/onToggleSelect the canvas's Milestone markers already use.
@@ -2706,7 +2755,7 @@ export function RoadmapTimeline({
                   rx={rx}
                   fill={phaseColor}
                   fillOpacity={0.35}
-                  stroke={phaseColor}
+                  stroke={phaseStroke}
                 />
                 {label && (
                   <text x={px + h / 2} y={y + 4} fontSize={11 * effectiveFontScale} fontWeight={600}>
@@ -2759,7 +2808,7 @@ export function RoadmapTimeline({
             // so this runs the same ladder a lane point marker uses minus
             // that one rung: styleOverride.color wins outright, else the
             // not-started-hollow-vs-status-ramp treatment applies unchanged.
-            const paint = resolveMarkerColor(t, theme, data);
+            const paint = resolveMarkerColor(t, theme, data, tintCategory(t));
             // Selection (wayframe#t33) — see the "phase" branch above for
             // the shared reasoning; this variant already uses CushionMarker,
             // so its selected ring is the exact same scaled-up-outline
@@ -3147,7 +3196,20 @@ export function RoadmapTimeline({
             // Sub-row offset (stack-intervals.ts) — 0 for
             // every lane that isn't stacking overlapping pills.
             const cy = laneY(m.laneId) + pillSubRowOffset(m.laneId, m.id);
-            const fill = darken(laneTint(m.laneId), 0.4);
+            // Pill fill (wayframe#143). Lane tint stays the fallback — it
+            // is what a pill has always read as — but a pill carries a
+            // `categoryId` like any other Milestone, and it used to be the
+            // one mark kind that ignored it entirely, so "colour by
+            // category" appeared to do nothing on exactly the items this
+            // roadmap is mostly made of. styleOverride.color still wins
+            // outright (rung 1, as everywhere else).
+            const pillCategory = tintCategory(m);
+            const fill = m.styleOverride?.color ?? pillCategory?.color ?? darken(laneTint(m.laneId), 0.4);
+            // ...and status becomes the OUTLINE, the same encoding point
+            // markers use (resolveMarkerColor): fill says what kind of
+            // work, outline says how it's going. Pills carried no stroke at
+            // all before, so status was simply unreadable on them.
+            const pillStroke = theme.statusColor[m.status];
             // Pills carry the same critical/trace state as point markers.
             // They didn't before, so a duration on the critical path — which
             // both production ramps are — dropped out of the highlight and
@@ -3176,7 +3238,16 @@ export function RoadmapTimeline({
                 onClick={onMilestoneClick ? (e) => onMilestoneClick(m, e) : undefined}
                 onPointerDown={onMilestoneDateRangeChange ? (e) => beginDrag(m, e) : undefined}
               >
-                <rect x={px} y={cy - pillHeightSm / 2} width={w} height={pillHeightSm} rx={phaseShape === "pill" ? pillHeightSm / 2 : 3} fill={fill} />
+                <rect
+                  x={px}
+                  y={cy - pillHeightSm / 2}
+                  width={w}
+                  height={pillHeightSm}
+                  rx={phaseShape === "pill" ? pillHeightSm / 2 : 3}
+                  fill={fill}
+                  stroke={pillStroke}
+                  strokeWidth={1.5}
+                />
                 {pillProgressStyle === "fill" && pct !== undefined && (
                   <rect x={px} y={cy - pillHeightSm / 2} width={completeW} height={pillHeightSm} rx={pillHeightSm / 2} fill={lighten(fill, 0.35)} />
                 )}
@@ -3410,7 +3481,7 @@ export function RoadmapTimeline({
                   dragging={drag?.id === m.id}
                   fontScale={fontScale}
                   metricsScale={metricsScale}
-                  category={legendCategoryFillEnabled && m.categoryId ? categoryById.get(m.categoryId) : undefined}
+                  category={tintCategory(m)}
                   isHovered={hoveredMarkerId === m.id}
                   onHoverChange={(hovered) => setHoveredMarkerId((id) => (hovered ? m.id : id === m.id ? null : id))}
                 />
