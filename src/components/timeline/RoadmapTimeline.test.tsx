@@ -1531,3 +1531,56 @@ describe("PROGRAM-band point items separate on label width (wayframe#148)", () =
     expect(labelY(container, "a")).toBeGreaterThan(labelY(container, "b"));
   });
 });
+
+describe("band point items with an 'inside' title still separate (wayframe#148, found in the real four-Program file)", () => {
+  function labelY(container: HTMLElement, id: string): number {
+    return Number(container.querySelector(`[data-testid="toplevel-glyph-${id}"] text`)!.getAttribute("y"));
+  }
+
+  // `titleLabelPosition: "inside"` paints the title at font-size 8 CENTRED on
+  // the marker — and does not clip it to the glyph, so a title longer than
+  // the marker spills straight over its neighbours. Every top-level milestone
+  // in the real file carries this override, which is why treating "inside" as
+  // glyph-width left the exact overstrike #148 is about still on screen.
+  const inside = { styleOverride: { titleLabelPosition: "inside" as const } };
+
+  it("stacks two 'inside'-titled milestones whose titles overlap", () => {
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-20", status: "on-track", ...inside },
+        { id: "b", type: "milestone", title: "2027 DT Initiatives SteerCo", date: "2026-01-28", status: "on-track", ...inside },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).not.toBe(labelY(container, "b"));
+  });
+
+  it("keeps two short 'inside' titles that clear each other on one line", () => {
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Go", date: "2026-01-05", status: "on-track", ...inside },
+        { id: "b", type: "milestone", title: "End", date: "2026-02-20", status: "on-track", ...inside },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).toBe(labelY(container, "b"));
+  });
+
+  it("measures a left-anchored title on the side it actually hangs off, not straddling the marker", () => {
+    // Two markers close together, each with its title running LEFT: the
+    // labels collide to the left of the glyphs, which a centred estimate
+    // would half-miss.
+    const left = { styleOverride: { titleLabelPosition: "left" as const } };
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-20", status: "on-track", ...left },
+        { id: "b", type: "milestone", title: "2027 DT Initiatives SteerCo", date: "2026-01-24", status: "on-track", ...left },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).not.toBe(labelY(container, "b"));
+  });
+});

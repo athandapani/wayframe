@@ -1791,12 +1791,21 @@ export function RoadmapTimeline({
     if (t.type === "milestone") {
       const cx = x(t.date);
       const r = 10 * resolveMarkerScale(t, data, theme);
-      // An "inside" title is painted within the glyph, so the glyph IS the
-      // extent; every other placement paints the full, unwrapped title
-      // centred on the marker (see the render loop below).
-      if (resolveTitleLabelPosition(t) === "inside") return { start: cx - r, end: cx + r };
-      const labelW = t.title.length * CHAR_W * metricsScale * resolveFontScale(t, data);
-      const half = Math.max(r, labelW / 2) + BAND_LABEL_GAP * metricsScale;
+      const titlePos = resolveTitleLabelPosition(t);
+      // Measured at the size the render loop below actually paints it: 8 for
+      // an "inside" title, 11 everywhere else. "inside" is NOT clipped to
+      // the marker — a title longer than the glyph spills straight over its
+      // neighbours, which is why it has to be measured rather than treated
+      // as glyph-width. Every top-level milestone in the real four-Program
+      // file carries `titleLabelPosition: "inside"`, so this is the case
+      // #148 was reported against, not an edge one.
+      const labelW = t.title.length * CHAR_W * metricsScale * resolveFontScale(t, data) * ((titlePos === "inside" ? 8 : 11) / 11);
+      const gap = BAND_LABEL_GAP * metricsScale;
+      // A side-anchored title hangs off one edge of the marker instead of
+      // straddling it (same +/-6 offsets the render loop uses).
+      if (titlePos === "left") return { start: cx - r - 6 - labelW - gap, end: cx + r + gap };
+      if (titlePos === "right") return { start: cx - r - gap, end: cx + r + 6 + labelW + gap };
+      const half = Math.max(r, labelW / 2) + gap;
       return { start: cx - half, end: cx + half };
     }
     // An annotation draws a full-height reference line plus a small flag;

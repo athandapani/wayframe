@@ -53,8 +53,15 @@ export function TopStrip({
       <div className="pointer-events-auto flex shrink-0 items-center gap-2">{left}</div>
       {/* Centred between its neighbours rather than on the viewport's
           midpoint — which is what keeps it clear of a wide right cluster
-          instead of underneath it. */}
-      <div className="pointer-events-auto flex min-w-0 flex-1 flex-wrap items-center justify-center gap-2">{center}</div>
+          instead of underneath it.
+
+          `grow shrink-0 basis-auto`, not `flex-1`: this slot carries the
+          navigation (mode toggle + Programs picker), so when the row runs
+          short it must be the RIGHT cluster — a dense bag of icons that
+          wraps cleanly — that gives way, not the two controls that say where
+          you are. With `flex-1`'s zero basis the centre lost every contest
+          and wrapped its own picker under its own toggle instead. */}
+      <div className="pointer-events-auto flex grow shrink-0 basis-auto flex-wrap items-center justify-center gap-2">{center}</div>
       <div className="pointer-events-auto flex min-w-0 flex-wrap items-center justify-end gap-2">{right}</div>
     </div>
   );
