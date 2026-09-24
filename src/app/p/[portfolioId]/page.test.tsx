@@ -9,6 +9,9 @@ vi.mock("next-auth/react", () => ({
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ portfolioId: "portfolio-1" }),
+  // The Programs picker in the top strip (wayframe#144) navigates rather
+  // than filtering in place, so this page now uses the router.
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 // This page's own tests only care about the empty-Portfolio behavior below
