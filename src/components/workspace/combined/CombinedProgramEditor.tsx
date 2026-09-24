@@ -59,7 +59,7 @@
 import { useCallback, useState } from "react";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { mergeForRender } from "@/components/timeline/types";
-import { isProgramBandId, mergeProgramsForAllView, namespaceId, splitNamespacedId } from "@/lib/portfolio/merge-programs";
+import { isProgramBandId, mergeProgramsForAllView, namespaceId, programStripGroupIds, splitNamespacedId } from "@/lib/portfolio/merge-programs";
 import { buildMergedCanvasHandlers } from "@/lib/portfolio/merged-dispatch";
 import { resolvePortfolioTheme, defaultPortfolioTheme } from "@/components/timeline/theme";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
@@ -417,6 +417,11 @@ export function CombinedProgramEditor({
           data={canvasData}
           today={today}
           theme={theme}
+          // Each Program's program-level items on that Program's own strip
+          // (#152), not all four Programs' piled into the chart's one top
+          // band. The canvas is the only surface that needs this: a
+          // single-Program document names no bands and renders unchanged.
+          topLevelItemBandGroupIds={programStripGroupIds(canvasData)}
           onMilestoneClick={canMutate ? (m) => openMilestone(m.id) : undefined}
           onTopLevelItemClick={canMutate ? (t) => openTopLevelItem(t.id) : undefined}
           onMilestoneDateChange={canMutate ? canvasHandlers.onMilestoneDateChange : undefined}

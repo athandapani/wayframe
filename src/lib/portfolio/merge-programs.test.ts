@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Milestone, Portfolio, Program, Swimlane, SwimlaneGroup } from "@/components/timeline/types";
 import { mergeForRender } from "@/components/timeline/types";
-import { MERGED_ID_SEP, mergeProgramsForAllView, namespaceId, splitNamespacedId } from "./merge-programs";
+import { MERGED_ID_SEP, mergeProgramsForAllView, namespaceId, programBandId, programStripGroupIds, splitNamespacedId } from "./merge-programs";
 
 function lane(overrides: Partial<Swimlane> & Pick<Swimlane, "id" | "order">): Swimlane {
   return { type: "lane", name: overrides.id, ...overrides };
@@ -179,5 +179,35 @@ describe("mergeProgramsForAllView", () => {
     const renderable = mergeForRender(portfolio, merged);
     expect(renderable.milestones).toHaveLength(2);
     expect(renderable.milestones.every((m) => typeof m.isCriticalPath === "boolean")).toBe(true);
+  });
+});
+
+describe("programStripGroupIds (wayframe#152)", () => {
+  it("maps every merged top-level item to its own Program's band, so no two Programs share a strip", () => {
+    const p1 = program({
+      id: "p1",
+      order: 0,
+      topLevelItems: [{ id: "phase-1", type: "phase", title: "P1 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" }],
+    });
+    const p2 = program({
+      id: "p2",
+      order: 1,
+      topLevelItems: [{ id: "phase-1", type: "phase", title: "P2 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" }],
+    });
+    const merged = mergeProgramsForAllView("portfolio-1", [p1, p2]);
+    const strips = programStripGroupIds(merged);
+    // Both Programs named their phase "phase-1" locally (t14: ids are only
+    // unique within one Program) — the merge namespaced them apart, and each
+    // lands on its own Program's band, not one shared strip.
+    expect(strips.get(namespaceId("p1", "phase-1"))).toBe(programBandId("p1"));
+    expect(strips.get(namespaceId("p2", "phase-1"))).toBe(programBandId("p2"));
+    expect(new Set(strips.values()).size).toBe(2);
+  });
+
+  it("leaves an id that was never namespaced out entirely — the render layer keeps it in the shared top band", () => {
+    const strips = programStripGroupIds({
+      topLevelItems: [{ id: "unnamespaced", type: "milestone", title: "Loose", date: "2026-01-01", status: "on-track" }],
+    });
+    expect(strips.size).toBe(0);
   });
 });

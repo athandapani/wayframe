@@ -74,6 +74,36 @@ export function isProgramBandId(id: string): boolean {
 }
 
 /**
+ * Which Program band each of a merged document's top-level items belongs ON
+ * (wayframe#152) — the map RoadmapTimeline's `topLevelItemBandGroupIds`
+ * takes, so each Program's program-level items draw on that Program's own
+ * strip instead of every Program's competing for the chart's single top
+ * band.
+ *
+ * This is the one asymmetry `mergeProgramsForAllView` left: it scoped
+ * *lanes* per Program from the start (every lane ends up under its own
+ * Program's band, see this module's header) but concatenated
+ * `topLevelItems` flat, because the render layer had exactly one band to
+ * put them in. Ownership was never lost — it is right there in the
+ * namespaced id — so this recovers it rather than the merge having to carry
+ * a second parallel structure.
+ *
+ * Takes the merged document rather than the pre-merge Programs so it also
+ * covers a document that went through `mergeForRender` afterwards (Scenario
+ * overrides can add or drop top-level items). An id that was never
+ * namespaced simply isn't in the result, which the render layer reads as
+ * "leave it in the top band".
+ */
+export function programStripGroupIds(merged: Pick<Program, "topLevelItems">): Map<string, string> {
+  const byItemId = new Map<string, string>();
+  for (const item of merged.topLevelItems) {
+    const split = splitNamespacedId(item.id);
+    if (split) byItemId.set(item.id, programBandId(split.programId));
+  }
+  return byItemId;
+}
+
+/**
  * Merges N Programs into one Program-shaped object for a read-only
  * All-Programs view: namespaces every id, and wraps each Program's own
  * content under one synthetic depth-0 SwimlaneGroup (id =

@@ -1370,3 +1370,113 @@ describe("category fill and status outline (wayframe#143)", () => {
     expect(container.querySelector('[data-testid="pill-pill-1"] rect')!.getAttribute("fill")).toBe("#ff00ff");
   });
 });
+
+describe("per-Program program-level strips (wayframe#152)", () => {
+  // Two Program bands, each with its own lane and its own pair of
+  // program-level items — the shape mergeProgramsForAllView produces, minus
+  // the id-namespacing (which the render layer deliberately knows nothing
+  // about: it reads ownership off `topLevelItemBandGroupIds`, nothing else).
+  const twoProgramRoadmap: RenderableProgram = {
+    ...sampleRoadmap,
+    swimlaneGroups: [
+      { id: "band-p1", order: 0, name: "Program One", accentHue: 0 },
+      { id: "band-p2", order: 1, name: "Program Two", accentHue: 180 },
+    ],
+    swimlanes: [
+      { id: "lane-a", order: 0, type: "lane", name: "Lane A", groupId: "band-p1" },
+      { id: "lane-b", order: 1, type: "lane", name: "Lane B", groupId: "band-p2" },
+    ],
+    topLevelItems: [
+      { id: "p1-phase", type: "phase", title: "P1 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+      { id: "p2-phase", type: "phase", title: "P2 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+    ],
+  };
+  const strips = new Map([
+    ["p1-phase", "band-p1"],
+    ["p2-phase", "band-p2"],
+  ]);
+
+  function phaseY(container: HTMLElement, id: string): number {
+    return Number(container.querySelector(`[data-testid="toplevel-glyph-${id}"] rect`)!.getAttribute("y"));
+  }
+  function stripRectY(container: HTMLElement, bandId: string): number {
+    return Number(container.querySelector(`[data-scene-kind="program-strip"][data-scene-band-id="${bandId}"] rect`)!.getAttribute("y"));
+  }
+
+  it("draws each Program's own top-level items on that Program's strip, not all of them in the one shared top band", () => {
+    const { container } = render(
+      <RoadmapTimeline data={twoProgramRoadmap} today={new Date("2026-01-20T00:00:00Z")} topLevelItemBandGroupIds={strips} />,
+    );
+    // Both phases cover the identical date range: in the shared top band
+    // they would overstrike (or, post-#142, stack on two sub-rows of the
+    // same band). On their own strips they're separated by a whole Program
+    // band instead — each sitting on its own band's strip.
+    const p1Strip = stripRectY(container, "band-p1");
+    const p2Strip = stripRectY(container, "band-p2");
+    expect(p1Strip).toBeLessThan(p2Strip);
+    expect(phaseY(container, "p1-phase")).toBeGreaterThan(p1Strip);
+    expect(phaseY(container, "p1-phase")).toBeLessThan(p2Strip);
+    expect(phaseY(container, "p2-phase")).toBeGreaterThan(p2Strip);
+  });
+
+  it("keeps a top-level item the map doesn't name in the shared top band, above every Program band", () => {
+    const { container } = render(
+      <RoadmapTimeline
+        data={{ ...twoProgramRoadmap, topLevelItems: [...twoProgramRoadmap.topLevelItems, { id: "shared", type: "phase", title: "Shared", startDate: "2026-01-01", endDate: "2026-02-01", status: "on-track" }] }}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={strips}
+      />,
+    );
+    expect(phaseY(container, "shared")).toBeLessThan(stripRectY(container, "band-p1"));
+  });
+
+  it("hides a collapsed Program's own program-level items, the same containment its lanes get", () => {
+    const { container } = render(
+      <RoadmapTimeline
+        data={{ ...twoProgramRoadmap, swimlaneGroups: [{ id: "band-p1", order: 0, name: "Program One", accentHue: 0, collapsed: true }, { id: "band-p2", order: 1, name: "Program Two", accentHue: 180 }] }}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={strips}
+      />,
+    );
+    expect(container.querySelector('[data-testid="toplevel-glyph-p1-phase"]')).toBeNull();
+    // Program Two is untouched — its own strip and items still render.
+    expect(container.querySelector('[data-testid="toplevel-glyph-p2-phase"]')).not.toBeNull();
+    expect(container.querySelector('[data-scene-kind="program-strip"][data-scene-band-id="band-p1"]')).toBeNull();
+  });
+
+  it("renders a single-Program document byte-identically to one that never had the concept, with the prop omitted", () => {
+    const { container: base } = render(<RoadmapTimeline data={twoProgramRoadmap} today={new Date("2026-01-20T00:00:00Z")} />);
+    const { container: withEmptyMap } = render(
+      <RoadmapTimeline data={twoProgramRoadmap} today={new Date("2026-01-20T00:00:00Z")} topLevelItemBandGroupIds={new Map()} />,
+    );
+    expect(withEmptyMap.querySelector("svg")!.outerHTML).toBe(base.querySelector("svg")!.outerHTML);
+    // No strip is reserved at all, so nothing moved: both bands' items stay
+    // in the top band above the lanes.
+    expect(base.querySelector('[data-scene-kind="program-strip"]')).toBeNull();
+  });
+
+  it("grows one Program's strip for its own overlapping phases without moving another Program's items", () => {
+    const crowded: RenderableProgram = {
+      ...twoProgramRoadmap,
+      topLevelItems: [
+        { id: "p1-phase", type: "phase", title: "P1 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+        { id: "p1-overlap", type: "phase", title: "P1 Overlap", startDate: "2026-02-01", endDate: "2026-04-01", status: "on-track" },
+        { id: "p2-phase", type: "phase", title: "P2 Phase", startDate: "2026-01-01", endDate: "2026-03-01", status: "on-track" },
+      ],
+    };
+    const { container } = render(
+      <RoadmapTimeline
+        data={crowded}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={new Map([...strips, ["p1-overlap", "band-p1"]])}
+      />,
+    );
+    // #142's row allocator now runs per strip: P1's two overlapping phases
+    // stack within P1's own strip...
+    expect(phaseY(container, "p1-overlap")).toBeGreaterThan(phaseY(container, "p1-phase"));
+    // ...and P2's single phase still sits on its own strip's first sub-row,
+    // rather than being pushed down by a neighbour's crowding.
+    const p2Strip = stripRectY(container, "band-p2");
+    expect(phaseY(container, "p2-phase") - p2Strip).toBe(phaseY(container, "p1-phase") - stripRectY(container, "band-p1"));
+  });
+});
