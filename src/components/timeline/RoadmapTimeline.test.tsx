@@ -1480,3 +1480,54 @@ describe("per-Program program-level strips (wayframe#152)", () => {
     expect(phaseY(container, "p2-phase") - p2Strip).toBe(phaseY(container, "p1-phase") - stripRectY(container, "band-p1"));
   });
 });
+
+describe("PROGRAM-band point items separate on label width (wayframe#148)", () => {
+  function labelY(container: HTMLElement, id: string): number {
+    return Number(container.querySelector(`[data-testid="toplevel-glyph-${id}"] text`)!.getAttribute("y"));
+  }
+
+  // The real collision this whole line of work was about: four top-level
+  // milestones days apart, whose titles read as one smear because a point
+  // item had no interval to be separated by.
+  const crowded: RenderableProgram = {
+    ...sampleRoadmap,
+    topLevelItems: [
+      { id: "a", type: "milestone", title: "DTO SteerCo", date: "2026-01-05", status: "on-track" },
+      { id: "b", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-12", status: "on-track" },
+      { id: "c", type: "milestone", title: "Close", date: "2026-01-20", status: "on-track" },
+    ],
+  };
+
+  it("stacks point items whose titles overlap, instead of overstriking them", () => {
+    const { container } = render(<RoadmapTimeline data={crowded} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    const ys = ["a", "b", "c"].map((id) => labelY(container, id));
+    expect(new Set(ys).size).toBeGreaterThan(1);
+    // Adjacent titles — the ones that actually overlap — never share a line.
+    expect(ys[0]).not.toBe(ys[1]);
+    expect(ys[1]).not.toBe(ys[2]);
+  });
+
+  it("leaves point items with room between their titles on one line — the band still only grows when it has to", () => {
+    const sparse: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "Go", date: "2026-01-02", status: "on-track" },
+        { id: "b", type: "milestone", title: "End", date: "2026-02-28", status: "on-track" },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={sparse} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).toBe(labelY(container, "b"));
+  });
+
+  it("still honours an explicit bandRow over the automatic separation", () => {
+    const assigned: RenderableProgram = {
+      ...sampleRoadmap,
+      topLevelItems: [
+        { id: "a", type: "milestone", title: "DTO SteerCo", date: "2026-01-05", status: "on-track", bandRow: 2 },
+        { id: "b", type: "milestone", title: "Integration Plan Kickoff", date: "2026-01-12", status: "on-track", bandRow: 1 },
+      ],
+    };
+    const { container } = render(<RoadmapTimeline data={assigned} today={new Date("2026-01-20T00:00:00Z")} width={900} />);
+    expect(labelY(container, "a")).toBeGreaterThan(labelY(container, "b"));
+  });
+});

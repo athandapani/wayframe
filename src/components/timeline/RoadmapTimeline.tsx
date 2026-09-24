@@ -121,6 +121,8 @@ export const PILL_PHASE_HEIGHT: Record<PhaseSize, number> = { lean: 14, normal: 
  * (PILL_HEIGHT_LG at its `tall` multiplier) plus a line of label.
  */
 const BAND_SUB_ROW_HEIGHT = 34;
+/** Breathing room between two band items' label extents (wayframe#148) — abutting labels read as one string, so "not overlapping" isn't enough. */
+const BAND_LABEL_GAP = 8;
 /** Line height of a wrapped marker label. */
 const LABEL_LINE_H = 11;
 /** Gap between the marker and the bottom line of its label block. */
@@ -1702,6 +1704,39 @@ export function RoadmapTimeline({
     }
     return depth;
   }
+  // The chart's own width and x-scale, both needed BEFORE the row/band pass
+  // below: a band's height depends on how its items stack, and since
+  // wayframe#148 a point item stacks by the pixel width of its LABEL, which
+  // only the x-scale can express. Everything here is derived from props and
+  // this component's own measurement, never from rows.
+  //
+  // Measured from the container, not from the window: the chart sits inside
+  // a padded, max-width wrapper, so window width would overshoot by exactly
+  // the padding and reintroduce the overflow this removes.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (fixedWidth !== undefined) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const apply = () => setMeasuredWidth(el.clientWidth);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fixedWidth]);
+  const width = fixedWidth ?? Math.max(measuredWidth ?? MIN_CHART_WIDTH, MIN_CHART_WIDTH);
+  const { domainMin, domainMax } = domainOverride ? { domainMin: domainOverride.min, domainMax: domainOverride.max } : computeDomain(data);
+  const todayTs = today.getTime();
+
+  const innerWidth = width - MARGIN.left - MARGIN.right;
+  function x(dateStr: string): number {
+    return MARGIN.left + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
+  }
+  function xTs(ts: number): number {
+    return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
+  }
+
   // PROGRAM strips (wayframe#152) — `topLevelItemBandGroupIds` names the
   // band each top-level item belongs ON; anything it doesn't name stays in
   // the chart's one shared top band, which is every item in a
@@ -1726,15 +1761,54 @@ export function RoadmapTimeline({
     if (bucket) bucket.push(t);
     else stripItemsByGroupId.set(groupId, [t]);
   }
+  /**
+   * A band item's occupied span, in PIXELS (wayframe#148). Pixel space, not
+   * date space, because what collides is not always the shape: a phase
+   * occupies its pill (labels are clipped inside it), but a top-level
+   * MILESTONE is a dot with a title floating over it, and it was the titles
+   * that piled up — `DTO SteerCo / Integration Plan Kickoff / Close` reading
+   * as one unreadable smear on real data. A point has no date interval to
+   * separate by, but its label is an interval, so this measures that instead
+   * and hands band-rows.ts a real span to stack.
+   *
+   * Deliberately NOT tier-allocator.ts, though it solves the same shape of
+   * problem for in-lane labels: that primitive allocates into a FIXED tier
+   * budget and then degrades, overflows or hides what doesn't fit, which is
+   * the right trade for decoration (a date chip, a slip ghost). A top-level
+   * milestone's title is the content, so the band grows for it instead —
+   * exactly what #142 chose for phases, and reusing #142's allocator keeps
+   * one mechanism deciding vertical placement in a band rather than two.
+   */
+  const bandSpanPx = (t: TopLevelItem): { start: number; end: number | null } => {
+    if (t.type === "phase") {
+      const px = x(t.startDate);
+      const phaseSize = resolvePhaseSize(t, data, theme);
+      const h = PILL_HEIGHT_LG * boxScale * (phaseSize === "lean" ? 0.75 : phaseSize === "tall" ? 1.35 : 1);
+      // Same floor the render applies, so a very short phase occupies the
+      // pill actually drawn rather than a hairline.
+      return { start: px, end: px + Math.max(h, x(t.endDate) - px) };
+    }
+    if (t.type === "milestone") {
+      const cx = x(t.date);
+      const r = 10 * resolveMarkerScale(t, data, theme);
+      // An "inside" title is painted within the glyph, so the glyph IS the
+      // extent; every other placement paints the full, unwrapped title
+      // centred on the marker (see the render loop below).
+      if (resolveTitleLabelPosition(t) === "inside") return { start: cx - r, end: cx + r };
+      const labelW = t.title.length * CHAR_W * metricsScale * resolveFontScale(t, data);
+      const half = Math.max(r, labelW / 2) + BAND_LABEL_GAP * metricsScale;
+      return { start: cx - half, end: cx + half };
+    }
+    // An annotation draws a full-height reference line plus a small flag;
+    // its own label is laid out by reference-line-layout.ts, so it occupies
+    // no span of its own here.
+    return { start: x(t.date), end: null };
+  };
   /** One band's items in the shape band-rows.ts takes — t19-hidden items drop out of layout entirely, exactly as they did when the top band was the only band. */
   const bandLayoutInput = (items: readonly TopLevelItem[]) =>
     items
       .filter((t) => t.type === "annotation" || !resolveHidden(t, data))
-      .map((t) =>
-        t.type === "phase"
-          ? { id: t.id, bandRow: t.bandRow, start: +parseDate(t.startDate), end: +parseDate(t.endDate) }
-          : { id: t.id, bandRow: t.type === "milestone" ? t.bandRow : undefined, start: +parseDate(t.date), end: null },
-      );
+      .map((t) => ({ id: t.id, bandRow: t.type === "annotation" ? undefined : t.bandRow, ...bandSpanPx(t) }));
   const bandSubRowHeight = BAND_SUB_ROW_HEIGHT * boxScale;
   // Per-strip, not global: #142's row allocator now runs once per strip, so
   // one Program's crowded band can't push another Program's items down.
@@ -1942,22 +2016,6 @@ export function RoadmapTimeline({
   // again once a resize gesture completes or the pointer leaves.
   const [logoHovered, setLogoHovered] = useState(false);
 
-  // Measured from the container, not from the window: the chart sits inside
-  // a padded, max-width wrapper, so window width would overshoot by exactly
-  // the padding and reintroduce the overflow this removes.
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    if (fixedWidth !== undefined) return;
-    const el = containerRef.current;
-    if (!el) return;
-    const apply = () => setMeasuredWidth(el.clientWidth);
-    apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [fixedWidth]);
-  const width = fixedWidth ?? Math.max(measuredWidth ?? MIN_CHART_WIDTH, MIN_CHART_WIDTH);
   const laneCount = rows.filter((r) => r.swimlane.type === "lane").length;
   // t41 — only past the budget does the container become its own scroll
   // region with row virtualization active; below it this hook's own
@@ -1978,17 +2036,6 @@ export function RoadmapTimeline({
     if (!row) return laneColorAt(theme.laneRamp, 0, laneCount);
     return laneColor(row.swimlane, row.laneIndex);
   }
-  const { domainMin, domainMax } = domainOverride ? { domainMin: domainOverride.min, domainMax: domainOverride.max } : computeDomain(data);
-  const todayTs = today.getTime();
-
-  const innerWidth = width - MARGIN.left - MARGIN.right;
-  function x(dateStr: string): number {
-    return MARGIN.left + ((parseDate(dateStr) - domainMin) / (domainMax - domainMin)) * innerWidth;
-  }
-  function xTs(ts: number): number {
-    return MARGIN.left + ((ts - domainMin) / (domainMax - domainMin)) * innerWidth;
-  }
-
   // Every reference line (Today, annotations, showReferenceLine milestones/
   // top-level-items) collected into one list so a shared layout pass
   // (reference-line-layout.ts, decided in wayframe#51) can see all of them
