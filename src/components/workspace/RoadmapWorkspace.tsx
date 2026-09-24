@@ -40,6 +40,7 @@ import { MilestoneEditorInspector } from "@/components/milestone-editor/Mileston
 import { TopLevelItemEditorInspector, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorInspector";
 import { EDITOR_DOCK_WIDTH } from "@/components/milestone-editor/editor-dock";
 import { TopStrip } from "./TopStrip";
+import { ModeToggle, type Mode } from "./ModeToggle";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
 import { useOptionsSections } from "./use-options-sections";
@@ -73,8 +74,6 @@ import { PresenceAvatars, remoteSelectionsFromPeers } from "./PresenceAvatars";
 import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
 import { ConflictBanner } from "./ConflictBanner";
 
-type Mode = "executive" | "program";
-
 // Export always ships both views regardless of the toggle (wayframe#27/#28). The
 // inactive one is only mounted, off-screen and aria-hidden, for the duration of
 // an export — ExecutiveView repeats the BLUF statement as subtext (per #8), so
@@ -90,23 +89,6 @@ const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 export function deckFileName(programName: string): string {
   const slug = programName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `${slug || "roadmap"}-deck.pptx`;
-}
-
-function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
-  return (
-    <div className="flex overflow-hidden rounded-full border text-sm shadow" style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}>
-      {(["executive", "program"] as const).map((m) => (
-        <button
-          key={m}
-          onClick={() => onChange(m)}
-          style={mode === m ? { background: "var(--wf-accent)", color: "var(--wf-panel)" } : undefined}
-          className={"px-4 py-1.5 capitalize " + (mode === m ? "font-semibold" : "opacity-60")}
-        >
-          {m}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 export function RoadmapView({
@@ -396,6 +378,7 @@ export function RoadmapWorkspace({
   newDocumentOrigin,
   realtime,
   accountSlot,
+  navigationSlot,
 }: {
   initialData: Program;
   initialPortfolio: Portfolio;
@@ -425,6 +408,14 @@ export function RoadmapWorkspace({
    * the strip simply ends after the Options menu.
    */
   accountSlot?: React.ReactNode;
+  /**
+   * Roadmap-level navigation for this surface's top strip (wayframe#144) —
+   * the Programs picker, rendered beside the Executive/Program toggle. The
+   * page owns it (only the page knows the Roadmap's other Programs), the
+   * strip owns where it sits. Omit it and the centre slot holds the toggle
+   * alone, exactly as before.
+   */
+  navigationSlot?: React.ReactNode;
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
@@ -753,7 +744,12 @@ export function RoadmapWorkspace({
               </button>
             </>
           }
-          center={<ModeToggle mode={mode} onChange={setMode} />}
+          center={
+            <>
+              <ModeToggle mode={mode} onChange={setMode} />
+              {navigationSlot}
+            </>
+          }
           right={
             <>
               {mode === "program" && zoom && (

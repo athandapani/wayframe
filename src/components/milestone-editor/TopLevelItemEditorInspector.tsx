@@ -98,7 +98,15 @@ function InspectorForm({
           value={draft.title}
           onChange={(e) => setDraft({ ...draft, title: e.target.value })}
         />
-        <button onClick={onClose} className="ml-3 shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200" aria-label="Close">
+        {/* A real, bordered control rather than a bare grey glyph
+            (wayframe#144's second folded-in observation: neither dock had an
+            obvious way out once it was open). */}
+        <button
+          onClick={onClose}
+          className="ml-3 shrink-0 rounded border border-zinc-300 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          aria-label="Close"
+          title="Close the editor"
+        >
           ✕
         </button>
       </div>

@@ -20,17 +20,41 @@
 // it wraps. Slots are content-agnostic on purpose — #144 adds a Programs
 // dropdown to the centre slot, which needs no change here.
 //
-// The row itself is pointer-transparent (it spans the full window width over
-// the chart, most of it empty); each slot takes pointer events back for its
-// own content.
-export function TopStrip({ left, center, right }: { left?: React.ReactNode; center?: React.ReactNode; right?: React.ReactNode }) {
+// Two variants, because the two surfaces that host it differ in one real
+// way. "fixed" floats over the chart (the single-Program workspace, whose
+// chart scrolls under it) and is therefore pointer-transparent except for
+// the slots themselves, since most of the row is empty space the chart still
+// needs to receive clicks through. "flow" is an ordinary block at the top of
+// a column layout (the combined editor, whose rail and dock are full-height
+// siblings BELOW the strip) — nothing is underneath it to click through to,
+// and taking it out of flow there would mean every one of those siblings
+// needing a matching top inset.
+export function TopStrip({
+  left,
+  center,
+  right,
+  variant = "fixed",
+}: {
+  left?: React.ReactNode;
+  center?: React.ReactNode;
+  right?: React.ReactNode;
+  variant?: "fixed" | "flow";
+}) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3" data-testid="top-strip">
-      <div className="pointer-events-auto flex shrink-0 items-start gap-2">{left}</div>
+    <div
+      className={
+        (variant === "fixed"
+          ? "pointer-events-none fixed inset-x-0 top-0 z-50"
+          : "relative z-30 shrink-0 border-b border-zinc-200 dark:border-zinc-800") + " flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3"
+      }
+      style={variant === "flow" ? { background: "var(--wf-panel)" } : undefined}
+      data-testid="top-strip"
+    >
+      <div className="pointer-events-auto flex shrink-0 items-center gap-2">{left}</div>
       {/* Centred between its neighbours rather than on the viewport's
           midpoint — which is what keeps it clear of a wide right cluster
           instead of underneath it. */}
-      <div className="pointer-events-auto flex min-w-0 flex-1 justify-center">{center}</div>
+      <div className="pointer-events-auto flex min-w-0 flex-1 flex-wrap items-center justify-center gap-2">{center}</div>
       <div className="pointer-events-auto flex min-w-0 flex-wrap items-center justify-end gap-2">{right}</div>
     </div>
   );

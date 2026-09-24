@@ -7,8 +7,12 @@ vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
 }));
 
+const routerPushMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ portfolioId: "portfolio-1" }),
+  // The Programs picker (wayframe#144) navigates rather than filtering in
+  // place, so this page now uses the router.
+  useRouter: () => ({ push: routerPushMock }),
 }));
 
 // AuthControls pulls in a real sign-in/out button tied to next-auth — this
@@ -90,7 +94,7 @@ function marker(mergedId: string): Element | null {
   return document.querySelector(`[data-testid="marker-glyph-${mergedId}"]`);
 }
 
-async function renderPage(role: "owner" | "editor" | "viewer" = "editor") {
+async function renderPage(role: "owner" | "editor" | "viewer" = "editor", { openRail = true } = {}) {
   fetchMock.mockResolvedValueOnce(allProgramsResponse(role));
   const { default: AllProgramsPage } = await import("./page");
   render(<AllProgramsPage />);
@@ -98,6 +102,10 @@ async function renderPage(role: "owner" | "editor" | "viewer" = "editor") {
   // Each Program publishes its box one commit after mount; the canvas is
   // only whole once both have.
   await waitFor(() => expect(marker("program-B::m1")).not.toBeNull());
+  // The rail starts collapsed since wayframe#144 — every test below that is
+  // about the rail's contents opens it first, which is the one click a real
+  // user makes to reach them.
+  if (openRail) fireEvent.click(screen.getByRole("button", { name: "Open the Programs rail" }));
 }
 
 describe("AllProgramsPage — the Program rail (wayframe#126, #125's Variant B)", () => {
@@ -417,5 +425,53 @@ describe("AllProgramsPage — Version History (wayframe#128, #127's Variant B)",
 
     fireEvent.click(screen.getByText("2 Programs · 2 milestones"));
     await waitFor(() => expect(marker("program-A::m-old")).not.toBeNull());
+  });
+});
+
+describe("AllProgramsPage — the collapsible rail and the Programs picker (wayframe#144/#150)", () => {
+  it("starts with the rail collapsed, giving the canvas the width until it's asked for", async () => {
+    await renderPage("editor", { openRail: false });
+    // The strip is still there and still says how many Programs there are —
+    // it just isn't charging 320px for the card list.
+    expect(within(rail()).queryByText("Program Alpha")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the Programs rail" })).toBeInTheDocument();
+  });
+
+  it("opens and closes the rail from an obvious control in either state", async () => {
+    await renderPage("editor", { openRail: false });
+    fireEvent.click(screen.getByRole("button", { name: "Open the Programs rail" }));
+    expect(within(rail()).getByText("Program Alpha")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close the Programs rail" }));
+    expect(within(rail()).queryByText("Program Alpha")).not.toBeInTheDocument();
+  });
+
+  it("offers every Program plus All Programs in one picker, with All Programs selected here", async () => {
+    await renderPage("editor", { openRail: false });
+    const picker = screen.getByLabelText("Program");
+    expect(picker).toHaveValue("all");
+    expect(within(picker).getByRole("option", { name: "All Programs" })).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: "Program Alpha" })).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: "Program Beta" })).toBeInTheDocument();
+  });
+
+  it("navigates to the chosen Program instead of showing a link that goes somewhere else (#150)", async () => {
+    await renderPage("editor", { openRail: false });
+    routerPushMock.mockClear();
+    fireEvent.change(screen.getByLabelText("Program"), { target: { value: "program-B" } });
+    expect(routerPushMock).toHaveBeenCalledWith("/p/portfolio-1?programId=program-B");
+    // And the link that claimed to go "Back to Roadmap" — while going to one
+    // Program — is gone.
+    expect(screen.queryByRole("link", { name: /Back to Roadmap/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps the cross-Program rollup off the editing canvas, showing it in the Executive reading instead (#144)", async () => {
+    await renderPage("editor", { openRail: false });
+    expect(screen.queryByText("Roadmap")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "executive" }));
+    expect(await screen.findByText("Roadmap")).toBeInTheDocument();
+    // The editing canvas is not on screen in the Executive reading.
+    expect(screen.queryByTestId("roadmap-timeline")).not.toBeInTheDocument();
   });
 });

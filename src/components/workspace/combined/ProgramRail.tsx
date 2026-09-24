@@ -1,6 +1,17 @@
 "use client";
 
-// The left Program rail (wayframe#126) — #125's Variant B, built for real.
+// The left Program rail (wayframe#126) — #125's Variant B, built for real,
+// and COLLAPSIBLE since wayframe#144 (see
+// docs/research/multi-program-navigation-2026-09-23.md).
+//
+// What #144 revised, and what it kept: the rail is still the structure
+// editor and still the tab strip — #125's reasoning for why it beat tabs and
+// drawers holds, and none of the controls below moved. What it stopped being
+// is PERMANENT. At ~320px it charged every session for information most
+// sessions don't need, which only became visible with four real Programs on
+// screen; it now starts as a thin strip and opens on demand, with an obvious
+// control in both states (the other half of #144's brief: neither dock had
+// an intuitive way in or out once opened).
 //
 // There are no structure-editor tabs anywhere on this surface: the rail IS
 // the tab strip. Every Program in the Roadmap gets a permanent card, and the
@@ -62,6 +73,8 @@ export function ProgramRail({
   footer,
   readOnlyPrograms,
   viewOnlyNote,
+  collapsed,
+  onToggleCollapsed,
 }: {
   /** In render order (Program `order`), each with its live box. */
   connections: ProgramConnection[];
@@ -93,12 +106,66 @@ export function ProgramRail({
   readOnlyPrograms?: Map<string, Program>;
   /** Replaces the structure editor's body whenever a card can't be edited — so "you're reading a saved Version" and "you have viewer access" can say different things. */
   viewOnlyNote?: string;
+  /** Viewer-local (wayframe#144) — starts true, so the canvas gets the width by default and the rail is opened when it's actually wanted. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const readingVersion = readOnlyPrograms != null;
+
+  if (collapsed) {
+    return (
+      <aside
+        aria-label="Programs in this Roadmap"
+        className="sticky top-0 flex h-screen w-10 shrink-0 flex-col items-center gap-3 border-r border-zinc-200 bg-zinc-50 py-2 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={false}
+          aria-label="Open the Programs rail"
+          title="Programs in this Roadmap"
+          className="rounded border border-zinc-300 px-1.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          ▸
+        </button>
+        {/* One dot per Program, in the canvas's own band order and band
+            colour — the collapsed strip still says how many Programs this
+            Roadmap has and which ones are collapsed on the canvas, which is
+            what a reader loses if the strip is blank. */}
+        <div className="flex flex-col items-center gap-1.5">
+          {connections.map((connection, index) => (
+            <button
+              key={connection.programId}
+              type="button"
+              onClick={onToggleCollapsed}
+              title={connection.box.data.programName}
+              aria-label={`${connection.box.data.programName} — open the Programs rail`}
+              className="h-2.5 w-2.5 rounded-full border"
+              style={{
+                background: collapsedProgramIds.has(connection.programId) ? "transparent" : laneColorAt(theme.laneRamp, index, connections.length),
+                borderColor: laneColorAt(theme.laneRamp, index, connections.length),
+              }}
+            />
+          ))}
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside aria-label="Programs in this Roadmap" className="sticky top-0 flex h-screen w-[320px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="border-b border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
-        Programs in this Roadmap
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+        <span>Programs in this Roadmap</span>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={true}
+          aria-label="Close the Programs rail"
+          title="Close the Programs rail"
+          className="shrink-0 rounded border border-zinc-300 px-1.5 py-0.5 text-xs font-normal text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          ◂
+        </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {connections.map((connection, index) => (

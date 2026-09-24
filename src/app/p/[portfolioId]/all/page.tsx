@@ -35,12 +35,12 @@
 // that — every room here would need a per-Program share-token grant, which
 // the share-link model doesn't currently mint.
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { Portfolio, Program } from "@/components/timeline/types";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { CombinedProgramEditor } from "@/components/workspace/combined/CombinedProgramEditor";
+import { ALL_PROGRAMS, ProgramsPicker } from "@/components/workspace/ProgramsPicker";
 import type { RoomAccess } from "@/lib/realtime/provider";
 
 interface AllProgramsSuccess {
@@ -221,7 +221,6 @@ export default function AllProgramsPage() {
 
     return (
       <>
-        <AuthControls />
         <CombinedProgramEditor
           portfolio={result.data.portfolio}
           programs={result.data.programs}
@@ -235,13 +234,17 @@ export default function AllProgramsPage() {
           realtimeEnabled={status === "authenticated" && Boolean(session?.user)}
           onReorderProgram={canEdit ? handleMoveProgram : undefined}
           reorderErrors={reorderErrors}
-          topBar={
-            <>
-              <Link href={`/p/${portfolioId}`} className="text-blue-600 hover:underline">
-                &larr; Back to Roadmap
-              </Link>
-              <span className="font-semibold text-gray-800">All Programs</span>
-            </>
+          // The account chip and the Programs picker both live in this
+          // surface's own top strip now (#149/#144). The picker replaces the
+          // old "← Back to Roadmap" link, which went to a single Program —
+          // this route IS the Roadmap (#150).
+          accountSlot={<AuthControls variant="inline" />}
+          navigationSlot={
+            <ProgramsPicker
+              portfolioId={portfolioId}
+              programs={result.data.programs.map((p) => ({ id: p.id, name: p.programName }))}
+              selected={ALL_PROGRAMS}
+            />
           }
           railFooter={
             canEdit ? (

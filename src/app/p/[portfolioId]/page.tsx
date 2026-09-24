@@ -9,7 +9,6 @@
 // (name-prompted once per Portfolio per browser session) or a signed-out
 // invite-email recipient (nothing to fetch yet — just a sign-in prompt).
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { nanoid } from "nanoid";
@@ -17,6 +16,7 @@ import type { Portfolio, PortfolioDocument, Program } from "@/components/timelin
 import { RoadmapWorkspace } from "@/components/workspace/RoadmapWorkspace";
 import { EntryForm } from "@/components/entry-form/EntryForm";
 import { AuthControls } from "@/components/auth/AuthControls";
+import { ProgramsPicker } from "@/components/workspace/ProgramsPicker";
 import { GuestNamePrompt } from "./GuestNamePrompt";
 import type { RoomAccess } from "@/lib/realtime/provider";
 import type { ProgramRoomIdentity } from "@/lib/realtime/use-program-room";
@@ -27,6 +27,8 @@ interface ViewSuccess {
   role: MemberRole;
   portfolio: Portfolio;
   program: Program;
+  /** Every Program in this Roadmap, id + name only (wayframe#144) — what the Programs picker offers. Absent from an older response body, which the picker reads as "nothing to choose between". */
+  programs?: { id: string; programName: string }[];
 }
 
 /**
@@ -195,7 +197,7 @@ export default function PortfolioLandingPage() {
         }
         setResult({
           status: "success",
-          data: { role: body.role, portfolio: { ...body.portfolio, id: portfolioId }, program: body.program },
+          data: { role: body.role, portfolio: { ...body.portfolio, id: portfolioId }, program: body.program, programs: body.programs },
         });
       })
       .catch(() => {
@@ -273,25 +275,11 @@ export default function PortfolioLandingPage() {
 
     return (
       <>
-        {/* wayframe t26 — unobtrusive, unconditional link to the All-Programs
-            merged view. Rendered unconditionally rather than only when this
-            Portfolio has more than one Program: detecting that here would
-            need an extra fetch just to decide whether to show a link, and
-            the /all page itself already handles the single-Program case
-            gracefully (mergeProgramsForAllView works correctly for N=1).
-            top-16 (not top-2) — RoadmapWorkspace's own logo/caption block
-            sits at top-3 left-4 and, being a later sibling in the DOM at
-            the same z-50, painted directly over this link at its old
-            top-2 left-2 position, making it effectively invisible/
-            unclickable (found 2026-09-19 — a real bug, not something this
-            session's own toolbar redesign introduced: the logo's position
-            was never touched by that work). top-16 clears the logo
-            block's full height (icon + title + the long caption line). */}
-        <div className="fixed top-16 left-4 z-50 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
-          <Link href={`/p/${portfolioId}/all`} className="text-blue-600 hover:underline">
-            View all Programs
-          </Link>
-        </div>
+        {/* t26's "View all Programs" link is gone (wayframe#150): it framed
+            the combined canvas as a special mode of this page, when a
+            Roadmap is the container and this page is one Program inside it.
+            The Programs picker in the top strip says that instead — and it
+            names where it goes, which the link never did. */}
         <RoadmapWorkspace
           initialData={result.data.program}
           initialPortfolio={result.data.portfolio}
@@ -303,6 +291,16 @@ export default function PortfolioLandingPage() {
           // fourth `fixed` island in the same corner, which is what made
           // "Updated … · Syncing…" overlap it.
           accountSlot={<AuthControls variant="inline" />}
+          // The Roadmap's own Program picker (wayframe#144), beside the
+          // Executive/Program toggle. Renders nothing for a single-Program
+          // Roadmap, which is why it can be passed unconditionally.
+          navigationSlot={
+            <ProgramsPicker
+              portfolioId={portfolioId}
+              programs={(result.data.programs ?? []).map((p) => ({ id: p.id, name: p.programName }))}
+              selected={result.data.program.id}
+            />
+          }
         />
       </>
     );
