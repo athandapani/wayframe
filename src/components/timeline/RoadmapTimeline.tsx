@@ -208,12 +208,19 @@ interface GroupBandInfo {
   relY: number;
   height: number;
   /**
-   * Extra height reserved directly BELOW this band's header row for its own
-   * program-level strip (wayframe#152) — 0 for every band in a
-   * single-Program document, and for a collapsed one. Kept separate from
-   * `height` rather than folded into it because the header's own chrome
-   * (caret, label, rail) centres itself in `height`, and a strip growing
-   * under it must not drag that text down with it.
+   * Extra height this band reserves, under its header line, for its own
+   * program-level items (wayframe#152) — 0 for every band in a
+   * single-Program document. Kept separate from `height` rather than folded
+   * into it because the header's own chrome (caret, label, rail) centres
+   * itself in `height`, and a strip growing under it must not drag that
+   * text down with it; the band PAINTS as one block spanning both.
+   *
+   * Reserved whether or not the band is collapsed, deliberately: collapsing
+   * a Program hides its lanes, and what stays behind is that Program's own
+   * top-level plan — "collapsed = only that Program's own top-level band
+   * visible" was #125's original description of this control, and a collapse
+   * that leaves an empty strip of colour tells a reader nothing about the
+   * Program they just folded up.
    */
   stripHeight: number;
   depth: number;
@@ -274,7 +281,7 @@ function computeRowsAndBands(
    * row, byte-identically to before this existed.
    */
   stripHeightByGroupId?: Map<string, number>,
-): { rows: RowInfo[]; bands: GroupBandInfo[] } {
+): { rows: RowInfo[]; bands: GroupBandInfo[]; contentHeight: number } {
   const groupById = new Map(groups.map((g) => [g.id, g]));
   // A group's *resolved* parent — undefined (the implicit root) for a
   // top-level group, or for one whose parentGroupId points nowhere real
@@ -322,11 +329,9 @@ function computeRowsAndBands(
   const layoutGroup = (group: SwimlaneGroup, depth: number) => {
     const bandY = y;
     const collapsed = collapsedGroupIds.has(group.id);
-    // A collapsed band reserves its header row for the caret, as it always
-    // has, but not its strip: the strip holds that Program's own top-level
-    // items, and collapsing a Program hides its content — the same
-    // containment its lanes already get.
-    const stripHeight = collapsed ? 0 : (stripHeightByGroupId?.get(group.id) ?? 0);
+    // Reserved either way — a collapsed Program keeps its own program-level
+    // items on screen and folds away only its lanes (see GroupBandInfo).
+    const stripHeight = stripHeightByGroupId?.get(group.id) ?? 0;
     y += separatorHeight + stripHeight;
     bands.push({ group, relY: bandY, height: separatorHeight, stripHeight, depth });
     if (collapsed) return;
@@ -339,7 +344,16 @@ function computeRowsAndBands(
     if (item.kind === "swimlane") pushSwimlane(item.sl);
     else layoutGroup(item.group, 0);
   }
-  return { rows, bands };
+  // The full laid-out height, bands included — NOT the sum of `rows`
+  // heights. A group band's header row lives in `bands`, not `rows`, so a
+  // caller adding up row heights silently loses every band's own height:
+  // the chart then renders shorter than its content and clips whatever
+  // falls past the end. Invisible while lanes dominate the total (it cost
+  // the last ~30px per band), fatal once bands ARE the content — collapse
+  // every Program in a multi-Program Roadmap and the sum of row heights is
+  // zero, so every band but the first was drawn outside the svg and
+  // vanished, with no way to expand them again (found 2026-09-24).
+  return { rows, bands, contentHeight: y };
 }
 
 /** Exported for use-zoom-window.ts (wayframe t10) — the full-document domain a zoom window clamps against. */
@@ -1883,7 +1897,7 @@ export function RoadmapTimeline({
   const heightByLaneId = new Map<string, number>();
   for (const [laneId, natural] of naturalHeightByLaneId) heightByLaneId.set(laneId, natural * fitRatio);
 
-  const { rows, bands: groupBands } = computeRowsAndBands(
+  const { rows, bands: groupBands, contentHeight } = computeRowsAndBands(
     visibleSwimlanes,
     swimlaneGroups,
     collapsedGroupIds,
@@ -1892,7 +1906,9 @@ export function RoadmapTimeline({
     heightByLaneId,
     stripHeightByGroupId,
   );
-  const bodyHeight = rows.reduce((sum, r) => sum + r.height, 0);
+  // Every row AND every band header/strip — see computeRowsAndBands's own
+  // note on why summing `rows` alone is wrong.
+  const bodyHeight = contentHeight;
   const rowById = new Map(rows.map((r) => [r.swimlane.id, r]));
   // Lane-hide (t22) — rowById only contains visible lanes as a side effect
   // of filtering above; use this to guard direct data.milestones iteration
@@ -2125,10 +2141,10 @@ export function RoadmapTimeline({
    * Program strip's alike (wayframe#152), so the render loop below asks one
    * question instead of branching on which band an item came from.
    *
-   * An item on a COLLAPSED band gets no entry at all: its strip reserved no
-   * height, so there is nowhere to draw it. The loop skips anything missing
-   * here — the same "no slot reserved, nothing painted" treatment a
-   * collapsed group's member lanes already get.
+   * A band with no strip reserved (every band in a single-Program document)
+   * has no entry here and the loop below skips it. A COLLAPSED band still
+   * has one: folding a Program away hides its lanes, not its own
+   * program-level plan.
    */
   const bandItemY = new Map<string, number>();
   for (const t of topBandItems) {
@@ -2877,24 +2893,28 @@ export function RoadmapTimeline({
             </text>
           )
         )}
-        {/* Program-band strips (wayframe#152) — each Program band's own
-            program-level lane, under its header row and above its lanes.
-            Drawn here, immediately before the items that sit on them, and
-            with pointer events off: the band header's own `<g>` toggles
-            collapse on click, so a strip painted inside it would collapse
-            the Program on every attempt to click one of its own phases. */}
+        {/* The program-level part of each Program band (wayframe#152) — the
+            band is ONE block: its header line, and under it that Program's
+            own top-level items. Drawn here, immediately before the items
+            themselves, and with pointer events off: the band's header `<g>`
+            toggles collapse on click, so painting this inside it would
+            collapse the Program on every attempt to click one of its own
+            phases. */}
         {groupBands
           .filter((band) => band.stripHeight > 0)
           .map((band) => {
             const stripY = lanesTop + band.relY + band.height;
-            // Same tint the band header above it uses (see the groupBands
-            // loop below), at a fraction of the weight — the strip should
-            // read as the band's own continuation, not a second band.
+            // The same tint the header line above it carries, at a fraction
+            // of the weight — this has to read as the band continuing, not
+            // as a second band under it.
             const stripColor = band.group.accentHue != null ? laneColorAt({ ...theme.laneRamp, startHue: band.group.accentHue }, 0, 1) : band.group.color ?? theme.inkMuted;
             return (
               <g key={`strip-${band.group.id}`} data-scene-kind="program-strip" data-scene-band-id={band.group.id} style={{ pointerEvents: "none" }}>
-                <rect x={0} y={stripY} width={width} height={band.stripHeight} fill={stripColor} fillOpacity={0.06} />
-                <rect x={0} y={stripY} width={band.depth === 0 ? 8 : 4} height={band.stripHeight} fill={stripColor} fillOpacity={0.45} />
+                <rect x={0} y={stripY} width={width} height={band.stripHeight} fill={stripColor} fillOpacity={0.1} />
+                <rect x={0} y={stripY} width={band.depth === 0 ? 8 : 4} height={band.stripHeight} fill={stripColor} fillOpacity={0.55} />
+                {/* Closes the hairline between the header line's own rect and
+                    this one so the two read as a single band edge. */}
+                <rect x={0} y={stripY + band.stripHeight - 1} width={width} height={1} fill={stripColor} fillOpacity={0.35} />
               </g>
             );
           })}

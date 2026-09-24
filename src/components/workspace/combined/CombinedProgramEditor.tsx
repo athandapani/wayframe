@@ -386,12 +386,7 @@ export function CombinedProgramEditor({
       <TopStrip
         variant="flow"
         left={<span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{mode === "executive" ? "Roadmap summary" : "All Programs"}</span>}
-        center={
-          <>
-            <ModeToggle mode={mode} onChange={setMode} />
-            {navigationSlot}
-          </>
-        }
+        center={<ModeToggle mode={mode} onChange={setMode} plural={programs.length > 1} trailing={navigationSlot} />}
         right={
           <>
             {canMutate && mode === "program" && (

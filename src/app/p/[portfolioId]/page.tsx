@@ -8,8 +8,8 @@
 // nothing but a share link, and a signed-out guest following a share link
 // (name-prompted once per Portfolio per browser session) or a signed-out
 // invite-email recipient (nothing to fetch yet — just a sign-in prompt).
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { nanoid } from "nanoid";
 import type { Portfolio, PortfolioDocument, Program } from "@/components/timeline/types";
@@ -106,32 +106,47 @@ type FetchState =
   | { status: "success"; data: ViewSuccess }
   | { status: "error"; error: string; role?: MemberRole };
 
+/**
+ * `useSearchParams` needs a Suspense boundary above it (Next's own
+ * requirement for a client component that reads the query string), so the
+ * route's default export is this wrapper and the page proper sits under it.
+ */
 export default function PortfolioLandingPage() {
+  return (
+    <Suspense fallback={null}>
+      <PortfolioLandingPageContent />
+    </Suspense>
+  );
+}
+
+function PortfolioLandingPageContent() {
   const params = useParams<{ portfolioId: string }>();
   const portfolioId = params.portfolioId;
   const { data: session, status } = useSession();
   const [today] = useState(() => new Date());
 
-  // Mirrors page.tsx's own "check something client-only post-mount, render
-  // nothing until checked" pattern (storageCheck.checked) — avoids an
-  // SSR/first-client-paint mismatch, and avoids useSearchParams' Suspense
-  // boundary requirement.
-  const [shareCheck, setShareCheck] = useState<{ checked: boolean; token: string | null; programId: string | null }>({ checked: false, token: null, programId: null });
-  useEffect(() => {
-    let token: string | null = null;
-    let programId: string | null = null;
-    try {
-      const search = new URLSearchParams(window.location.search);
-      token = search.get("share");
-      // A Portfolio's 2nd+ Program (wayframe UX-2026-09-18 §7) — the
-      // All-Programs page's per-Program "Open" links pass this so /view
-      // knows which Program to load instead of always defaulting to the
-      // first one. Omitted = today's unchanged default.
-      programId = search.get("programId");
-    } finally {
-      setShareCheck({ checked: true, token, programId });
-    }
-  }, []);
+  // Read REACTIVELY, not once post-mount (wayframe#144). This used to be a
+  // mount-only effect over `window.location.search`, which is correct for a
+  // fresh load and wrong for everything else: the Programs picker switches
+  // Program with a client-side `router.push` to this same route, so the URL
+  // changed, the component never remounted, the effect never re-ran, and the
+  // page went on showing the Program it first loaded — "switching from one
+  // Program to another doesn't change the Program displayed". `share` is
+  // read from the same place, so it moves with it.
+  //
+  // `searchParams` is a stable, navigation-driven value, which is what makes
+  // the fetch effect below re-run on a switch. Its Suspense boundary is the
+  // wrapper above.
+  const searchParams = useSearchParams();
+  const shareCheck = {
+    checked: true,
+    token: searchParams.get("share"),
+    // A Portfolio's 2nd+ Program (wayframe UX-2026-09-18 §7) — the
+    // All-Programs page's per-Program "Open" links and the Programs picker
+    // both pass this so /view knows which Program to load instead of always
+    // defaulting to the first one. Omitted = today's unchanged default.
+    programId: searchParams.get("programId"),
+  };
 
   const [guestIdentity, setGuestIdentity] = useState<{ checked: boolean; identity: GuestIdentity | null }>({ checked: false, identity: null });
   useEffect(() => {
@@ -290,10 +305,11 @@ export default function PortfolioLandingPage() {
           // Inside the workspace's own top strip (wayframe#149) rather than a
           // fourth `fixed` island in the same corner, which is what made
           // "Updated … · Syncing…" overlap it.
-          accountSlot={<AuthControls variant="inline" />}
+          accountSlot={<AuthControls variant="avatar" />}
           // The Roadmap's own Program picker (wayframe#144), beside the
           // Executive/Program toggle. Renders nothing for a single-Program
           // Roadmap, which is why it can be passed unconditionally.
+          programCount={(result.data.programs ?? []).length}
           navigationSlot={
             <ProgramsPicker
               portfolioId={portfolioId}

@@ -4,50 +4,18 @@
 // CorrectionBoxSwitcher's own comment anticipated back in #14 ("an
 // acceptable stand-in until that nav shell exists"). Deliberately content-
 // agnostic: RoadmapWorkspace composes whatever settings-like controls
-// belong inside as children; this component only owns open/close, the
-// trigger, and outside-click/Escape dismissal.
-import { useEffect, useRef, useState } from "react";
+// belong inside as children.
+//
+// Open/close, outside-pointer and Escape dismissal now live in Popover.tsx,
+// which this is the hamburger-shaped instance of — the top strip grew two
+// more panels (timeframe, account) and they should all dismiss the same way.
+import { Popover } from "./Popover";
 
 export function OptionsMenu({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-label="Options"
-        style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
-        className="rounded-full border px-3 py-1.5 text-sm shadow"
-      >
-        ☰
-      </button>
-      {open && (
-        <div
-          style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
-          className="absolute top-full right-0 z-50 mt-2 w-72 space-y-3 rounded-xl border p-3 text-sm shadow-xl"
-        >
-          {children}
-        </div>
-      )}
-    </div>
+    <Popover label="Options" trigger="☰">
+      {children}
+    </Popover>
   );
 }
 

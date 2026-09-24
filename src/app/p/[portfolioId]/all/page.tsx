@@ -238,7 +238,7 @@ export default function AllProgramsPage() {
           // surface's own top strip now (#149/#144). The picker replaces the
           // old "← Back to Roadmap" link, which went to a single Program —
           // this route IS the Roadmap (#150).
-          accountSlot={<AuthControls variant="inline" />}
+          accountSlot={<AuthControls variant="avatar" />}
           navigationSlot={
             <ProgramsPicker
               portfolioId={portfolioId}

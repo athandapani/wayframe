@@ -469,7 +469,7 @@ describe("AllProgramsPage — the collapsible rail and the Programs picker (wayf
     await renderPage("editor", { openRail: false });
     expect(screen.queryByText("Roadmap")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "executive" }));
+    fireEvent.click(screen.getByRole("button", { name: "Executive" }));
     expect(await screen.findByText("Roadmap")).toBeInTheDocument();
     // The editing canvas is not on screen in the Executive reading.
     expect(screen.queryByTestId("roadmap-timeline")).not.toBeInTheDocument();

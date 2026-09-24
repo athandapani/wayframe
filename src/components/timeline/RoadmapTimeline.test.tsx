@@ -1430,7 +1430,11 @@ describe("per-Program program-level strips (wayframe#152)", () => {
     expect(phaseY(container, "shared")).toBeLessThan(stripRectY(container, "band-p1"));
   });
 
-  it("hides a collapsed Program's own program-level items, the same containment its lanes get", () => {
+  it("keeps a collapsed Program's own program-level items on screen — collapse folds away its lanes, not its plan", () => {
+    // #125's own description of this control: "collapsed = only that
+    // Program's own top-level band visible". A collapse that left an empty
+    // strip of colour behind would say nothing about the Program just
+    // folded up, which is the whole reason to fold it.
     const { container } = render(
       <RoadmapTimeline
         data={{ ...twoProgramRoadmap, swimlaneGroups: [{ id: "band-p1", order: 0, name: "Program One", accentHue: 0, collapsed: true }, { id: "band-p2", order: 1, name: "Program Two", accentHue: 180 }] }}
@@ -1438,10 +1442,41 @@ describe("per-Program program-level strips (wayframe#152)", () => {
         topLevelItemBandGroupIds={strips}
       />,
     );
-    expect(container.querySelector('[data-testid="toplevel-glyph-p1-phase"]')).toBeNull();
-    // Program Two is untouched — its own strip and items still render.
+    expect(container.querySelector('[data-testid="toplevel-glyph-p1-phase"]')).not.toBeNull();
+    expect(container.querySelector('[data-scene-kind="program-strip"][data-scene-band-id="band-p1"]')).not.toBeNull();
+    // Its LANE is what went away.
+    expect(container.querySelector('[data-scene-lane-id="lane-a"]')).toBeNull();
+    // Program Two is untouched.
     expect(container.querySelector('[data-testid="toplevel-glyph-p2-phase"]')).not.toBeNull();
-    expect(container.querySelector('[data-scene-kind="program-strip"][data-scene-band-id="band-p1"]')).toBeNull();
+    expect(container.querySelector('[data-scene-lane-id="lane-b"]')).not.toBeNull();
+  });
+
+  it("keeps every band on the canvas when EVERY Program is collapsed, instead of drawing them past the chart's own height", () => {
+    // The chart's height used to be the sum of its lane ROW heights, which
+    // excludes each band's own header — so with every Program collapsed the
+    // content was entirely bands, the computed height collapsed to the
+    // margins, and every band but the first was painted outside the svg and
+    // clipped away with no way to expand it again (found 2026-09-24).
+    const { container } = render(
+      <RoadmapTimeline
+        data={{
+          ...twoProgramRoadmap,
+          swimlaneGroups: [
+            { id: "band-p1", order: 0, name: "Program One", accentHue: 0, collapsed: true },
+            { id: "band-p2", order: 1, name: "Program Two", accentHue: 180, collapsed: true },
+          ],
+        }}
+        today={new Date("2026-01-20T00:00:00Z")}
+        topLevelItemBandGroupIds={strips}
+      />,
+    );
+    const svgHeight = Number(container.querySelector("svg")!.getAttribute("height"));
+    const bands = [...container.querySelectorAll('[data-scene-kind="band"] rect')];
+    expect(bands.length).toBeGreaterThan(0);
+    for (const rect of bands) {
+      const bottom = Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
+      expect(bottom).toBeLessThanOrEqual(svgHeight);
+    }
   });
 
   it("renders a single-Program document byte-identically to one that never had the concept, with the prop omitted", () => {

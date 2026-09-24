@@ -109,7 +109,7 @@ describe("RoadmapWorkspace options menu (wayframe#31)", () => {
     expect(screen.queryByRole("button", { name: "Sidebar mode" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Export to Deck" })).not.toBeInTheDocument();
     // Only the mode toggle and the hamburger trigger stay in the main chrome.
-    expect(screen.getByRole("button", { name: "program" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Program" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Options" })).toBeInTheDocument();
   });
 
@@ -412,7 +412,7 @@ describe("RoadmapWorkspace without a realtime prop (wayframe t38 regression)", (
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
-      expect(screen.getByRole("button", { name: "program" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Program" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Options" })).toBeInTheDocument();
       expect(errorSpy).not.toHaveBeenCalled();
     } finally {
@@ -492,12 +492,16 @@ describe("RoadmapWorkspace live-room offline badge / conflict banner (wayframe t
 describe("RoadmapWorkspace sync status indicator + relabeled Save (wayframe#121)", () => {
   const mockedUseProgramRoom = useProgramRoom as unknown as Mock;
 
-  it("reads 'Saved' once truly connected", () => {
+  it("says nothing at all once truly connected — a permanent 'Saved' is the state a reader assumes, and it cost the strip a row", () => {
+    // #144 feedback: "don't need the syncing". The indicator is for the bad
+    // case; the "Updated <time>" badge beside it carries the good one.
     mockedUseProgramRoom.mockReturnValue({ status: "connected", showOfflineBadge: false, peers: [] } satisfies UseProgramRoomResult);
     render(
       <RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} realtime={baseRealtime()} />,
     );
-    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+    expect(screen.queryByText("Syncing…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Offline — changes pending")).not.toBeInTheDocument();
   });
 
   it("reads 'Syncing…' while connecting", () => {
@@ -641,8 +645,8 @@ describe("the top strip is one row, not four islands (wayframe#149)", () => {
     // Every piece that used to position itself independently in this strip:
     // the Executive/Program toggle (its own `fixed left-1/2`), the Options
     // cluster (`fixed right-4`), and the account chip (`fixed right-2`).
-    expect(within(strip).getByRole("button", { name: "program" })).toBeInTheDocument();
-    expect(within(strip).getByRole("button", { name: "executive" })).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "Program" })).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "Executive" })).toBeInTheDocument();
     expect(within(strip).getByRole("button", { name: "Options" })).toBeInTheDocument();
     expect(within(strip).getByText("signed-in@example.com")).toBeInTheDocument();
     // And nothing inside it positions itself: a `fixed` child is exactly the

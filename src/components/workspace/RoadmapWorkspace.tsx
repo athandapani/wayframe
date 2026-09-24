@@ -43,6 +43,7 @@ import { TopStrip } from "./TopStrip";
 import { ModeToggle, type Mode } from "./ModeToggle";
 import { ImportPanel } from "@/components/structured-import/ImportPanel";
 import { OptionsMenu, OptionsMenuRow, OptionsMenuSection } from "./OptionsMenu";
+import { Popover } from "./Popover";
 import { useOptionsSections } from "./use-options-sections";
 import { NewDocumentBanner } from "./NewDocumentBanner";
 import { ExportDialog, type ExportDestination } from "./ExportDialog";
@@ -340,13 +341,20 @@ function formatLastUpdated(iso: string): string {
  * `status`/`showOfflineBadge` pair ConnectionStatusBadge already renders, so
  * there's no new connection-state tracking here — just a second, differently
  * shaped read of it: "Offline — changes pending" once showOfflineBadge's own
- * ~2.5s debounce (use-program-room.ts) has confirmed a real drop, "Saved"
- * once truly connected, and "Syncing…" for everything in between (initial
- * connect, or a drop still inside that debounce window) — the same "no
- * flicker on a brief blip" behavior the badge already gives the offline case.
+ * ~2.5s debounce (use-program-room.ts) has confirmed a real drop, and
+ * "Syncing…" for everything in between (initial connect, or a drop still
+ * inside that debounce window) — the same "no flicker on a brief blip"
+ * behavior the badge already gives the offline case.
+ *
+ * It says NOTHING while genuinely connected (#144 feedback: "don't need the
+ * syncing"). A permanent "Saved" is the state a reader assumes anyway, and
+ * spending the widest strip in the app on it helped push real controls onto
+ * a second row. The "Updated <time>" badge beside it already carries the
+ * persistence story for the good case; this is here for the bad one.
  */
 function SyncStatusIndicator({ status, showOfflineBadge }: { status: ConnectionStatus; showOfflineBadge: boolean }) {
-  const label = showOfflineBadge ? "Offline — changes pending" : status === "connected" ? "Saved" : "Syncing…";
+  if (!showOfflineBadge && status === "connected") return null;
+  const label = showOfflineBadge ? "Offline — changes pending" : "Syncing…";
   const color = showOfflineBadge ? "#b45309" : "var(--wf-ink)";
   return (
     <span role="status" className="text-xs font-medium whitespace-nowrap opacity-70" style={{ color }}>
@@ -379,6 +387,7 @@ export function RoadmapWorkspace({
   realtime,
   accountSlot,
   navigationSlot,
+  programCount = 1,
 }: {
   initialData: Program;
   initialPortfolio: Portfolio;
@@ -410,12 +419,14 @@ export function RoadmapWorkspace({
   accountSlot?: React.ReactNode;
   /**
    * Roadmap-level navigation for this surface's top strip (wayframe#144) —
-   * the Programs picker, rendered beside the Executive/Program toggle. The
+   * the Programs picker, rendered INSIDE the Executive/Program toggle. The
    * page owns it (only the page knows the Roadmap's other Programs), the
-   * strip owns where it sits. Omit it and the centre slot holds the toggle
-   * alone, exactly as before.
+   * strip owns where it sits. Omit it and the toggle stands alone, exactly
+   * as before.
    */
   navigationSlot?: React.ReactNode;
+  /** How many Programs this Roadmap holds — the toggle says "Programs" past one (wayframe#144 feedback). Defaults to 1, which is every caller that doesn't know. */
+  programCount?: number;
 }) {
   const [mode, setMode] = useState<Mode>("program");
   const box = useCorrectionBox(initialData, initialPortfolio, persist, today);
@@ -744,17 +755,18 @@ export function RoadmapWorkspace({
               </button>
             </>
           }
-          center={
-            <>
-              <ModeToggle mode={mode} onChange={setMode} />
-              {navigationSlot}
-            </>
-          }
+          center={<ModeToggle mode={mode} onChange={setMode} plural={programCount > 1} trailing={navigationSlot} />}
           right={
             <>
+              {/* One icon, not a ~180px cluster (#144 feedback) — the
+                  slider, the range label, ± and the steppers all moved into
+                  its panel. The block variant below the chart is unchanged
+                  and is still this control's <lg fallback. */}
               {mode === "program" && zoom && (
                 <div className="hidden lg:block">
-                  <ZoomControls state={zoom} variant="compact" />
+                  <Popover label="Timeframe" trigger="⇤⇥" panelClassName="w-auto">
+                    <ZoomControls state={zoom} variant="compact" />
+                  </Popover>
                 </div>
               )}
               <div className="flex items-center gap-1">

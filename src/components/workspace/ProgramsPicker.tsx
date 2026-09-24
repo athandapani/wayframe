@@ -56,8 +56,11 @@ export function ProgramsPicker({
         const next = e.target.value;
         router.push(next === ALL_PROGRAMS ? `/p/${portfolioId}/all` : `/p/${portfolioId}?programId=${encodeURIComponent(next)}`);
       }}
-      style={{ background: "var(--wf-panel)", borderColor: "var(--wf-border)", color: "var(--wf-ink)" }}
-      className="max-w-[14rem] truncate rounded-full border px-3 py-1.5 text-sm shadow"
+      // Borderless: this rides inside ModeToggle's own pill (#144
+      // feedback — "the dropdown can be inside the Programs"), so the
+      // container owns the border and the shadow.
+      style={{ background: "transparent", color: "var(--wf-ink)" }}
+      className="max-w-[14rem] truncate border-0 bg-transparent px-3 py-1.5 text-sm outline-none"
     >
       <option value={ALL_PROGRAMS}>All Programs</option>
       {programs.map((p) => (
