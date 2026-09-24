@@ -2,14 +2,23 @@
 
 // Legend category-fill / status-outline encoding — a viewer display
 // preference, same on/off boolean pattern as
-// use-critical-path-visibility.ts. Off by default: fill=status is the
-// original, always-valid reading; turning this on only changes anything
-// for milestones that actually carry a Milestone.categoryId.
+// use-critical-path-visibility.ts.
+//
+// ON by default since wayframe#143. It was off while the encoding reached
+// only POINT milestones: with duration pills painting from their lane tint
+// and band phases carrying no categoryId at all, turning it on changed a
+// minority of marks and left the chart reading inconsistently, so
+// fill=status everywhere was the safer default. #143 extended it to every
+// mark kind, which inverts that argument — a document that has gone to the
+// trouble of assigning categories should show them without the reader
+// first having to find a toggle. A document with no categories is
+// unaffected either way: with nothing to tint from, every mark falls
+// through to the status ramp exactly as before.
 import { useEffect, useReducer, useState } from "react";
 
 const STORAGE_KEY = "wayframe:legend-category-style";
 
-const DEFAULT_ENABLED = false;
+const DEFAULT_ENABLED = true;
 
 type Action = { type: "hydrated"; enabled: boolean } | { type: "setEnabled"; enabled: boolean };
 

@@ -163,8 +163,9 @@ const MilestoneSchema = z
   .strict();
 
 const TopLevelItemSchema = z.discriminatedUnion("type", [
-  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), originalStartDate: IsoDate.optional(), originalEndDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
-  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional() }).strict(),
+  // `bandRow` positive-int only, same as Milestone.laneRow: row 1 is the unset default and is never written (wayframe#142).
+  z.object({ id: z.string(), type: z.literal("phase"), title: z.string(), startDate: IsoDate, endDate: IsoDate, status: StatusSchema, potentialDate: IsoDate.optional(), originalStartDate: IsoDate.optional(), originalEndDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional(), bandRow: z.number().int().positive().optional(), categoryId: z.string().nullable().optional() }).strict(),
+  z.object({ id: z.string(), type: z.literal("milestone"), title: z.string(), date: IsoDate, status: StatusSchema, showReferenceLine: z.boolean().optional(), potentialDate: IsoDate.optional(), rev: z.number().optional(), styleOverride: StyleOverrideSchema.optional(), bandRow: z.number().int().positive().optional(), categoryId: z.string().nullable().optional() }).strict(),
   z.object({ id: z.string(), type: z.literal("annotation"), title: z.string(), date: IsoDate, message: z.string(), rev: z.number().optional() }).strict(),
 ]);
 
@@ -525,6 +526,14 @@ function referentialProblems(doc: PortfolioDocument): string[] {
       }
       if (m.linksToTopLevelMilestone && !topIds.has(m.linksToTopLevelMilestone)) {
         problems.push(`"${m.title}" links to top-level item "${m.linksToTopLevelMilestone}", which doesn't exist`);
+      }
+    }
+    // Top-level items can carry a category too since wayframe#143 — held to
+    // the same check milestones already were, so a dangling one is caught
+    // at the same boundary rather than rendering as an untinted mark.
+    for (const t of program.topLevelItems) {
+      if (t.type !== "annotation" && t.categoryId && !categoryIds.has(t.categoryId)) {
+        problems.push(`"${t.title}" references category "${t.categoryId}", which doesn't exist`);
       }
     }
   }

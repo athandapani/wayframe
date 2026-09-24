@@ -215,6 +215,10 @@ export type TopLevelItem =
       rev?: number;
       /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc. */
       styleOverride?: StyleOverride;
+      /** Explicit PROGRAM-band row (wayframe#142) — see the `phase` variant's doc below; identical field, identical rules. */
+      bandRow?: number;
+      /** Legend category (wayframe#143) — see the `phase` variant's doc below. */
+      categoryId?: string | null;
     }
   | {
       id: string;
@@ -231,6 +235,25 @@ export type TopLevelItem =
       rev?: number;
       /** Per-item style escape hatch (wayframe#t19) — see StyleOverride's own doc. */
       styleOverride?: StyleOverride;
+      /**
+       * Explicit PROGRAM-band row assignment (wayframe#142) — the band's
+       * equivalent of `Milestone.laneRow`, with the same two-layer contract
+       * (see src/lib/layout/band-rows.ts): this decides WHICH row an item
+       * belongs to, and automatic interval stacking still runs inside that
+       * row, so setting it never turns collision safety off. 1-based;
+       * undefined means row 1 and is never written explicitly, so the
+       * schema only ever validates 2+.
+       */
+      bandRow?: number;
+      /**
+       * Legend category (wayframe#143) — FK into Portfolio.legendCategories,
+       * exactly like `Milestone.categoryId`. Before this, a band phase had
+       * no way to carry one, so category-fill encoding simply skipped the
+       * whole band (see resolveMarkerColor's caller, which used to note it
+       * had "no category to identity-tint from"). `null` and undefined both
+       * mean uncategorised, matching Milestone's own nullable spelling.
+       */
+      categoryId?: string | null;
     }
   | { id: string; type: "annotation"; title: string; date: string; message: string; rev?: number };
 

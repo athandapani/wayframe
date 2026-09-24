@@ -1261,3 +1261,112 @@ describe("lane point-milestone selection via Cmd/Ctrl-click (wayframe UX-2026-09
     expect(onMilestoneClick.mock.calls[0][0]).toMatchObject({ id: "m1" });
   });
 });
+
+describe("PROGRAM-band rows (wayframe#142)", () => {
+  function withTopLevel(items: RenderableProgram["topLevelItems"]): RenderableProgram {
+    return { ...sampleRoadmap, topLevelItems: items };
+  }
+
+  function glyphY(container: HTMLElement, id: string): number {
+    const rect = container.querySelector(`[data-testid="toplevel-glyph-${id}"] rect`)!;
+    return Number(rect.getAttribute("y"));
+  }
+
+  it("draws two overlapping band phases on different rows instead of on top of each other", () => {
+    const { container } = render(
+      <RoadmapTimeline
+        data={withTopLevel([
+          { id: "a", type: "phase", title: "Alpha", startDate: "2026-01-01", endDate: "2026-04-01", status: "on-track" },
+          { id: "b", type: "phase", title: "Beta", startDate: "2026-02-01", endDate: "2026-05-01", status: "on-track" },
+        ])}
+        today={new Date("2026-01-20T00:00:00Z")}
+      />,
+    );
+    expect(glyphY(container, "a")).not.toBe(glyphY(container, "b"));
+  });
+
+  it("leaves two non-overlapping phases on the same row — the band only grows when it has to", () => {
+    const { container } = render(
+      <RoadmapTimeline
+        data={withTopLevel([
+          { id: "a", type: "phase", title: "Alpha", startDate: "2026-01-01", endDate: "2026-02-01", status: "on-track" },
+          { id: "b", type: "phase", title: "Beta", startDate: "2026-03-01", endDate: "2026-04-01", status: "on-track" },
+        ])}
+        today={new Date("2026-01-20T00:00:00Z")}
+      />,
+    );
+    expect(glyphY(container, "a")).toBe(glyphY(container, "b"));
+  });
+
+  it("honours an explicit bandRow even when nothing overlaps", () => {
+    const { container } = render(
+      <RoadmapTimeline
+        data={withTopLevel([
+          { id: "a", type: "phase", title: "Alpha", startDate: "2026-01-01", endDate: "2026-02-01", status: "on-track" },
+          { id: "b", type: "phase", title: "Beta", startDate: "2026-03-01", endDate: "2026-04-01", status: "on-track", bandRow: 2 },
+        ])}
+        today={new Date("2026-01-20T00:00:00Z")}
+      />,
+    );
+    expect(glyphY(container, "b")).toBeGreaterThan(glyphY(container, "a"));
+  });
+});
+
+describe("category fill and status outline (wayframe#143)", () => {
+  const categories = [{ id: "cat-1", name: "Platform", color: "#2e7af5" }];
+
+  it("tints a PROGRAM-band phase from its legend category, with status on the outline", () => {
+    const data: RenderableProgram = {
+      ...sampleRoadmap,
+      legendCategories: categories,
+      topLevelItems: sampleRoadmap.topLevelItems.map((t) => (t.id === "top-1" ? { ...t, categoryId: "cat-1" } : t)),
+    };
+    const { container } = render(<RoadmapTimeline data={data} today={new Date("2026-01-20T00:00:00Z")} />);
+    const rect = container.querySelector('[data-testid="toplevel-glyph-top-1"] rect')!;
+    expect(rect.getAttribute("fill")).toBe("#2e7af5");
+    // on-track status, routed to the stroke rather than the fill
+    expect(rect.getAttribute("stroke")).not.toBe("#2e7af5");
+  });
+
+  it("tints an in-lane duration pill from its category instead of the lane tint it always used", () => {
+    const withPill: RenderableProgram = {
+      ...sampleRoadmap,
+      legendCategories: categories,
+      milestones: [{ ...sampleRoadmap.milestones[0], id: "pill-1", endDate: "2026-04-01", categoryId: "cat-1" }],
+    };
+    const { container } = render(<RoadmapTimeline data={withPill} today={new Date("2026-01-20T00:00:00Z")} />);
+    const rect = container.querySelector('[data-testid="pill-pill-1"] rect')!;
+    expect(rect.getAttribute("fill")).toBe("#2e7af5");
+  });
+
+  it("gives an in-lane pill a status outline, which it never carried before", () => {
+    const withPill: RenderableProgram = {
+      ...sampleRoadmap,
+      milestones: [{ ...sampleRoadmap.milestones[0], id: "pill-1", endDate: "2026-04-01", status: "at-risk" }],
+    };
+    const { container } = render(<RoadmapTimeline data={withPill} today={new Date("2026-01-20T00:00:00Z")} />);
+    const rect = container.querySelector('[data-testid="pill-pill-1"] rect')!;
+    expect(rect.getAttribute("stroke")).toBeTruthy();
+  });
+
+  it("falls back to the lane tint for a pill with no category, so an uncategorised document is unchanged", () => {
+    const withPill: RenderableProgram = {
+      ...sampleRoadmap,
+      legendCategories: categories,
+      milestones: [{ ...sampleRoadmap.milestones[0], id: "pill-1", endDate: "2026-04-01" }],
+    };
+    const { container } = render(<RoadmapTimeline data={withPill} today={new Date("2026-01-20T00:00:00Z")} />);
+    const rect = container.querySelector('[data-testid="pill-pill-1"] rect')!;
+    expect(rect.getAttribute("fill")).not.toBe("#2e7af5");
+  });
+
+  it("a styleOverride.color still wins outright over the category on a pill", () => {
+    const withPill: RenderableProgram = {
+      ...sampleRoadmap,
+      legendCategories: categories,
+      milestones: [{ ...sampleRoadmap.milestones[0], id: "pill-1", endDate: "2026-04-01", categoryId: "cat-1", styleOverride: { color: "#ff00ff" } }],
+    };
+    const { container } = render(<RoadmapTimeline data={withPill} today={new Date("2026-01-20T00:00:00Z")} />);
+    expect(container.querySelector('[data-testid="pill-pill-1"] rect')!.getAttribute("fill")).toBe("#ff00ff");
+  });
+});
