@@ -273,7 +273,6 @@ export default function PortfolioLandingPage() {
 
     return (
       <>
-        <AuthControls />
         {/* wayframe t26 — unobtrusive, unconditional link to the All-Programs
             merged view. Rendered unconditionally rather than only when this
             Portfolio has more than one Program: detecting that here would
@@ -300,6 +299,10 @@ export default function PortfolioLandingPage() {
           persist={false}
           canManageSharing={result.data.role === "owner"}
           realtime={realtime}
+          // Inside the workspace's own top strip (wayframe#149) rather than a
+          // fourth `fixed` island in the same corner, which is what made
+          // "Updated … · Syncing…" overlap it.
+          accountSlot={<AuthControls variant="inline" />}
         />
       </>
     );

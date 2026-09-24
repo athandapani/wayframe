@@ -625,3 +625,34 @@ describe("File - Open with a multi-Program file (wayframe#140)", () => {
     expect(screen.queryByText(/That file holds 2 Programs/)).not.toBeInTheDocument();
   });
 });
+
+describe("the top strip is one row, not four islands (wayframe#149)", () => {
+  it("puts the mode toggle, the right-hand cluster and the account chip in the same strip, so growth reflows instead of overlapping", () => {
+    render(
+      <RoadmapWorkspace
+        initialData={baseData()}
+        initialPortfolio={basePortfolio()}
+        today={new Date("2026-01-01")}
+        persist={false}
+        accountSlot={<span>signed-in@example.com</span>}
+      />,
+    );
+    const strip = screen.getByTestId("top-strip");
+    // Every piece that used to position itself independently in this strip:
+    // the Executive/Program toggle (its own `fixed left-1/2`), the Options
+    // cluster (`fixed right-4`), and the account chip (`fixed right-2`).
+    expect(within(strip).getByRole("button", { name: "program" })).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "executive" })).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "Options" })).toBeInTheDocument();
+    expect(within(strip).getByText("signed-in@example.com")).toBeInTheDocument();
+    // And nothing inside it positions itself: a `fixed` child is exactly the
+    // bug — it would leave the row's layout and overlap its neighbours again.
+    expect(strip.querySelectorAll('[class*="fixed"]')).toHaveLength(0);
+  });
+
+  it("renders the strip with no account chip at all when the caller has none to give", () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    const strip = screen.getByTestId("top-strip");
+    expect(within(strip).getByRole("button", { name: "Options" })).toBeInTheDocument();
+  });
+});

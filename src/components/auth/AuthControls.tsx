@@ -12,7 +12,7 @@ import { useAcceptInvitesOnSignIn } from "@/lib/auth/use-accept-invites";
  * at all. A future ticket is free to replace this with something more
  * polished.
  */
-export function AuthControls() {
+export function AuthControls({ variant = "fixed" }: { variant?: "fixed" | "inline" } = {}) {
   useMigrateLocalPortfolioOnSignIn();
   useAcceptInvitesOnSignIn();
   const { data: session, status } = useSession();
@@ -20,7 +20,16 @@ export function AuthControls() {
   if (status === "loading") return null;
 
   return (
-    <div className="fixed top-2 right-2 z-50 flex items-center gap-2 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm">
+    <div
+      className={
+        // "inline" (wayframe#149) hands this chip to a caller that owns the
+        // top strip's layout — it must not also position itself, or it goes
+        // straight back to overlapping whatever shares that corner. "fixed"
+        // stays the default for the standalone screens (sign-in, error,
+        // empty-Portfolio) that have no strip to sit in.
+        (variant === "fixed" ? "fixed top-2 right-2 z-50 " : "") + "flex items-center gap-2 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm"
+      }
+    >
       {session?.user ? (
         <>
           <span className="text-gray-600">{session.user.email ?? session.user.name}</span>
