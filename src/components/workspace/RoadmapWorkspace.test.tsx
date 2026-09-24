@@ -574,3 +574,54 @@ describe("RoadmapWorkspace → Version history pointer (wayframe#128)", () => {
     expect(screen.queryByRole("link", { name: "Open on All Programs ›" })).not.toBeInTheDocument();
   });
 });
+
+describe("File - Open with a multi-Program file (wayframe#140)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  /** A real export file — `parseDocumentFile` runs for real here (only `saveDocumentFile` is mocked at the top of this file). */
+  function roadmapFile(programNames: string[]): File {
+    const document = {
+      portfolio: { id: "from-the-file", schemaVersion: 4 },
+      programs: programNames.map((programName, order) => ({ ...baseData(), id: `p${order}`, portfolioId: "from-the-file", order, programName })),
+    };
+    return new File([JSON.stringify(document)], "trial.json", { type: "application/json" });
+  }
+
+  // The Open input lives in the Options menu's File row (above the
+  // accordion, so no section to expand) — same click a real user makes.
+  function openFile(file: File) {
+    openOptionsMenu();
+    const input = document.querySelector('input[type="file"][accept=".json,application/json"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+  }
+
+  it("says so when a file held more Programs than this page can show, instead of opening one and dropping the rest in silence", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openFile(roadmapFile(["In Progress", "Deferred", "Completed", "Merger"]));
+
+    // Names the one that DID open, so "which of my four am I looking at" is
+    // answerable — the count alone wouldn't be enough.
+    await waitFor(() => expect(screen.getByText(/That file holds 4 Programs — only “In Progress” was opened\./)).toBeInTheDocument());
+    // ...and points at the surface that can hold all four.
+    expect(screen.getByRole("link", { name: "My Roadmaps" })).toBeInTheDocument();
+  });
+
+  it("opens a single-Program file with no notice at all", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openFile(roadmapFile(["Only One"]));
+
+    await waitFor(() => expect(screen.getByText("Only One")).toBeInTheDocument());
+    expect(screen.queryByText(/only .* was opened/)).not.toBeInTheDocument();
+  });
+
+  it("dismisses the notice", async () => {
+    render(<RoadmapWorkspace initialData={baseData()} initialPortfolio={basePortfolio()} today={new Date("2026-01-01")} persist={false} />);
+    openFile(roadmapFile(["One", "Two"]));
+
+    await waitFor(() => expect(screen.getByText(/That file holds 2 Programs/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Programs notice" }));
+    expect(screen.queryByText(/That file holds 2 Programs/)).not.toBeInTheDocument();
+  });
+});

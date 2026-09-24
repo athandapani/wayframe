@@ -7,9 +7,10 @@
 // folded in against real data from GET/POST /api/roadmaps. Replaces the
 // old hard-coded "Open my hosted Portfolio" link entirely for a signed-in
 // visitor — see page.tsx.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WayframeLogo } from "@/components/brand/WayframeLogo";
+import { parseDocumentFile } from "@/lib/document-file/document-file";
 import type { RoadmapSummary } from "@/app/api/roadmaps/route";
 
 type Role = RoadmapSummary["role"];
@@ -44,6 +45,13 @@ export function MyRoadmapsLanding() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Import (wayframe#140) — its own busy/error pair rather than sharing
+  // `creating`/`createError`, since an import's failure is usually a
+  // readable list of schema issues, not the one-line message a failed
+  // create produces.
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<{ message: string; issues: string[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const now = useMemo(() => new Date(), []);
 
   useEffect(() => {
@@ -83,6 +91,44 @@ export function MyRoadmapsLanding() {
       setCreateError("Couldn't create a new Roadmap.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  /**
+   * Import an exported roadmap file, with every Program it holds
+   * (wayframe#140). Parsed HERE rather than only server-side so a bad file
+   * surfaces the same readable message + issue list File - Open shows,
+   * instead of arriving as an opaque 400; the route validates again anyway,
+   * since a client check is not a trust boundary.
+   */
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setImportError(null);
+    try {
+      const parsed = parseDocumentFile(await file.text());
+      if (!parsed.ok) {
+        setImportError({ message: parsed.message, issues: parsed.issues });
+        return;
+      }
+      const res = await fetch("/api/roadmaps/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed.document),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setImportError({ message: body?.error ?? "Couldn't import that file.", issues: body?.issues ?? [] });
+        return;
+      }
+      // A multi-Program import lands on the combined editor, which is the
+      // only surface that shows every Program at once — landing it on the
+      // single-Program page would repeat exactly the "where did my other
+      // Programs go" confusion this ticket exists to fix.
+      router.push(body.programCount > 1 ? `/p/${body.id}/all` : `/p/${body.id}`);
+    } catch {
+      setImportError({ message: "Couldn't import that file.", issues: [] });
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -135,6 +181,40 @@ export function MyRoadmapsLanding() {
           <span className="text-base leading-none">+</span> {creating ? "Creating…" : "New Roadmap"}
         </button>
         {createError && <p className="mx-3 mt-2 text-xs text-red-600">{createError}</p>}
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+          className="mx-3 mt-2 flex items-center justify-center gap-1 rounded-md border border-dashed border-zinc-300 py-2 text-sm text-zinc-500 hover:border-violet-400 hover:text-violet-600 disabled:opacity-50"
+        >
+          <span className="text-base leading-none">&uarr;</span> {importing ? "Importing…" : "Import a roadmap file"}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // Cleared so picking the SAME file again still fires onChange —
+            // a natural retry after fixing the file on disk.
+            e.target.value = "";
+            if (file) void handleImportFile(file);
+          }}
+        />
+        {importError && (
+          <div className="mx-3 mt-2 text-xs text-red-600">
+            <p>{importError.message}</p>
+            {importError.issues.length > 0 && (
+              <ul className="mt-1 list-disc pl-4 text-red-500">
+                {importError.issues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <nav className="mt-2 flex-1 overflow-y-auto px-2 pb-4">
           {visible.map((r) => (

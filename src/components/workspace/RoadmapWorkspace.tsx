@@ -552,6 +552,9 @@ export function RoadmapWorkspace({
   const [exportInitialDestination, setExportInitialDestination] = useState<ExportDestination | undefined>(undefined);
   const [trace, setTrace] = useState<{ rootId: string; direction: TraceDirection } | null>(null);
   const [fileError, setFileError] = useState<{ message: string; issues: string[] } | null>(null);
+  // Set when an opened file held more Programs than this surface can show
+  // (wayframe#140) — a notice, not an error: the open itself succeeded.
+  const [partialOpen, setPartialOpen] = useState<{ opened: string; skipped: number } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // "Start new roadmap" confirm (wayframe#63) — Undo doesn't survive the
   // round-trip to the entry form (this whole component unmounts), so the
@@ -588,9 +591,21 @@ export function RoadmapWorkspace({
 
   async function handleOpenFile(file: File) {
     setFileError(null);
+    setPartialOpen(null);
     const result = parseDocumentFile(await file.text());
-    if (result.ok) box.loadPortfolioDocument(result.document);
-    else setFileError({ message: result.message, issues: result.issues });
+    if (!result.ok) {
+      setFileError({ message: result.message, issues: result.issues });
+      return;
+    }
+    box.loadPortfolioDocument(result.document);
+    // `loadPortfolioDocument` keeps `programs[0]` and drops the rest — this
+    // page has exactly one `useCorrectionBox` and one localStorage slot, so
+    // it cannot hold more (wayframe#140). That limit is fine; doing it
+    // SILENTLY was not, since a file with four Programs opened looking
+    // entirely successful with three of them missing. Say what happened and
+    // where the surface that shows them all is.
+    const skipped = result.document.programs.length - 1;
+    if (skipped > 0) setPartialOpen({ opened: result.document.programs[0].programName, skipped });
   }
 
   // Company-logo upload (wayframe#46/#54) — stored as a data URL directly on
@@ -779,6 +794,26 @@ export function RoadmapWorkspace({
                 ))}
               </ul>
             )}
+          </div>
+        )}
+        {partialOpen && (
+          <div className="fixed top-16 left-1/2 z-50 w-[420px] -translate-x-1/2 rounded-lg border border-amber-400 bg-amber-50 p-3 text-xs text-amber-900 shadow dark:bg-amber-950 dark:text-amber-100">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-semibold">
+                That file holds {partialOpen.skipped + 1} Programs — only &ldquo;{partialOpen.opened}&rdquo; was opened.
+              </p>
+              <button onClick={() => setPartialOpen(null)} aria-label="Dismiss Programs notice" className="leading-none">
+                ×
+              </button>
+            </div>
+            <p className="mt-1">
+              This page shows one Program at a time. To keep all {partialOpen.skipped + 1} together and edit between them, import the file as a
+              hosted Roadmap from{" "}
+              <Link href="/" className="underline">
+                My Roadmaps
+              </Link>
+              .
+            </p>
           </div>
         )}
         {!box.data.lastUpdatedAt && box.historyLength === 0 && !placement && !trace && (
