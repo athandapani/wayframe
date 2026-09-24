@@ -73,7 +73,7 @@ import { buildMergedCanvasHandlers } from "@/lib/portfolio/merged-dispatch";
 import { resolvePortfolioTheme, defaultPortfolioTheme } from "@/components/timeline/theme";
 import { RoadmapTimeline } from "@/components/timeline/RoadmapTimeline";
 import { ChartLegend } from "@/components/timeline/ChartLegend";
-import { PortfolioRollupBar } from "@/components/executive-view/PortfolioRollupBar";
+import { PortfolioExecutiveView } from "@/components/executive-view/PortfolioExecutiveView";
 import { MilestoneEditorInspector } from "@/components/milestone-editor/MilestoneEditorInspector";
 import { TopLevelItemEditorInspector, isEditableTopLevelItem } from "@/components/milestone-editor/TopLevelItemEditorInspector";
 import { EDITOR_DOCK_WIDTH } from "@/components/milestone-editor/editor-dock";
@@ -449,12 +449,14 @@ export function CombinedProgramEditor({
       />
 
       <main className="min-w-0 flex-1 overflow-x-auto p-4">
-        {/* The cross-Program rollup's home (wayframe#144). It used to sit
-            directly above the editing canvas, where a summary of every
-            Program competes with the one thing you came here to change; the
-            Executive reading is where "how is each Program doing" belongs.
-            #145 breaks it down Program by Program from here. */}
-        {mode === "executive" && <PortfolioRollupBar programs={displayedPrograms} today={today} />}
+        {/* The cross-Program summary's home (wayframe#144/#145). It used to
+            be a rollup bar directly above the editing canvas, where a summary
+            of every Program competes with the one thing you came here to
+            change; the Executive reading is where "how is each Program doing"
+            belongs, and #145 answers it Program by Program instead of as one
+            flattened set of numbers. Reads `displayedPrograms`, so it
+            summarises a Version being read exactly as it does the live plan. */}
+        {mode === "executive" && <PortfolioExecutiveView portfolio={portfolio} programs={displayedPrograms} today={today} />}
 
         {mode === "program" && (
           <>
